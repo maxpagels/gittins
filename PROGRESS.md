@@ -39,7 +39,7 @@ bit-for-bit against golden test vectors.
 | 5 | `pr-05-exploration` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Not started |
 | 6 | `pr-06-decide` | Decision records; `decide(state, context, candidates, salt)` | D1, D5 | Not started |
 | 7 | `pr-07-ledger` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Not started |
-| 8 | `pr-08-per-arm` | Per-arm corrections + decayed-count cleanup | D2 | Not started |
+| 8 | `pr-08-features` | Feature encoding: descriptive features + hashed arm-identity block (no per-arm map) | D2 | Not started |
 | 9 | `pr-09-merge` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Not started |
 | 10 | `pr-10-golden-vectors` | Golden test vector generation from the reference | §8 | Not started |
 
@@ -59,6 +59,11 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM), `sim/` (sim
 harness).
 
 ## Decisions log
+
+- **2026-07-14** — Arm identity is hashed into a fixed block of dimensions in the shared
+  feature space (design doc D2, v0.4) instead of a separate per-arm correction map. Decay
+  is the only cleanup mechanism; no eviction code exists; state memory is fixed under arm
+  churn. PR 8 repurposed from per-arm map to feature encoding.
 
 - **2026-07-14** — `implementation-plan.md` is git-ignored; PROGRESS.md is the in-repo
   source of truth for the roadmap.
