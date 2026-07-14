@@ -28,8 +28,8 @@ class TestDecaySemantics:
 
     def test_contributions_decay_independently(self):
         acc = new_accumulator(HOUR, T0)
-        acc = add(acc, 8.0, T0)  # two half-lives before the read
-        acc = add(acc, 8.0, T0 + HOUR)  # one half-life before the read
+        acc = add(acc, 8.0, T0)  # will be 2 half-lives old at the read
+        acc = add(acc, 8.0, T0 + HOUR)  # will be 1 half-life old at the read
         assert math.isclose(read(acc, T0 + 2 * HOUR), 2.0 + 4.0, rel_tol=1e-12)
 
     def test_infinite_half_life_never_forgets(self):
