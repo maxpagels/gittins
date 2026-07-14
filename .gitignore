@@ -1,1 +1,7 @@
 implementation-plan.md
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+uv.lock
