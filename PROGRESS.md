@@ -32,8 +32,8 @@ bit-for-bit against golden test vectors.
 
 | # | Branch | Concept | Design ref | Status |
 |---|--------|---------|-----------|--------|
-| 1 | `pr-01-bootstrap` | Repo + Python skeleton, pytest, this file | §12 Phase 0 | **In review** |
-| 2 | `pr-02-rng` | Counter-based deterministic RNG keyed by decision ID + salt | §8 | Not started |
+| 1 | `pr-01-bootstrap` | Repo + Python skeleton, pytest, this file | §12 Phase 0 | Merged |
+| 2 | `pr-02` | Counter-based deterministic RNG keyed by decision ID + salt | §8 | **In review** |
 | 3 | `pr-03-decaying-sums` | Exponential-decay accumulator with timestamp semantics | D3 | Not started |
 | 4 | `pr-04-linear-model` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | Not started |
 | 5 | `pr-05-exploration` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Not started |
@@ -67,4 +67,10 @@ harness).
 
 ## Done
 
-- (nothing merged yet)
+- **PR 1** (2026-07-14) — repo bootstrap: uv-managed Python skeleton, pytest, this file.
+
+## Currently in flight
+
+- **PR 2** — `rng.py`: splitmix64-based counter RNG; FNV-1a key derivation from
+  (decision ID, salt); exact-float `random_unit`. First golden vectors pinned in
+  `tests/test_rng.py` and `spec/rng.md`.
