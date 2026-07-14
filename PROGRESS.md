@@ -34,7 +34,7 @@ bit-for-bit against golden test vectors.
 |---|--------|---------|-----------|--------|
 | 1 | `pr-01-bootstrap` | Repo + Python skeleton, pytest, this file | §12 Phase 0 | Merged |
 | 2 | `pr-02` | Counter-based deterministic RNG keyed by decision ID + salt | §8 | Merged |
-| 3 | `pr-03-decaying-sums` | Exponential-decay accumulator with timestamp semantics | D3 | Not started |
+| 3 | `pr-03` | Decaying sums (decay-on-read) + deterministic exp2 | D3, §8 | **In review** |
 | 4 | `pr-04-linear-model` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | Not started |
 | 5 | `pr-05-exploration` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Not started |
 | 6 | `pr-06-decide` | Decision records; `decide(state, context, candidates, salt)` | D1, D5 | Not started |
@@ -60,6 +60,10 @@ harness).
 
 ## Decisions log
 
+- **2026-07-14** — Decay uses the decay-on-read formulation: sums stored pre-scaled to a
+  movable origin, decayed only when read, renormalized every 128 half-lives. Chosen over
+  decay-on-write because merge commutativity and late-reward correctness become structural
+  (design doc §13 risk 3 reduces to a rounding statement, tested in `tests/test_decay.py`).
 - **2026-07-14** — Arm identity is hashed into a fixed block of dimensions in the shared
   feature space (design doc D2, v0.4) instead of a separate per-arm correction map. Decay
   is the only cleanup mechanism; no eviction code exists; state memory is fixed under arm
@@ -79,4 +83,8 @@ harness).
 
 ## Currently in flight
 
-- Next up: **PR 3** — decaying sums (D3), branch `pr-03`.
+- **PR 3** (`pr-03`) — `decay.py`: DecayedAccumulator with decay-on-read (contributions
+  stored pre-scaled to a per-accumulator origin; renormalization at 128 half-lives), plus
+  `detmath.py`: vendored deterministic exp2 (pinned Taylor coefficients, fixed evaluation
+  order). Merge commutativity is bit-exact by construction; the exactness contract and
+  the "why decay" rationale live in `spec/decay.md`.
