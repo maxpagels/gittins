@@ -35,8 +35,8 @@ bit-for-bit against golden test vectors.
 | 1 | `pr-01-bootstrap` | Repo + Python skeleton, pytest, this file | §12 Phase 0 | Merged |
 | 2 | `pr-02` | Counter-based deterministic RNG keyed by decision ID + salt | §8 | Merged |
 | 3 | `pr-03` | Decaying sums (decay-on-read) + deterministic exp2 | D3, §8 | Merged |
-| 4 | `pr-04` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | **In review** |
-| 5 | `pr-05-exploration` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Not started |
+| 4 | `pr-04` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | Merged |
+| 5 | `pr-05` | Inverse-gap weighting (SquareCB) + probability floor | §5 | **In review** |
 | 6 | `pr-06-decide` | Decision records; `decide(state, context, candidates, salt)` | D1, D5 | Not started |
 | 7 | `pr-07-ledger` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Not started |
 | 8 | `pr-08-features` | Feature encoding: descriptive features + hashed arm-identity block (no per-arm map) | D2 | Not started |
@@ -87,11 +87,19 @@ harness).
   order). Merge commutativity is bit-exact by construction; the exactness contract and
   the "why decay" rationale live in `spec/decay.md`.
 
-## Currently in flight
-
-- **PR 4** (`pr-04`) — `model.py`: LinearModel, ridge regression on decaying sums.
+- **PR 4** (2026-07-15) — `model.py`: LinearModel, ridge regression on decaying sums.
   State is two DecayedVectors (xx outer-product sums, xy reward-weighted sums; the
   DecayedVector many-sums-one-clock extension was added to `decay.py`). Predict solves
   via fixed-order Cholesky, returns (estimate, uncertainty = sqrt(x·A⁻¹x)); ridge=1.0
   fixed default, not a knob. Uncertainty floor / regrowth during gaps falls out of
   decay — tested. Merge inherits decay-layer exactness. Spec: `spec/model.md`.
+
+## Currently in flight
+
+- **PR 5** (`pr-05`) — `exploration.py`: inverse-gap weighting (SquareCB) over per-
+  candidate reward estimates, first-max tie-breaking, best gets the exact complement
+  (sums to 1.0 in float). Probability floor as uniform mixing with fixed
+  FLOOR_MASS = 0.05 (never converges, IPS weights bounded by k/0.05); order-preserving.
+  Inverse-CDF sampling from the counter RNG; `choose()` returns (index, propensity)
+  ready for PR 6's decision records. `gamma` stays a parameter of this pure layer —
+  supplying/self-tuning it belongs to the decide layer (D4). Spec: `spec/exploration.md`.
