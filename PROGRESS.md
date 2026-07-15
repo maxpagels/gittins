@@ -37,8 +37,8 @@ bit-for-bit against golden test vectors.
 | 3 | `pr-03` | Decaying sums (decay-on-read) + deterministic exp2 | D3, §8 | Merged |
 | 4 | `pr-04` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | Merged |
 | 5 | `pr-05` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Merged |
-| 6 | `pr-06` | Decision records; `decide(state, candidates, t, salt)` | D1, D5 | **In review** |
-| 7 | `pr-07-ledger` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Not started |
+| 6 | `pr-06` | Decision records; `decide(state, candidates, t, salt)` | D1, D5 | Merged |
+| 7 | `pr-07` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | **In review** |
 | 8 | `pr-08-features` | Feature encoding: descriptive features + hashed arm-identity block (no per-arm map) | D2 | Not started |
 | 9 | `pr-09-merge` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Not started |
 | 10 | `pr-10-golden-vectors` | Golden test vector generation from the reference | §8 | Not started |
@@ -102,9 +102,7 @@ harness).
   ready for PR 6's decision records. `gamma` stays a parameter of this pure layer —
   supplying/self-tuning it belongs to the decide layer (D4). Spec: `spec/exploration.md`.
 
-## Currently in flight
-
-- **PR 6** (`pr-06`) — `decide.py`: BanditState (model + decision counter +
+- **PR 6** (2026-07-15) — `decide.py`: BanditState (model + decision counter +
   model_version) and DecisionRecord (id, t, candidate-set hash, chosen index, chosen
   features, propensity, model_version, salt — self-contained for PR 7's `learn`).
   Decision IDs are `"{salt}:{seq}"`: uniqueness structural (per-agent salt + monotone
@@ -114,3 +112,16 @@ harness).
   bounded because decay bounds effective n; constant provisional until the Phase 2
   battery. RNG counter 0 reserved for the sampling draw. Candidates are pre-encoded
   feature vectors; context folding arrives with PR 8's encoder. Spec: `spec/decide.md`.
+
+## Currently in flight
+
+- **PR 7** (`pr-07`) — `ledger.py`: the state's ledger of open decision records
+  (BanditState gains ledger + the once-up-front declaration horizon/default_reward;
+  decide appends its record). Three resolutions, each returning a loggable Resolution
+  event: `learn` (rewarded — trains at the *decision's* timestamp, so late/out-of-order
+  rewards are bit-identical to on-time ones), `expire(t)` (expired(default) for every
+  decision past the horizon, swept with each event's time — the sweep is the ledger
+  bound), `censor` (removed without training, exclusion on record). Idempotency is
+  structural: resolving spends the one record, so duplicate/conflicting/bogus reports
+  and post-expiry rewards are no-ops. No code path learns from an open decision.
+  Spec: `spec/ledger.md`.

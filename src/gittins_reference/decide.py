@@ -6,9 +6,9 @@ the clock, or a stateful random generator (D1): time comes in as `t`, and
 randomness comes from the counter RNG keyed by the decision's identity.
 
 `decide()` does not return a bare action (D5). It returns a **decision
-record** — the unit the rest of the engine is built around: `learn` (PR 7)
-accepts only a record plus an outcome, and the append-only log of records
-*is* the offline-evaluation dataset (R3). The record carries:
+record** — the unit the rest of the engine is built around: `learn`
+(ledger.py) accepts only a record plus an outcome, and the append-only log
+of records *is* the offline-evaluation dataset (R3). The record carries:
 
     decision_id    — unique; see below
     t              — the caller-supplied decision time
@@ -19,7 +19,7 @@ accepts only a record plus an outcome, and the append-only log of records
                      will train on; the record is self-contained)
     propensity     — the floored probability the choice was made with
     model_version  — how many observations the model had absorbed
-                     (bumped by `learn`, PR 7)
+                     (bumped by the ledger's trained resolutions)
     salt           — the RNG salt, so the draw is exactly replayable
 
 Decision IDs are `"{salt}:{seq}"` where `seq` is a monotone counter in the
@@ -71,7 +71,10 @@ GAMMA_SCALE = 1.0
 class BanditState:
     model: LinearModel
     next_seq: int  # sequence number of the next decision
-    model_version: int  # observations absorbed so far (bumped by learn, PR 7)
+    model_version: int  # observations absorbed so far (bumped by the ledger)
+    horizon: float  # seconds an unresolved decision waits before expiring
+    default_reward: float  # the reward an expired decision trains with
+    ledger: "tuple[DecisionRecord, ...]"  # open decisions awaiting resolution
 
 
 @dataclass(frozen=True)
@@ -86,8 +89,22 @@ class DecisionRecord:
     salt: str
 
 
-def new_bandit(dim: int, half_life: float, t: float) -> BanditState:
-    return BanditState(model=new_model(dim, half_life, t), next_seq=0, model_version=0)
+def new_bandit(
+    dim: int, half_life: float, t: float, horizon: float, default_reward: float = 0.0
+) -> BanditState:
+    """`horizon` and `default_reward` are the application's reward-handling
+    declaration (design doc section 6), made once, up front: a decision with
+    no reward after `horizon` seconds resolves as expired(`default_reward`)."""
+    if not (horizon > 0.0):
+        raise ValueError("horizon must be positive")
+    return BanditState(
+        model=new_model(dim, half_life, t),
+        next_seq=0,
+        model_version=0,
+        horizon=horizon,
+        default_reward=default_reward,
+        ledger=(),
+    )
 
 
 def candidate_set_hash(candidates: list[list[float]]) -> int:
@@ -118,8 +135,9 @@ def decide(
 ) -> tuple[DecisionRecord, BanditState]:
     """Score, explore, choose, and record one decision.
 
-    The model is untouched (learning happens only through `learn`, PR 7);
-    the only state change is the decision counter advancing.
+    The model is untouched (learning happens only through the ledger's
+    resolutions, see ledger.py); the state changes are the decision counter
+    advancing and the record joining the ledger of open decisions.
     """
     if len(candidates) < 1:
         raise ValueError("need at least one candidate")
@@ -155,5 +173,8 @@ def decide(
         model=state.model,
         next_seq=state.next_seq + 1,
         model_version=state.model_version,
+        horizon=state.horizon,
+        default_reward=state.default_reward,
+        ledger=state.ledger + (record,),
     )
     return record, new_state
