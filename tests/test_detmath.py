@@ -31,10 +31,11 @@ class TestPinnedVectors:
 
 class TestAccuracy:
     def test_close_to_platform_exp2(self):
-        # Sanity, not spec: within a few ulp of the platform's exp2.
+        # Sanity, not spec: within a few ulp of the platform's 2**x.
+        # (2.0 ** x rather than math.exp2, which requires Python >= 3.11.)
         for i in range(10_000):
             x = -50.0 + i * 0.01
-            ours, theirs = exp2(x), math.exp2(x)
+            ours, theirs = exp2(x), 2.0 ** x
             assert abs(ours - theirs) <= 4 * math.ulp(theirs)
 
     def test_monotone_on_a_grid(self):

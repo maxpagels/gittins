@@ -40,8 +40,8 @@ bit-for-bit against golden test vectors.
 | 6 | `pr-06` | Decision records; `decide(state, candidates, t, salt)` | D1, D5 | Merged |
 | 7 | `pr-07` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Merged |
 | 8 | `pr-08` | Feature encoding: everything hashed into 2^bits dims (features, identity, interactions) | D2 | Merged |
-| 9 | `pr-09` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | **In review** |
-| 10 | `pr-10-golden-vectors` | Golden test vector generation from the reference | §8 | Not started |
+| 9 | `pr-09` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Merged |
+| 10 | `pr-10` | Golden test vector corpus generated from the reference; GitHub Actions CI | §8 | **In review** |
 
 Phase 0 exit criterion: the spec plus reference is complete enough that an independent
 implementation of `decide`/`learn` can match the golden vectors.
@@ -145,9 +145,7 @@ harness).
   registration, decay recycles dead dimensions. End-to-end personalization test
   through decide + ledger at bits=5, collisions and all. Spec: `spec/encoding.md`.
 
-## Currently in flight
-
-- **PR 9** (`pr-09`) — `merge.py`: `merge_states(a, b)` pools knowledge (origin-aligned
+- **PR 9** (2026-07-15) — `merge.py`: `merge_states(a, b)` pools knowledge (origin-aligned
   model merge, model_version summed) but not operational identity: the ledger does not
   merge (open decisions stay with the agent that will receive their rewards; merging
   them would expire unresolvable copies and double-count on resolution) and next_seq
@@ -159,3 +157,18 @@ harness).
   across a renorm era (empirically exact); 3-agent merge == central model <1e-12;
   associativity <1e-12. Measured: merging evidence >~53 half-lives apart absorbs the
   older side to nothing — exactly decay's "fully forgotten". Spec: `spec/merge.md`.
+
+## Currently in flight
+
+- **PR 10** (`pr-10`) — `golden.py` + `spec/golden.json`: the golden test vector corpus
+  generated from the reference (design doc §8). Sections per layer (rng, exp2, decay,
+  model, exploration, encoding) plus an end-to-end `episode`: two agents, hashed
+  encoding, out-of-order rewards, censor, exact-horizon expiry sweep, merge — every
+  record and resolution logged; matching it bit-for-bit is the Phase 0 exit test for an
+  independent decide/learn. `tests/test_golden.py` pins the checked-in file to exact
+  regeneration, so semantic drift fails CI as a reviewable vector diff. Also adds
+  GitHub Actions CI (`.github/workflows/ci.yml`): full pytest on PRs and main pushes
+  on Ubuntu × Python 3.10–3.14 — with bit-pinned tests every leg checks bit-identity
+  (R6); macOS/Windows legs deferred for cost, to return as a release gate with the
+  compiled core. `.gitattributes` forces LF so the corpus compares as exact text
+  everywhere. Spec: `spec/golden.md`.
