@@ -137,10 +137,16 @@ and ~20 seeds; runs of 10k–50k decisions.
 
 ### Runtime budget
 
-Prediction is O(dim³) per candidate (fresh Cholesky each call), in pure Python. Keep
-`bits` ≤ 6 (64 dims) and the full battery under ~2 minutes on a laptop; if that
-fails, factorize once per decision instead of per candidate (a legitimate finding —
-the same optimization the Rust core will want) before reaching for anything else.
+`decide` factorizes the ridge system once per decision and reuses it across candidates
+(`model.py` `factorize`/`predict_factored`): O(dim³ + k·dim²) per decision. Measured in
+pure Python: dim 64 × 100 arms ≈ 13 ms/decision, dim 256 × 100 arms ≈ 0.2 s/decision.
+Battery cells at `bits` ≤ 6 are comfortable; a dim-256 cell is affordable but should be
+used sparingly. The remaining O(dim³) is once per decision, not amortizable across
+decisions under the current semantics: decay rescales the evidence but not the ridge
+prior between timestamps, so consecutive systems differ by a spectral shift
+(c₁·A + c₂·I), not a low-rank update — cheaper schemes exist (tick-quantized decay with
+rank-1 Cholesky updates, or a decaying prior) but each changes semantics, so they belong
+to the Rust-core phase as measured trade-offs, not to the reference.
 
 ### PR slicing
 

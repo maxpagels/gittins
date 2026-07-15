@@ -74,8 +74,22 @@ def update(model: LinearModel, x: list[float], reward: float, t: float) -> Linea
     )
 
 
-def predict(model: LinearModel, x: list[float], t: float) -> tuple[float, float]:
-    """(estimated reward, uncertainty) for features x as of time t."""
+@dataclass(frozen=True)
+class Factorization:
+    """The candidate-independent part of prediction: the Cholesky factor of
+    the ridge system and the solved weights, both functions of (model, t)
+    only. Scoring one decision's k candidates factorizes once and reuses it,
+    turning the O(dim^3) solve from per-candidate into per-decision. This is
+    ephemeral (recomputed every decision, never stored): decay moves the
+    evidence under the fixed ridge between timestamps, so a factorization is
+    only valid at the `t` it was built for."""
+
+    lower: list[list[float]]
+    theta: list[float]
+
+
+def factorize(model: LinearModel, t: float) -> Factorization:
+    """Read the decayed sums as of time t, factorize, and solve for weights."""
     d = model.dim
     xx = vector_read(model.xx, t)
     xy = vector_read(model.xy, t)
@@ -84,13 +98,24 @@ def predict(model: LinearModel, x: list[float], t: float) -> tuple[float, float]
         for i in range(d)
     ]
     lower = cholesky(a)
-    theta = solve_cholesky(lower, xy)
-    z = solve_cholesky(lower, list(x))
-    estimate = dot(x, theta)
+    theta = solve_cholesky(lower, list(xy))
+    return Factorization(lower=lower, theta=theta)
+
+
+def predict_factored(f: Factorization, x: list[float]) -> tuple[float, float]:
+    """(estimated reward, uncertainty) for features x, given a factorization
+    built from the same model at the same t."""
+    z = solve_cholesky(f.lower, list(x))
+    estimate = dot(x, f.theta)
     variance = dot(x, z)
     if variance < 0.0:  # only reachable through rounding; never meaningfully
         variance = 0.0
     return estimate, math.sqrt(variance)
+
+
+def predict(model: LinearModel, x: list[float], t: float) -> tuple[float, float]:
+    """(estimated reward, uncertainty) for features x as of time t."""
+    return predict_factored(factorize(model, t), x)
 
 
 def merge_models(a: LinearModel, b: LinearModel) -> LinearModel:
