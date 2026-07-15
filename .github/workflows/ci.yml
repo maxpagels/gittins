@@ -1,0 +1,34 @@
+# CI for the gittins reference implementation.
+#
+# The test suite pins expected outputs at the bit level (pinned vectors in
+# tests/, plus regeneration of spec/golden.json), so every matrix leg is a
+# bit-identity check (R6). Ubuntu-only for cost; macOS/Windows legs are
+# deferred, to be revisited when the compiled core lands — cross-OS
+# bit-identity is a release gate even if it isn't a per-PR gate.
+#
+# Planned growth (design doc sections 8 and 10): the simulation battery
+# with regret baselines on every commit; the Rust core and each language
+# binding checked against spec/golden.json; macOS/Windows/WASM legs.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run test suite
+        run: uv run pytest -q

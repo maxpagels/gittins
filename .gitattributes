@@ -1,0 +1,3 @@
+# Bit-exact artifacts (spec/golden.json) are compared as exact text in
+# tests on every platform: never translate line endings.
+* text=auto eol=lf
