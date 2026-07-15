@@ -138,7 +138,7 @@ and ~20 seeds; runs of 10k–50k decisions.
 ### Runtime budget
 
 Prediction is O(dim³) per candidate (fresh Cholesky each call), in pure Python. Keep
-`bits` ≤ 6 (64 dims) and the full battery under ~15 minutes on a laptop; if that
+`bits` ≤ 6 (64 dims) and the full battery under ~2 minutes on a laptop; if that
 fails, factorize once per decision instead of per candidate (a legitimate finding —
 the same optimization the Rust core will want) before reaching for anything else.
 
