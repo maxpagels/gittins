@@ -36,8 +36,8 @@ bit-for-bit against golden test vectors.
 | 2 | `pr-02` | Counter-based deterministic RNG keyed by decision ID + salt | §8 | Merged |
 | 3 | `pr-03` | Decaying sums (decay-on-read) + deterministic exp2 | D3, §8 | Merged |
 | 4 | `pr-04` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | Merged |
-| 5 | `pr-05` | Inverse-gap weighting (SquareCB) + probability floor | §5 | **In review** |
-| 6 | `pr-06-decide` | Decision records; `decide(state, context, candidates, salt)` | D1, D5 | Not started |
+| 5 | `pr-05` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Merged |
+| 6 | `pr-06` | Decision records; `decide(state, candidates, t, salt)` | D1, D5 | **In review** |
 | 7 | `pr-07-ledger` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Not started |
 | 8 | `pr-08-features` | Feature encoding: descriptive features + hashed arm-identity block (no per-arm map) | D2 | Not started |
 | 9 | `pr-09-merge` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Not started |
@@ -94,12 +94,23 @@ harness).
   fixed default, not a knob. Uncertainty floor / regrowth during gaps falls out of
   decay — tested. Merge inherits decay-layer exactness. Spec: `spec/model.md`.
 
-## Currently in flight
-
-- **PR 5** (`pr-05`) — `exploration.py`: inverse-gap weighting (SquareCB) over per-
+- **PR 5** (2026-07-15) — `exploration.py`: inverse-gap weighting (SquareCB) over per-
   candidate reward estimates, first-max tie-breaking, best gets the exact complement
   (sums to 1.0 in float). Probability floor as uniform mixing with fixed
   FLOOR_MASS = 0.05 (never converges, IPS weights bounded by k/0.05); order-preserving.
   Inverse-CDF sampling from the counter RNG; `choose()` returns (index, propensity)
   ready for PR 6's decision records. `gamma` stays a parameter of this pure layer —
   supplying/self-tuning it belongs to the decide layer (D4). Spec: `spec/exploration.md`.
+
+## Currently in flight
+
+- **PR 6** (`pr-06`) — `decide.py`: BanditState (model + decision counter +
+  model_version) and DecisionRecord (id, t, candidate-set hash, chosen index, chosen
+  features, propensity, model_version, salt — self-contained for PR 7's `learn`).
+  Decision IDs are `"{salt}:{seq}"`: uniqueness structural (per-agent salt + monotone
+  counter), no collision math. Gamma schedule: GAMMA_SCALE / mean(candidate
+  uncertainty) — fresh model ≈ uniform, gamma grows like sqrt(n) as the posterior
+  tightens (SquareCB's schedule from the model's own uncertainty, no clock, no knob),
+  bounded because decay bounds effective n; constant provisional until the Phase 2
+  battery. RNG counter 0 reserved for the sampling draw. Candidates are pre-encoded
+  feature vectors; context folding arrives with PR 8's encoder. Spec: `spec/decide.md`.
