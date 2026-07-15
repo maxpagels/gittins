@@ -34,8 +34,8 @@ bit-for-bit against golden test vectors.
 |---|--------|---------|-----------|--------|
 | 1 | `pr-01-bootstrap` | Repo + Python skeleton, pytest, this file | §12 Phase 0 | Merged |
 | 2 | `pr-02` | Counter-based deterministic RNG keyed by decision ID + salt | §8 | Merged |
-| 3 | `pr-03` | Decaying sums (decay-on-read) + deterministic exp2 | D3, §8 | **In review** |
-| 4 | `pr-04-linear-model` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | Not started |
+| 3 | `pr-03` | Decaying sums (decay-on-read) + deterministic exp2 | D3, §8 | Merged |
+| 4 | `pr-04` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | **In review** |
 | 5 | `pr-05-exploration` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Not started |
 | 6 | `pr-06-decide` | Decision records; `decide(state, context, candidates, salt)` | D1, D5 | Not started |
 | 7 | `pr-07-ledger` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Not started |
@@ -81,10 +81,17 @@ harness).
   from (decision ID, salt); exact-float `random_unit`. First golden vectors pinned in
   `tests/test_rng.py` and `spec/rng.md`.
 
-## Currently in flight
-
-- **PR 3** (`pr-03`) — `decay.py`: DecayedAccumulator with decay-on-read (contributions
+- **PR 3** (2026-07-14) — `decay.py`: DecayedAccumulator with decay-on-read (contributions
   stored pre-scaled to a per-accumulator origin; renormalization at 128 half-lives), plus
   `detmath.py`: vendored deterministic exp2 (pinned Taylor coefficients, fixed evaluation
   order). Merge commutativity is bit-exact by construction; the exactness contract and
   the "why decay" rationale live in `spec/decay.md`.
+
+## Currently in flight
+
+- **PR 4** (`pr-04`) — `model.py`: LinearModel, ridge regression on decaying sums.
+  State is two DecayedVectors (xx outer-product sums, xy reward-weighted sums; the
+  DecayedVector many-sums-one-clock extension was added to `decay.py`). Predict solves
+  via fixed-order Cholesky, returns (estimate, uncertainty = sqrt(x·A⁻¹x)); ridge=1.0
+  fixed default, not a knob. Uncertainty floor / regrowth during gaps falls out of
+  decay — tested. Merge inherits decay-layer exactness. Spec: `spec/model.md`.
