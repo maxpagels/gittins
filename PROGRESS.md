@@ -54,9 +54,11 @@ README promises (R1, R2): stationary problems, difficult non-stationarity, arms 
 and disappearing, and features going missing. The pieces under test, with the constants
 currently marked provisional in the source:
 
-1. **Model** — ridge regression on decaying sums (`model.py`): `ridge = 1.0`, and the
+1. **Model** — per-coordinate ridge on decaying sums (`model.py`): `ridge = 1.0`, the
    assumption that a linear model on hashed outer-product features degrades gracefully
-   when the true reward is nonlinear in them.
+   when the true reward is nonlinear in them, and the cost of never splitting credit
+   (co-firing/redundant features double-count), which makes the misspecified and
+   redundant-feature environments doubly important.
 2. **Exploration** — SquareCB + floor (`exploration.py`, `decide.py`): `GAMMA_SCALE = 1.0`,
    the *mean* as the uncertainty aggregate in `choose_gamma`, and `FLOOR_MASS = 0.05`
    (is 5% forced exploration too costly on stationary problems with many arms, and is it
@@ -92,6 +94,9 @@ benchmark page, and any CI regret gate — those stay in Phases 2/4.
     aggregate ∈ {mean, min, max}, `ridge` ∈ {0.1, 1, 10}, half-life ∈ geometric grid
     (plus ∞ = no forgetting). The zero-knob default vs. the best swept point *per
     environment* is the headline comparison.
+  - a full-covariance ridge comparator implemented inside `sim/` (a baseline, not part
+    of the engine): at small `bits` it prices what credit-splitting would buy over the
+    shipped per-coordinate model, keeping the diagonal-only decision evidence-backed.
 
 ### Environment battery
 
@@ -137,16 +142,12 @@ and ~20 seeds; runs of 10k–50k decisions.
 
 ### Runtime budget
 
-`decide` factorizes the ridge system once per decision and reuses it across candidates
-(`model.py` `factorize`/`predict_factored`): O(dim³ + k·dim²) per decision. Measured in
-pure Python: dim 64 × 100 arms ≈ 13 ms/decision, dim 256 × 100 arms ≈ 0.2 s/decision.
-Battery cells at `bits` ≤ 6 are comfortable; a dim-256 cell is affordable but should be
-used sparingly. The remaining O(dim³) is once per decision, not amortizable across
-decisions under the current semantics: decay rescales the evidence but not the ridge
-prior between timestamps, so consecutive systems differ by a spectral shift
-(c₁·A + c₂·I), not a low-rank update — cheaper schemes exist (tick-quantized decay with
-rank-1 Cholesky updates, or a decaying prior) but each changes semantics, so they belong
-to the Rust-core phase as measured trade-offs, not to the reference.
+Prediction is O(dim) per candidate, with the weights solved once per decision
+(`factorize` — dim reciprocals, no matrix anywhere). Measured in pure Python:
+dim 64 × 100 arms ≈ 4.5 ms/decision, dim 256 × 100 arms ≈ 46 ms/decision. Every cell
+the battery needs is comfortable. The reference's per-candidate cost is O(dim) rather
+than O(nonzeros) only because vectors are dense Python lists, kept for readability;
+the sparse representation that makes very large `bits` cheap belongs to the Rust core.
 
 ### PR slicing
 
@@ -196,6 +197,19 @@ harness).
   synthetic environment battery while changing them is still a Python edit plus a golden
   regeneration, not a cross-language semantic change. Plan in "Benchmarking the
   reference" above.
+- **2026-07-15** — The built-in model is per-coordinate ridge on decaying sums, and only
+  that: `xx` keeps the outer-product matrix's *diagonal* (`Σ x_j²`), prediction is
+  `θ_j = xy_j / (xx_j + ridge)` with per-coordinate uncertainty — no Cholesky, no linear
+  system, O(dim) state; each weight is that feature's own shrunk, decayed running average
+  (the operating point proven at scale by VW's hashed linear learners). PR 4's full
+  outer-product matrix was removed: one model keeps the reference, the golden corpus, and
+  the future Rust core single-story, and only the diagonal scales to the large hashed
+  spaces and candidate sets the engine promises (R5, R6). Known cost, pinned in
+  `tests/test_model.py`: credit is never split, so co-firing/redundant features
+  double-count; disentangling combinations stays the encoder's job (D2 interactions).
+  The Phase 0.5 battery carries a full-covariance comparator in `sim/` to price that
+  trade; if credit-splitting proves decisive at small `bits`, reintroducing it will be a
+  recorded, evidence-backed change. Golden corpus regenerated. Spec: `spec/model.md`.
 - **2026-07-14** — `implementation-plan.md` is git-ignored; PROGRESS.md is the in-repo
   source of truth for the roadmap.
 - **2026-07-14** — Reference implementation lives at `src/gittins_reference/`, managed

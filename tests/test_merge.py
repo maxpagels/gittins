@@ -155,5 +155,5 @@ class TestPinnedVectors:
         merged = merge_states(a, b)
         assert merged.model_version == 2
         est, unc = predict(merged.model, [1.0, -1.0], T0 + 3600.0)
-        assert est == 0.02918561399511608
-        assert unc == 1.3710276201822664
+        assert est == 0.010103554672770437
+        assert unc == 1.1051075714147085

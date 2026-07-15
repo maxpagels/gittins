@@ -145,9 +145,8 @@ def decide(
         if len(x) != state.model.dim:
             raise ValueError("candidate feature length does not match model dim")
 
-    # The ridge system depends on (model, t) only, so one factorization
-    # serves every candidate: O(dim^3 + k * dim^2) per decision, not
-    # O(k * dim^3).
+    # The weights depend on (model, t) only, so they are solved once and
+    # shared by every candidate.
     factored = factorize(state.model, t)
     estimates = []
     uncertainties = []

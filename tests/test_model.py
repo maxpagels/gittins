@@ -1,32 +1,18 @@
 import math
 
+import pytest
+
 from gittins_reference.decay import RENORM_LIMIT
 from gittins_reference.model import (
-    LinearModel,
-    cholesky,
     dot,
     merge_models,
     new_model,
     predict,
-    solve_cholesky,
     update,
 )
 
 HOUR = 3600.0
 T0 = 1_752_000_000.0
-
-
-class TestSolver:
-    def test_solves_a_known_system(self):
-        # A = [[4,2],[2,3]], b = [10,7]  =>  x = [2, 1]
-        lower = cholesky([[4.0, 2.0], [2.0, 3.0]])
-        x = solve_cholesky(lower, [10.0, 7.0])
-        assert math.isclose(x[0], 2.0, rel_tol=1e-12)
-        assert math.isclose(x[1], 1.0, rel_tol=1e-12)
-
-    def test_identity_factors_to_itself(self):
-        lower = cholesky([[1.0, 0.0], [0.0, 1.0]])
-        assert lower == [[1.0, 0.0], [0.0, 1.0]]
 
 
 class TestPredict:
@@ -37,25 +23,52 @@ class TestPredict:
         assert est == 0.0
         assert unc == 1.0
 
-    def test_recovers_a_linear_relationship(self):
-        # True weights [2, -1, 0.5]; noiseless rewards; dense repeated data
-        # over a few minutes (negligible decay at a one-hour half-life).
+    def test_weight_is_a_shrunk_running_average(self):
+        # 9 observations of feature 0 with reward 1: theta_0 = 9 / (9 + 1),
+        # uncertainty 1 / sqrt(9 + 1).
+        m = new_model(2, HOUR, T0)
+        for _ in range(9):
+            m = update(m, [1.0, 0.0], 1.0, T0)
+        est, unc = predict(m, [1.0, 0.0], T0)
+        assert math.isclose(est, 9.0 / 10.0, rel_tol=1e-15)
+        assert math.isclose(unc, math.sqrt(1.0 / 10.0), rel_tol=1e-15)
+
+    def test_recovers_per_feature_weights(self):
+        # True weights [2, -1, 0.5], observed one feature at a time
+        # (noiseless, dense over a few minutes: negligible decay at a
+        # one-hour half-life). Each weight converges independently.
         w = [2.0, -1.0, 0.5]
-        xs = [
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [1.0, 1.0, 0.0],
-            [0.5, -1.0, 1.0],
-        ]
+        xs = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         m = new_model(3, HOUR, T0)
         for rep in range(40):
             for k, x in enumerate(xs):
                 m = update(m, x, dot(x, w), T0 + rep * len(xs) + k)
         probe = [1.0, 2.0, -1.0]
         est, unc = predict(m, probe, T0 + 200.0)
-        assert math.isclose(est, dot(probe, w), rel_tol=0.02)
-        assert unc < 0.3
+        assert math.isclose(est, dot(probe, w), rel_tol=0.05)
+        assert unc < 0.5
+
+    def test_coordinates_are_independent(self):
+        # Evidence about feature 0 changes nothing about feature 1: its
+        # estimate and uncertainty stay exactly at the prior.
+        m = new_model(2, HOUR, T0)
+        for _ in range(50):
+            m = update(m, [1.0, 0.0], 1.0, T0)
+        est, unc = predict(m, [0.0, 1.0], T0)
+        assert est == 0.0
+        assert unc == 1.0
+
+    def test_cofiring_features_double_count(self):
+        # The model's documented blind spot: credit is never split. Two
+        # features always seen together with reward 1.0 each converge to the
+        # full shrunk average (10/11 after 10 observations), so together
+        # they predict 20/11 ~ 1.8 where the truth is 1.0. Disentangling
+        # combinations is the encoder's job (interaction dimensions, D2).
+        m = new_model(2, HOUR, T0)
+        for _ in range(10):
+            m = update(m, [1.0, 1.0], 1.0, T0)
+        est, _ = predict(m, [1.0, 1.0], T0)
+        assert math.isclose(est, 20.0 / 11.0, rel_tol=1e-12)
 
     def test_incremental_sums_match_batch_sums_bit_for_bit(self):
         # The incremental bookkeeping must equal a directly computed batch
@@ -67,14 +80,13 @@ class TestPredict:
         for x, r, t in data:
             m = update(m, x, r, t)
 
-        xx = [0.0] * 4
+        xx = [0.0] * 2
         xy = [0.0] * 2
         for x, r, t in data:
             wt = exp2((t - T0) / HOUR)
-            for i in range(2):
-                for j in range(2):
-                    xx[i * 2 + j] += x[i] * x[j] * wt
-                xy[i] += r * x[i] * wt
+            for j in range(2):
+                xx[j] += x[j] * x[j] * wt
+                xy[j] += r * x[j] * wt
         assert list(m.xx.values) == xx
         assert list(m.xy.values) == xy
 
@@ -148,8 +160,6 @@ class TestMerge:
         assert merge_models(a, b) == merge_models(b, a)
 
     def test_merge_rejects_mismatches(self):
-        import pytest
-
         with pytest.raises(ValueError):
             merge_models(new_model(2, HOUR, T0), new_model(3, HOUR, T0))
         with pytest.raises(ValueError):
@@ -175,5 +185,5 @@ class TestPinnedVectors:
         m = update(m, [0.0, 1.0], -0.5, T0 + 1800.0)
         m = update(m, [1.0, 1.0], 0.25, T0 + 3600.0)
         est, unc = predict(m, [1.0, -1.0], T0 + 5400.0)
-        assert est == 0.4318473976784247
-        assert unc == 1.1847437129969538
+        assert est == 0.2905354624569479
+        assert unc == 0.9686914955549797

@@ -196,5 +196,5 @@ class TestPinnedVectors:
         assert [r.decision_id for r in s.ledger] == ["pepper:2"]
         assert s.model_version == 2
         est, unc = predict(s.model, [1.0, -1.0], T0 + 2000.0)
-        assert est == 0.382067638227243
+        assert est == 0.38206763822724304
         assert unc == 1.187074748425507
