@@ -46,6 +46,117 @@ bit-for-bit against golden test vectors.
 Phase 0 exit criterion: the spec plus reference is complete enough that an independent
 implementation of `decide`/`learn` can match the golden vectors.
 
+## Benchmarking the reference (Phase 0.5 — before the Rust core)
+
+Before freezing semantics into Rust, measure whether the three provisional pieces of the
+engine are competitive and robust with their fixed defaults, across the conditions the
+README promises (R1, R2): stationary problems, difficult non-stationarity, arms appearing
+and disappearing, and features going missing. The pieces under test, with the constants
+currently marked provisional in the source:
+
+1. **Model** — per-coordinate ridge on decaying sums (`model.py`): `ridge = 1.0`, the
+   assumption that a linear model on hashed outer-product features degrades gracefully
+   when the true reward is nonlinear in them, and the cost of never splitting credit
+   (co-firing/redundant features double-count), which makes the misspecified and
+   redundant-feature environments doubly important.
+2. **Exploration** — SquareCB + floor (`exploration.py`, `decide.py`): `GAMMA_SCALE = 1.0`,
+   the *mean* as the uncertainty aggregate in `choose_gamma`, and `FLOOR_MASS = 0.05`
+   (is 5% forced exploration too costly on stationary problems with many arms, and is it
+   enough to rediscover a recovered arm quickly?).
+3. **Forgetting** — the single fixed half-life chosen at `new_bandit`: how large is the
+   regret gap between one default half-life and the best per-environment half-life? That
+   gap is precisely the case for (or against) prioritizing the D4 self-tuning pool
+   before the Rust core.
+
+This pulls the synthetic half of the Phase 2 battery (design doc §10) forward. Out of
+scope here: OPE estimators, public logged datasets (Open Bandit, Criteo), the public
+benchmark page, and any CI regret gate — those stay in Phases 2/4.
+
+### Harness design
+
+- New `sim/` package, pure Python, zero runtime dependencies like the reference; results
+  reported as markdown tables (no plotting deps). Not part of `gittins_reference` and
+  never bit-pinned — sims are statistical, but every run is seeded and exactly
+  reproducible (environment randomness comes from the same counter RNG, keyed by
+  (environment name, seed, t)).
+- **Environment protocol**: an environment yields per round `t` a context dict plus
+  candidate dicts (arm id + features), and returns a stochastic reward for the chosen
+  arm; it also exposes the oracle expected reward of every candidate so regret is exact,
+  not estimated.
+- **Runner** drives the real public path — encode (PR 8) → `decide` (PR 6) → ledger
+  `learn`/`expire` (PR 7) — never the layers in isolation, so hashing, the gamma
+  schedule, the floor, and decay are all in the loop together.
+- **Comparators**, all run through the same loop on the same seeds (paired):
+  - oracle (upper bound) and uniform-random (lower bound), to normalize regret;
+  - greedy (gamma → ∞, no floor) and epsilon-greedy (ε ∈ {0.05, 0.1}), the "would
+    something dumber beat us" check;
+  - gittins itself under swept constants: `GAMMA_SCALE` ∈ {0.25, 1, 4, 16},
+    aggregate ∈ {mean, min, max}, `ridge` ∈ {0.1, 1, 10}, half-life ∈ geometric grid
+    (plus ∞ = no forgetting). The zero-knob default vs. the best swept point *per
+    environment* is the headline comparison.
+  - a full-covariance ridge comparator implemented inside `sim/` (a baseline, not part
+    of the engine): at small `bits` it prices what credit-splitting would buy over the
+    shipped per-coordinate model, keeping the diagonal-only decision evidence-backed.
+
+### Environment battery
+
+Each environment crossed with arm count k ∈ {2, 10, 50}, reward noise ∈ {low, high},
+and ~20 seeds; runs of 10k–50k decisions.
+
+- **Stationary, well-specified**: linear expected reward in the encoded features —
+  the model's home turf; the floor's cost is measured here.
+- **Stationary, misspecified**: nonlinear reward (e.g. XOR-style interactions beyond
+  the outer product, thresholds) — graceful-degradation check for the linear model.
+- **Abrupt shifts**: the best arm swaps at intervals both long and short relative to
+  the half-life; measures recovery (does uncertainty regrow and gamma fall back as
+  `decide.py` claims?).
+- **Slow drift and seasonal**: reward weights rotate slowly / oscillate with a period;
+  the regime where any fixed half-life is a compromise.
+- **Arm churn (missing arms)**: arms are born and die mid-run; the best arm disappears
+  and later returns (rediscovery time via the floor); cold-start regret of a new
+  strong arm; identity-collision stress at small `bits`.
+- **Missing features**: per-round feature dropout (each feature absent with
+  probability p — hashed encoding treats absent as no token), occasionally empty
+  context, and irrelevant/noisy distractor features.
+
+### Metrics
+
+- Normalized cumulative regret vs. oracle (0 = oracle, 1 = uniform), median and IQR
+  over seeds; final-window regret rate.
+- Post-shift recovery time: rounds until the rolling reward rate regains 90% of the
+  oracle's, after each shift/birth/return event.
+- Prediction RMSE vs. oracle expected reward — separates model quality from policy
+  quality, so a bad result can be attributed to the model or to exploration.
+- Diagnostics logged per run: gamma and mean-uncertainty trajectories, propensity of
+  the oracle-best arm over time.
+
+### Pass criteria (what "needs updates" means)
+
+- The zero-knob default lands within ~10% normalized regret of the best swept gittins
+  variant on ≥90% of environment cells, and is never catastrophically worse (>2×) on
+  any cell — the Phase 0.5 version of the Phase 2 exit criterion.
+- The default beats epsilon-greedy overall and is never far behind it on any cell.
+- Fallout is recorded as decisions in this file: the settled `GAMMA_SCALE` value and
+  aggregate; whether `ridge = 1.0` survives; and whether one default half-life is
+  defensible or the D4 pool must be built before (or alongside) the Rust core.
+
+### Runtime budget
+
+Prediction is O(dim) per candidate, with the weights solved once per decision
+(`factorize` — dim reciprocals, no matrix anywhere). Measured in pure Python:
+dim 64 × 100 arms ≈ 4.5 ms/decision, dim 256 × 100 arms ≈ 46 ms/decision. Every cell
+the battery needs is comfortable. The reference's per-candidate cost is O(dim) rather
+than O(nonzeros) only because vectors are dense Python lists, kept for readability;
+the sparse representation that makes very large `bits` cheap belongs to the Rust core.
+
+### PR slicing
+
+| # | Concept |
+|---|---------|
+| 11 | `sim/` harness: environment protocol, runner over the real encode→decide→learn path, regret metrics, stationary environments, oracle/uniform/greedy/epsilon baselines |
+| 12 | Non-stationary environments (abrupt, drift, seasonal) + arm churn + missing-feature environments |
+| 13 | Sweep driver + markdown report generator; battery run; findings written up as decisions here (and any constant changes land as their own follow-up PRs with regenerated golden vectors) |
+
 ## Repository layout
 
 ```
@@ -80,6 +191,25 @@ harness).
   dimensions can never reorder candidates — interactions are the encoding's job (the
   VW `-q SA` move). Hashes use tokens only (no salt), keeping fleets merge-aligned;
   signed hashing makes collisions blur rather than bias.
+- **2026-07-15** — The synthetic half of the Phase 2 regret battery is pulled forward to
+  Phase 0.5, before the Rust core: the provisional constants (`GAMMA_SCALE`, the gamma
+  aggregate, `ridge`, the default half-life, `FLOOR_MASS`) get validated against a
+  synthetic environment battery while changing them is still a Python edit plus a golden
+  regeneration, not a cross-language semantic change. Plan in "Benchmarking the
+  reference" above.
+- **2026-07-15** — The built-in model is per-coordinate ridge on decaying sums, and only
+  that: `xx` keeps the outer-product matrix's *diagonal* (`Σ x_j²`), prediction is
+  `θ_j = xy_j / (xx_j + ridge)` with per-coordinate uncertainty — no Cholesky, no linear
+  system, O(dim) state; each weight is that feature's own shrunk, decayed running average
+  (the operating point proven at scale by VW's hashed linear learners). PR 4's full
+  outer-product matrix was removed: one model keeps the reference, the golden corpus, and
+  the future Rust core single-story, and only the diagonal scales to the large hashed
+  spaces and candidate sets the engine promises (R5, R6). Known cost, pinned in
+  `tests/test_model.py`: credit is never split, so co-firing/redundant features
+  double-count; disentangling combinations stays the encoder's job (D2 interactions).
+  The Phase 0.5 battery carries a full-covariance comparator in `sim/` to price that
+  trade; if credit-splitting proves decisive at small `bits`, reintroducing it will be a
+  recorded, evidence-backed change. Golden corpus regenerated. Spec: `spec/model.md`.
 - **2026-07-14** — `implementation-plan.md` is git-ignored; PROGRESS.md is the in-repo
   source of truth for the roadmap.
 - **2026-07-14** — Reference implementation lives at `src/gittins_reference/`, managed

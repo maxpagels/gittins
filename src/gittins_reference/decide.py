@@ -60,7 +60,7 @@ from gittins_reference.exploration import (
     inverse_gap_probabilities,
     sample_index,
 )
-from gittins_reference.model import LinearModel, new_model, predict
+from gittins_reference.model import LinearModel, factorize, new_model, predict_factored
 from gittins_reference.rng import derive_key, fnv1a_64
 
 # Fixed scale of the uncertainty-driven gamma schedule; not a user knob.
@@ -145,10 +145,13 @@ def decide(
         if len(x) != state.model.dim:
             raise ValueError("candidate feature length does not match model dim")
 
+    # The weights depend on (model, t) only, so they are solved once and
+    # shared by every candidate.
+    factored = factorize(state.model, t)
     estimates = []
     uncertainties = []
     for x in candidates:
-        est, unc = predict(state.model, x, t)
+        est, unc = predict_factored(factored, x)
         estimates.append(est)
         uncertainties.append(unc)
 

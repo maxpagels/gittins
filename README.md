@@ -5,7 +5,7 @@ considerations with such systems:
 
 - **R1 — Dynamic arms and context.** The set of available actions must change at any moment.
   New arms must be usable immediately; dead arms must be cleaned up automatically.
-- **R2 — Non-stationarity, as few hyperparameters as possible ** Learning is incremental.
+- **R2 — Non-stationarity, as few hyperparameters as possible.** Learning is incremental.
   If the world changes, the bandit must adapts. The reference implementation must be robust enough
   to work well with just the default settings for most problems. The system must
   never fully converge: it always retains enough exploration to notice that a formerly good
