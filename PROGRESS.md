@@ -39,8 +39,8 @@ bit-for-bit against golden test vectors.
 | 5 | `pr-05` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Merged |
 | 6 | `pr-06` | Decision records; `decide(state, candidates, t, salt)` | D1, D5 | Merged |
 | 7 | `pr-07` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Merged |
-| 8 | `pr-08` | Feature encoding: everything hashed into 2^bits dims (features, identity, interactions) | D2 | **In review** |
-| 9 | `pr-09-merge` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Not started |
+| 8 | `pr-08` | Feature encoding: everything hashed into 2^bits dims (features, identity, interactions) | D2 | Merged |
+| 9 | `pr-09` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | **In review** |
 | 10 | `pr-10-golden-vectors` | Golden test vector generation from the reference | §8 | Not started |
 
 Phase 0 exit criterion: the spec plus reference is complete enough that an independent
@@ -135,9 +135,7 @@ harness).
   and post-expiry rewards are no-ops. No code path learns from an open decision.
   Spec: `spec/ledger.md`.
 
-## Currently in flight
-
-- **PR 8** (`pr-08`) — `encoding.py`: fully hashed feature encoding. Dicts in,
+- **PR 8** (2026-07-15) — `encoding.py`: fully hashed feature encoding. Dicts in,
   2^bits-dim vector out; `bits` is the only declaration. Tokens: string value →
   `ns|name=value` ×1.0, numeric → `ns|name` ×value, None absent, arm identity one
   more token `i|id`. Encoding = hashed outer product ([bias]+context) ⊗
@@ -146,3 +144,18 @@ harness).
   independent of dict order. Everything open-world: new names/values/arms need no
   registration, decay recycles dead dimensions. End-to-end personalization test
   through decide + ledger at bits=5, collisions and all. Spec: `spec/encoding.md`.
+
+## Currently in flight
+
+- **PR 9** (`pr-09`) — `merge.py`: `merge_states(a, b)` pools knowledge (origin-aligned
+  model merge, model_version summed) but not operational identity: the ledger does not
+  merge (open decisions stay with the agent that will receive their rewards; merging
+  them would expire unresolvable copies and double-count on resolution) and next_seq
+  resets to 0 (seq belongs to a (salt, agent) pair; a merged state that decides needs a
+  fresh salt). Requires equal horizon/default_reward (+ dim/ridge/half-life below).
+  Fleet flow is recompute-not-accumulate: shared file rebuilt from agent files each run,
+  keeping evidence disjoint. Property tests (§13 risk 3): bit-exact commutativity;
+  resolve-then-merge == merge-then-resolve to <1e-12 across half-lives (incl. inf) and
+  across a renorm era (empirically exact); 3-agent merge == central model <1e-12;
+  associativity <1e-12. Measured: merging evidence >~53 half-lives apart absorbs the
+  older side to nothing — exactly decay's "fully forgotten". Spec: `spec/merge.md`.
