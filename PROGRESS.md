@@ -41,7 +41,7 @@ bit-for-bit against golden test vectors.
 | 7 | `pr-07` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Merged |
 | 8 | `pr-08` | Feature encoding: everything hashed into 2^bits dims (features, identity, interactions) | D2 | Merged |
 | 9 | `pr-09` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Merged |
-| 10 | `pr-10` | Golden test vector corpus generated from the reference; GitHub Actions CI | §8 | **In review** |
+| 10 | `pr-10` | Golden test vector corpus generated from the reference; GitHub Actions CI | §8 | Merged |
 
 Phase 0 exit criterion: the spec plus reference is complete enough that an independent
 implementation of `decide`/`learn` can match the golden vectors.
@@ -161,13 +161,13 @@ the sparse representation that makes very large `bits` cheap belongs to the Rust
 
 ```
 src/gittins_reference/   pure-Python reference implementation (Phase 0)
-tests/                   pytest suite for the reference
+sim/                     simulation harness (Phase 0.5): environments, comparators, runner, metrics
+tests/                   pytest suite for the reference and the sim harness
 spec/                    written spec sections, grown PR by PR
 PROGRESS.md              this file
 ```
 
-Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM), `sim/` (simulation
-harness).
+Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
 
 ## Decisions log
 
@@ -288,11 +288,9 @@ harness).
   associativity <1e-12. Measured: merging evidence >~53 half-lives apart absorbs the
   older side to nothing — exactly decay's "fully forgotten". Spec: `spec/merge.md`.
 
-## Currently in flight
-
-- **PR 10** (`pr-10`) — `golden.py` + `spec/golden.json`: the golden test vector corpus
-  generated from the reference (design doc §8). Sections per layer (rng, exp2, decay,
-  model, exploration, encoding) plus an end-to-end `episode`: two agents, hashed
+- **PR 10** (2026-07-15) — `golden.py` + `spec/golden.json`: the golden test vector
+  corpus generated from the reference (design doc §8). Sections per layer (rng, exp2,
+  decay, model, exploration, encoding) plus an end-to-end `episode`: two agents, hashed
   encoding, out-of-order rewards, censor, exact-horizon expiry sweep, merge — every
   record and resolution logged; matching it bit-for-bit is the Phase 0 exit test for an
   independent decide/learn. `tests/test_golden.py` pins the checked-in file to exact
@@ -302,3 +300,24 @@ harness).
   (R6); macOS/Windows legs deferred for cost, to return as a release gate with the
   compiled core. `.gitattributes` forces LF so the corpus compares as exact text
   everywhere. Spec: `spec/golden.md`.
+
+## Currently in flight
+
+- **PR 11** (`pr-11`) — `sim/` harness (Phase 0.5 plan above): the environment protocol
+  (per-round context dict + candidate dicts in, stochastic reward out, oracle expected
+  reward of every candidate exposed so regret is exact), a runner driving the real
+  public path — encode → `decide` → ledger `learn`/`expire`, never the layers in
+  isolation — and metrics (normalized cumulative regret with 0 = oracle / 1 = uniform,
+  final-window regret rate, prediction RMSE vs the oracle means, median/IQR over
+  seeds). Stationary environments: well-specified linear (per-arm intercepts + slopes,
+  exactly the dimensions the hashed outer product produces) and XOR-misspecified
+  (best arm depends on a context-feature product the encoding never forms). Comparators
+  through one identical loop: oracle, uniform, greedy (gamma → ∞, no floor),
+  epsilon-greedy (ε ∈ {0.05, 0.1}). All randomness comes from the reference's counter
+  RNG keyed by (name, seed, t), so rounds are pure functions of the seed and every
+  comparator is paired by construction; runs replay exactly but nothing is bit-pinned.
+  `python -m sim` runs the stationary battery and prints a markdown table; CI runs it
+  in a single-leg `sim` job (sims are statistics, not bit-identity checks) and appends
+  the table to the GitHub job summary — a diagnostic, not a gate.
+  Non-stationary/churn/missing-feature environments are PR 12; the sweep driver,
+  full report generator, and battery findings are PR 13.

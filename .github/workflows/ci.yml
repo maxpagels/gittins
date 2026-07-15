@@ -6,9 +6,14 @@
 # deferred, to be revisited when the compiled core lands — cross-OS
 # bit-identity is a release gate even if it isn't a per-PR gate.
 #
-# Planned growth (design doc sections 8 and 10): the simulation battery
-# with regret baselines on every commit; the Rust core and each language
-# binding checked against spec/golden.json; macOS/Windows/WASM legs.
+# The sim job runs the stationary battery (sim/) once — one leg, not the
+# matrix, because sims are statistical, not bit-identity checks — and
+# appends its markdown table to the job summary, so regret against the
+# baselines is readable on every PR. Diagnostic, not a gate.
+#
+# Planned growth (design doc sections 8 and 10): the full battery and sweep
+# report (PR 13); the Rust core and each language binding checked against
+# spec/golden.json; macOS/Windows/WASM legs.
 
 name: ci
 
@@ -32,3 +37,13 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Run test suite
         run: uv run pytest -q
+
+  sim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Run stationary battery
+        run: uv run python -m sim | tee -a "$GITHUB_STEP_SUMMARY"
