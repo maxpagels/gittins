@@ -9,14 +9,18 @@ counter RNG (`spec/rng.md`).
 
 ## State
 
-A `BanditState` is `(model, next_seq, model_version)`:
+A `BanditState` is `(model, next_seq, model_version, horizon,
+default_reward, ledger)`:
 
 - `model` — the LinearModel of `spec/model.md`.
-- `next_seq` — the sequence number of the next decision; the only field
-  `decide` changes.
+- `next_seq` — the sequence number of the next decision.
 - `model_version` — how many observations the model has absorbed. Bumped
-  by `learn` (PR 7); logged in every record so offline evaluation can tell
-  which policy made each decision.
+  by the ledger's trained resolutions (`spec/ledger.md`); logged in every
+  record so offline evaluation can tell which policy made each decision.
+- `horizon`, `default_reward` — the application's reward-handling
+  declaration, made once at creation (`spec/ledger.md`).
+- `ledger` — the open decision records, in decision order
+  (`spec/ledger.md`).
 
 ## The decision record
 
@@ -64,7 +68,7 @@ that vector is the feature encoder's job, PR 8):
    reserved for the sampling draw**; later counters are reserved for future
    per-decision randomness.
 5. The model is untouched; the new state is the old state with
-   `next_seq + 1`.
+   `next_seq + 1` and the record appended to the ledger.
 
 Steps 1–4 are fixed-order IEEE-754 arithmetic over already-deterministic
 layers, so the whole record is bit-identical across platforms.
