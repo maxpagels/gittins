@@ -32,7 +32,14 @@ def randint(key: int, counter: int, n: int) -> int:
 
 def gaussian(key: int, counter: int) -> float:
     """A standard normal draw (Box-Muller); consumes stream positions
-    2*counter and 2*counter + 1."""
+    2*counter and 2*counter + 1.
+
+    The one piece of the harness that is not bit-portable across languages:
+    libm log/cos carry no cross-platform rounding guarantee (everything else
+    in a sim run is counter-RNG uniforms plus the engine's own bit-pinned
+    arithmetic). Kept because sims are statistical; if the battery is ever
+    promoted to a cross-language differential test against the compiled
+    core, vendor deterministic log/cos here (as detmath.py did for exp2)."""
     u1 = random_unit(key, 2 * counter)
     u2 = random_unit(key, 2 * counter + 1)
     if u1 <= 0.0:  # log(0) guard; random_unit can return exactly 0.0

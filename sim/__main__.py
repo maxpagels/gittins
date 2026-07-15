@@ -5,7 +5,7 @@ battery is readable directly in the Actions UI. Runs are seeded and paired
 (see sim.rand): the numbers are exactly reproducible for a given harness
 version, but they are statistics, not golden vectors — nothing here is
 bit-pinned, and this table is a diagnostic, not a gate. The sweep driver
-and the full battery report belong to PR 13.
+and the full battery report belong to PR 14.
 """
 
 import sys
