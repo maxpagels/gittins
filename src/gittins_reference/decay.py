@@ -79,6 +79,59 @@ def read(acc: DecayedAccumulator, t: float) -> float:
     return acc.total * exp2(-(t - acc.origin) / acc.half_life)
 
 
+@dataclass(frozen=True)
+class DecayedVector:
+    """Many decaying sums sharing one clock: one half-life, one origin, one
+    renormalization decision for every entry. Semantics per entry are exactly
+    those of DecayedAccumulator; sharing the clock is what lets a model's
+    whole state age coherently and merge entry-by-entry."""
+
+    half_life: float
+    origin: float
+    values: tuple[float, ...]
+
+
+def new_vector(half_life: float, t: float, size: int) -> DecayedVector:
+    if not (half_life > 0.0):
+        raise ValueError("half_life must be positive (math.inf is allowed)")
+    return DecayedVector(half_life=half_life, origin=t, values=(0.0,) * size)
+
+
+def vector_add(
+    vec: DecayedVector, contributions: "tuple[float, ...] | list[float]", t: float
+) -> DecayedVector:
+    """Add one contribution per entry, all timestamped `t`."""
+    origin = vec.origin
+    values = vec.values
+    age = (t - origin) / vec.half_life
+    if age > RENORM_LIMIT:
+        rescale = exp2(-age)
+        values = tuple(v * rescale for v in values)
+        origin = t
+        age = 0.0
+    weight = exp2(age)
+    values = tuple(v + c * weight for v, c in zip(values, contributions, strict=True))
+    return DecayedVector(vec.half_life, origin, values)
+
+
+def vector_read(vec: DecayedVector, t: float) -> tuple[float, ...]:
+    factor = exp2(-(t - vec.origin) / vec.half_life)
+    return tuple(v * factor for v in vec.values)
+
+
+def vector_merge(a: DecayedVector, b: DecayedVector) -> DecayedVector:
+    """Entry-by-entry merge; commutative bit for bit, like the scalar merge."""
+    if a.half_life != b.half_life:
+        raise ValueError("cannot merge vectors with different half-lives")
+    if len(a.values) != len(b.values):
+        raise ValueError("cannot merge vectors of different sizes")
+    if a.origin < b.origin:
+        a, b = b, a
+    shift = exp2((b.origin - a.origin) / a.half_life)
+    values = tuple(av + bv * shift for av, bv in zip(a.values, b.values, strict=True))
+    return DecayedVector(a.half_life, a.origin, values)
+
+
 def merge(a: DecayedAccumulator, b: DecayedAccumulator) -> DecayedAccumulator:
     """Combine two accumulators as if every contribution had gone into one.
 
