@@ -38,8 +38,8 @@ bit-for-bit against golden test vectors.
 | 4 | `pr-04` | Incremental ridge regression on decaying sums, predict with uncertainty | D3 | Merged |
 | 5 | `pr-05` | Inverse-gap weighting (SquareCB) + probability floor | §5 | Merged |
 | 6 | `pr-06` | Decision records; `decide(state, candidates, t, salt)` | D1, D5 | Merged |
-| 7 | `pr-07` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | **In review** |
-| 8 | `pr-08-features` | Feature encoding: descriptive features + hashed arm-identity block (no per-arm map) | D2 | Not started |
+| 7 | `pr-07` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Merged |
+| 8 | `pr-08` | Feature encoding: everything hashed into 2^bits dims (features, identity, interactions) | D2 | **In review** |
 | 9 | `pr-09-merge` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Not started |
 | 10 | `pr-10-golden-vectors` | Golden test vector generation from the reference | §8 | Not started |
 
@@ -69,6 +69,17 @@ harness).
   is the only cleanup mechanism; no eviction code exists; state memory is fixed under arm
   churn. PR 8 repurposed from per-arm map to feature encoding.
 
+- **2026-07-15** — Feature encoding is fully hashed (design doc open question 2,
+  resolved *against* its explicit-schema lean): every feature, categorical value, arm
+  identity, the intercept, and every interaction term hashes into one 2^bits space —
+  the single up-front declaration is `bits`. One integer replaces schema declaration,
+  migration, and unknown-name policy; feature sets vary freely per decision; identity
+  stops being a special case (it's one more token). Accepted cost: typo'd names hash
+  silently instead of erroring. The encoding stays the outer product
+  ([bias]+context) ⊗ ([bias]+action+identity) because with a linear model context-only
+  dimensions can never reorder candidates — interactions are the encoding's job (the
+  VW `-q SA` move). Hashes use tokens only (no salt), keeping fleets merge-aligned;
+  signed hashing makes collisions blur rather than bias.
 - **2026-07-14** — `implementation-plan.md` is git-ignored; PROGRESS.md is the in-repo
   source of truth for the roadmap.
 - **2026-07-14** — Reference implementation lives at `src/gittins_reference/`, managed
@@ -113,9 +124,7 @@ harness).
   battery. RNG counter 0 reserved for the sampling draw. Candidates are pre-encoded
   feature vectors; context folding arrives with PR 8's encoder. Spec: `spec/decide.md`.
 
-## Currently in flight
-
-- **PR 7** (`pr-07`) — `ledger.py`: the state's ledger of open decision records
+- **PR 7** (2026-07-15) — `ledger.py`: the state's ledger of open decision records
   (BanditState gains ledger + the once-up-front declaration horizon/default_reward;
   decide appends its record). Three resolutions, each returning a loggable Resolution
   event: `learn` (rewarded — trains at the *decision's* timestamp, so late/out-of-order
@@ -125,3 +134,15 @@ harness).
   structural: resolving spends the one record, so duplicate/conflicting/bogus reports
   and post-expiry rewards are no-ops. No code path learns from an open decision.
   Spec: `spec/ledger.md`.
+
+## Currently in flight
+
+- **PR 8** (`pr-08`) — `encoding.py`: fully hashed feature encoding. Dicts in,
+  2^bits-dim vector out; `bits` is the only declaration. Tokens: string value →
+  `ns|name=value` ×1.0, numeric → `ns|name` ×value, None absent, arm identity one
+  more token `i|id`. Encoding = hashed outer product ([bias]+context) ⊗
+  ([bias]+action+identity): pair token → mix64∘fnv1a → slot (masked) + sign (bit 63);
+  collisions add (signed, so they blur not bias); sorted token order makes bits
+  independent of dict order. Everything open-world: new names/values/arms need no
+  registration, decay recycles dead dimensions. End-to-end personalization test
+  through decide + ledger at bits=5, collisions and all. Spec: `spec/encoding.md`.
