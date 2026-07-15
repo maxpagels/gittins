@@ -31,8 +31,8 @@ jobs:
         python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8
         with:
           python-version: ${{ matrix.python }}
       - name: Run test suite
@@ -41,8 +41,8 @@ jobs:
   sim:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8
         with:
           python-version: "3.13"
       - name: Run stationary battery
