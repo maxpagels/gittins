@@ -69,7 +69,7 @@ fn main() {
         Box::new(|| Box::new(GittinsPolicy::new(BITS))),
     ];
 
-    println!("### Environment battery (Rust core)");
+    println!("### Environment battery (Rust core implementation)");
     println!();
     println!(
         "{ROUNDS} rounds, seeds {:?}, bits={BITS}. Normalized regret: \
