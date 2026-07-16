@@ -15,12 +15,12 @@ non-stationarity is handled by built-in forgetting with fixed defaults — tunin
 lives offline, in replay and off-policy evaluation over the decision log, never
 in knobs. "The SQLite of bandits."
 
-**Current phase: Phase 1 — the Rust core — is in flight as PR 17 and
-complete on its branch.** Phase 0 (the pure-Python reference, which remains
-the specification) and Phase 0.5 (the benchmarking battery, `sim/`) are done.
-The core matches the reference bit for bit against the golden vector corpus
+**Current phase: Phase 2 — bindings (see Roadmap).** Phase 0 (the
+pure-Python reference, which remains the specification), Phase 0.5 (the
+benchmarking battery, `sim/`), and Phase 1 (the Rust core) are done. The
+core matches the reference bit for bit against the golden vector corpus
 (`spec/golden.json`, checked by `cargo test`) and number for number across
-the 450k-decision battery. Next is Phase 2 — bindings (see Roadmap).
+the 450k-decision battery.
 
 ## Working process
 
@@ -95,13 +95,6 @@ The rule that governs the phase: the dict-shaped public API is specified
 once, in the reference, and every binding mirrors it exactly; each binding's
 CI gate is the golden episode replayed through the binding, bit for bit.
 
-- **PR 18 — state serialization + error surface (core).** The prerequisite
-  for both bindings. A canonical, versioned byte format for `BanditState`
-  (R8: flat files, weights in version control; little-endian, in the style
-  of the `candidate_set_hash` layout), specced under `spec/` and pinned by a
-  new golden section carrying the serialized bytes of the episode's final
-  state. The core's validation panics become `Result` errors — panics must
-  not cross an FFI boundary.
 - **PR 19 — the public dict-shaped API, in the reference.** The layer the
   bindings will mirror does not exist yet: today callers `encode` and then
   `decide` over sparse pairs. Add the facade to the reference — construction
@@ -237,16 +230,42 @@ decisions log above, and this file's git history has the full entries.
   on 9/12 cells, behind on churn and whole-run needle (better final-10%);
   dim 256 × 100 arms 1.32 → 0.85 ms/decision; one less engine constant.
 
-## Currently in flight
-
-- **PR 17** (`pr-17`) — the Rust core (`core/`), Phase 1: the engine ported
-  module for module (rng, encoding, model, exploration, decide, ledger),
-  zero dependencies, per the 2026-07-16 bit-exact-port decision. `cargo test`
-  verifies every golden section bit for bit and replays the end-to-end
-  episode — all passed on the first run, meeting the Phase 0 exit criterion.
-  The corpus gained the episode's `rejected` field in this PR (additive
+- **PR 17** (2026-07-16) — the Rust core (`core/`), Phase 1: the engine
+  ported module for module (rng, encoding, model, exploration, decide,
+  ledger), zero dependencies, per the 2026-07-16 bit-exact-port decision.
+  `cargo test` verifies every golden section bit for bit and replays the
+  end-to-end episode — all passed on the first run, meeting the Phase 0 exit
+  criterion. The corpus gained the episode's `rejected` field (additive
   diff): no-op resolution attempts every implementation must reject to match
   the pinned final state. The battery reruns on the core
   (`cargo run --release --bin sim`) into the same CI summary as the Python
   battery: all 60 table rows identical locally, 22s → 2.7s (~8x, untuned).
   Also: README requirements gained R0 (incremental/online).
+
+## Currently in flight
+
+- **PR 18** (`pr-18`) — canonical state serialization + the core's error
+  surface, the prerequisite for both bindings.
+
+  **Serialization** (`state.py` in the reference, `state.rs` in the core;
+  spec: `serialization.md`): `serialize`/`deserialize` are exact inverses
+  over one canonical little-endian layout — magic, format version 1, model,
+  bandit scalars, open ledger records, trailing FNV-1a checksum — in the
+  `candidate_set_hash` byte style. Deserialization is all-or-nothing: the
+  checksum rejects truncation/corruption up front, every constructor
+  invariant and the record-features invariant are re-checked, the payload
+  must be exactly consumed; a loaded state is as trustworthy as a
+  constructed one (model sums deliberately not range-policed — the engine
+  places no bounds on them). The golden corpus gained a `serialization`
+  section (additive diff): the bytes of a fresh state, the episode's mid
+  snapshot (two open records, covering the DecisionRecord encoding), and
+  the episode's final state, as hex — the Rust core produces the
+  reference's bytes exactly, checked in `cargo test`.
+
+  **Error surface** (`error.rs`): every rejection the reference expresses
+  as ValueError is now a returned `Error` in the core with the same message
+  text — `new_model`, `new_bandit`, `decide`, `encode`,
+  `epsilon_greedy_probabilities`, `deserialize` return `Result`; nothing on
+  the public path panics, so bindings can sit directly on these functions.
+  Battery output is byte-identical before/after (the change is
+  behavior-neutral on the happy path).

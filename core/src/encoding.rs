@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::error::Error;
 use crate::rng::{fnv1a_64, mix64};
 
 /// Separator between the two tokens of a pair; no printable token contains it.
@@ -60,8 +61,10 @@ pub fn encode(
     arm_id: &str,
     action: &[(String, Value)],
     bits: u32,
-) -> Features {
-    assert!((1..=24).contains(&bits), "bits must be between 1 and 24");
+) -> Result<Features, Error> {
+    if !(1..=24).contains(&bits) {
+        return Err(Error::new("bits must be between 1 and 24"));
+    }
     let mask = (1u64 << bits) - 1;
     let mut left = vec![(String::new(), 1.0)];
     left.extend(feature_tokens("c", context));
@@ -76,5 +79,5 @@ pub fn encode(
             *slots.entry((h & mask) as usize).or_insert(0.0) += sign * left_value * right_value;
         }
     }
-    slots.into_iter().filter(|&(_, v)| v != 0.0).collect()
+    Ok(slots.into_iter().filter(|&(_, v)| v != 0.0).collect())
 }

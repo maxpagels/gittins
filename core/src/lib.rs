@@ -11,7 +11,9 @@
 
 pub mod decide;
 pub mod encoding;
+pub mod error;
 pub mod exploration;
 pub mod ledger;
 pub mod model;
 pub mod rng;
+pub mod state;

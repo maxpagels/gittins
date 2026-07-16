@@ -71,19 +71,19 @@ impl ModelCore {
     fn new(bits: u32) -> ModelCore {
         ModelCore {
             bits,
-            model: new_model(1 << bits, DEFAULT_FORGETTING, 1.0),
+            model: new_model(1 << bits, DEFAULT_FORGETTING, 1.0).unwrap(),
             chosen_x: Vec::new(),
         }
     }
 
     fn begin(&mut self) {
-        self.model = new_model(1 << self.bits, DEFAULT_FORGETTING, 1.0);
+        self.model = new_model(1 << self.bits, DEFAULT_FORGETTING, 1.0).unwrap();
     }
 
     /// (sparse candidates, their estimates) for one round.
     fn estimates(&self, rd: &Round) -> (Vec<Features>, Vec<f64>) {
         let candidates: Vec<Features> = (0..rd.arm_ids.len())
-            .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits))
+            .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits).unwrap())
             .collect();
         let mut f = factorize(&self.model);
         let estimates = candidates.iter().map(|x| predict_factored(&mut f, x).0).collect();
@@ -180,7 +180,7 @@ impl GittinsPolicy {
         GittinsPolicy {
             bits,
             horizon: 10.0,
-            state: new_bandit(1 << bits, 10.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING),
+            state: new_bandit(1 << bits, 10.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap(),
             salt: String::new(),
             decision_id: String::new(),
         }
@@ -198,15 +198,16 @@ impl Policy for GittinsPolicy {
             0.0,
             DEFAULT_EPSILON,
             DEFAULT_FORGETTING,
-        );
+        )
+        .unwrap();
         self.salt = format!("gittins:{seed}");
     }
     fn choose(&mut self, rd: &Round, _seed: u64) -> (usize, Option<Vec<f64>>) {
         expire(&mut self.state, rd.t);
         let candidates: Vec<Features> = (0..rd.arm_ids.len())
-            .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits))
+            .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits).unwrap())
             .collect();
-        let record = decide(&mut self.state, &candidates, rd.t, &self.salt);
+        let record = decide(&mut self.state, &candidates, rd.t, &self.salt).unwrap();
         self.decision_id = record.decision_id;
         // Metric-only read: the same estimates decide just scored with,
         // recomputed because decide deliberately logs only the chosen

@@ -9,12 +9,13 @@ mod json;
 
 use json::Json;
 
-use gittins_core::decide::{candidate_set_hash, decide, new_bandit, DecisionRecord};
+use gittins_core::decide::{candidate_set_hash, decide, new_bandit, BanditState, DecisionRecord};
 use gittins_core::encoding::{encode, feature_tokens, pair_hash, Features, Value};
 use gittins_core::exploration::{epsilon_greedy_probabilities, sample_index, DEFAULT_EPSILON};
 use gittins_core::ledger::{censor, expire, learn, Resolution};
-use gittins_core::model::{new_model, predict, update};
+use gittins_core::model::{new_model, predict, update, DEFAULT_FORGETTING};
 use gittins_core::rng::{derive_key, random_u64, random_unit};
+use gittins_core::state::{deserialize, serialize, FORMAT_VERSION};
 
 fn golden() -> Json {
     Json::parse(include_str!("../../../spec/golden.json"))
@@ -93,7 +94,8 @@ fn model_section() {
         s.get("dim").usize_(),
         s.get("forgetting").f64_(),
         s.get("ridge").f64_(),
-    );
+    )
+    .unwrap();
     let states = s.get("states").arr();
     for (i, u) in s.get("updates").arr().iter().enumerate() {
         let x: Features = u
@@ -128,7 +130,7 @@ fn model_section() {
 fn exploration_section() {
     let s = section("exploration");
     let estimates: Vec<f64> = s.get("estimates").arr().iter().map(Json::f64_).collect();
-    let p = epsilon_greedy_probabilities(&estimates, s.get("epsilon").f64_());
+    let p = epsilon_greedy_probabilities(&estimates, s.get("epsilon").f64_()).unwrap();
     for (i, e) in s.get("probabilities").arr().iter().enumerate() {
         assert_bits(p[i], e, &format!("probabilities[{i}]"));
     }
@@ -166,7 +168,8 @@ fn encoding_section() {
             case.get("arm_id").str_(),
             &values(case.get("action")),
             case.get("bits").u64_() as u32,
-        );
+        )
+        .unwrap();
         assert_pairs(&pairs, case.get("pairs"), "encode pairs");
     }
 }
@@ -206,11 +209,12 @@ fn assert_resolutions(actual: &[Resolution], expected: &Json) {
 }
 
 /// Replay the reference's end-to-end episode generator — same schedule,
-/// same reward rule, same out-of-order resolutions — and require every
-/// record, resolution, model bit, and prediction to match the corpus.
-#[test]
-fn episode_section() {
-    let s = section("episode");
+/// same reward rule, same out-of-order resolutions, same rejected no-op
+/// attempts — asserting every record and resolution against the corpus
+/// along the way. Returns (mid state, final state): the mid state is the
+/// snapshot just before the censor (two open ledger records), matching the
+/// reference's serialization snapshot.
+fn replay_episode(s: &Json) -> (BanditState, BanditState) {
     let bits: u32 = s.get("bits").u64_() as u32;
     let forgetting = s.get("forgetting").f64_();
     let horizon = s.get("horizon").f64_();
@@ -220,19 +224,22 @@ fn episode_section() {
     let events = s.get("events").arr();
     let mut resolutions: Vec<Resolution> = Vec::new();
 
-    let mut state = new_bandit(1 << bits, horizon, default_reward, DEFAULT_EPSILON, forgetting);
+    let mut state =
+        new_bandit(1 << bits, horizon, default_reward, DEFAULT_EPSILON, forgetting).unwrap();
 
     // One decision on the real path; checks the event's candidate_hash and
     // full record, and returns the record plus the rule's reward.
     let play = |state: &mut _, t: f64, seg: &str, event: &Json| -> (DecisionRecord, f64) {
         let context = vec![("seg".to_string(), Value::Str(seg.to_string()))];
-        let candidates: Vec<Features> =
-            arms.iter().map(|arm| encode(&context, arm, &[], bits)).collect();
+        let candidates: Vec<Features> = arms
+            .iter()
+            .map(|arm| encode(&context, arm, &[], bits).unwrap())
+            .collect();
         assert!(
             candidate_set_hash(&candidates, 1 << bits) == event.get("candidate_hash").u64_(),
             "event candidate_hash at t={t}"
         );
-        let record = decide(state, &candidates, t, "fleet-a");
+        let record = decide(state, &candidates, t, "fleet-a").unwrap();
         assert_record(&record, event.get("record"), &record.decision_id.clone());
         let reward = if (arms[record.chosen] == "x") == (seg == "a") { 1.0 } else { 0.0 };
         (record, reward)
@@ -254,6 +261,7 @@ fn episode_section() {
         resolutions.push(learn(&mut state, &decision_id, reward).unwrap());
     }
     let (record, _) = play(&mut state, t0 + 6000.0, "a", &events[10]);
+    let mid_state = state.clone(); // decisions 7 and 10 open
     resolutions.push(censor(&mut state, &record.decision_id).unwrap());
     let sweep_t = t0 + 7.0 * 600.0 + horizon; // decision 7 is exactly due
     assert_bits(sweep_t, s.get("expire_sweep_at"), "expire_sweep_at");
@@ -261,7 +269,7 @@ fn episode_section() {
     assert_resolutions(&resolutions, s.get("resolutions"));
 
     // The corpus's rejected attempts: every one must be a structural no-op,
-    // enforced by the final-state comparison below coming *after* them.
+    // enforced by the final-state comparisons coming *after* them.
     for attempt in s.get("rejected").arr() {
         let id = attempt.get("decision_id").str_();
         let resolved = match attempt.get("action").str_() {
@@ -271,6 +279,17 @@ fn episode_section() {
         };
         assert!(!resolved, "rejected attempt on {id} unexpectedly resolved");
     }
+    (mid_state, state)
+}
+
+/// The end-to-end episode: replay it and require the final model bits and
+/// predictions to match the corpus.
+#[test]
+fn episode_section() {
+    let s = section("episode");
+    let bits: u32 = s.get("bits").u64_() as u32;
+    let arms = ["x", "y"];
+    let (_, state) = replay_episode(&s);
 
     let fin = s.get("final");
     assert!(state.model_version == fin.get("model_version").u64_(), "final model_version");
@@ -294,7 +313,8 @@ fn episode_section() {
             let e = expected.next().unwrap();
             assert!(e.get("seg").str_() == seg && e.get("arm").str_() == arm);
             let context = vec![("seg".to_string(), Value::Str(seg.to_string()))];
-            let (estimate, uncertainty) = predict(&state.model, &encode(&context, arm, &[], bits));
+            let (estimate, uncertainty) =
+                predict(&state.model, &encode(&context, arm, &[], bits).unwrap());
             assert_bits(estimate, e.get("estimate"), &format!("prediction {seg}/{arm} estimate"));
             assert_bits(
                 uncertainty,
@@ -303,4 +323,55 @@ fn episode_section() {
             );
         }
     }
+}
+
+/// The canonical state serialization: the corpus's byte strings must be
+/// produced exactly, accepted back, and round-trip to equal states.
+#[test]
+fn serialization_section() {
+    let s = section("serialization");
+    assert!(s.get("format_version").u64_() == FORMAT_VERSION);
+
+    let fresh_case = s.get("fresh");
+    let fresh = new_bandit(
+        fresh_case.get("dim").usize_(),
+        fresh_case.get("horizon").f64_(),
+        0.0,
+        DEFAULT_EPSILON,
+        DEFAULT_FORGETTING,
+    )
+    .unwrap();
+    let (mid, fin) = replay_episode(&section("episode"));
+    let open_ids: Vec<&str> = s
+        .get("episode_mid")
+        .get("open_ids")
+        .arr()
+        .iter()
+        .map(Json::str_)
+        .collect();
+    assert!(
+        mid.ledger.iter().map(|r| r.decision_id.as_str()).collect::<Vec<_>>() == open_ids,
+        "mid snapshot open ids"
+    );
+
+    for (state, case, what) in [
+        (&fresh, fresh_case, "fresh"),
+        (&mid, s.get("episode_mid"), "episode_mid"),
+        (&fin, s.get("episode_final"), "episode_final"),
+    ] {
+        let expected = unhex(case.get("bytes_hex").str_());
+        let produced = serialize(state);
+        assert!(produced == expected, "{what}: serialized bytes differ from corpus");
+        let loaded = deserialize(&expected).unwrap();
+        assert!(&loaded == state, "{what}: deserialized state differs");
+        assert!(serialize(&loaded) == expected, "{what}: round-trip bytes differ");
+    }
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    assert!(text.len() % 2 == 0, "odd hex length");
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("bad hex"))
+        .collect()
 }

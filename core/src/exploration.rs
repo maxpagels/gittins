@@ -5,6 +5,7 @@
 //! Sampling is inverse-CDF over one counter-RNG uniform, in fixed index
 //! order, so the distribution and the choice are bit-identical everywhere.
 
+use crate::error::Error;
 use crate::rng::random_unit;
 
 /// Probability mass spent uniformly over the candidates; every candidate is
@@ -14,10 +15,14 @@ pub const DEFAULT_EPSILON: f64 = 0.05;
 
 /// The epsilon-greedy distribution over candidates: `epsilon` uniform,
 /// `1 - epsilon` split across the maximal estimates (exact-tie split).
-pub fn epsilon_greedy_probabilities(estimates: &[f64], epsilon: f64) -> Vec<f64> {
+pub fn epsilon_greedy_probabilities(estimates: &[f64], epsilon: f64) -> Result<Vec<f64>, Error> {
     let k = estimates.len();
-    assert!(k >= 1, "need at least one candidate");
-    assert!((0.0..=1.0).contains(&epsilon), "epsilon must be in [0, 1]");
+    if k < 1 {
+        return Err(Error::new("need at least one candidate"));
+    }
+    if !(0.0..=1.0).contains(&epsilon) {
+        return Err(Error::new("epsilon must be in [0, 1]"));
+    }
     let mut best = estimates[0];
     for &e in &estimates[1..] {
         if e > best {
@@ -27,10 +32,10 @@ pub fn epsilon_greedy_probabilities(estimates: &[f64], epsilon: f64) -> Vec<f64>
     let m = estimates.iter().filter(|&&e| e == best).count();
     let uniform = epsilon / k as f64;
     let share = (1.0 - epsilon) / m as f64;
-    estimates
+    Ok(estimates
         .iter()
         .map(|&e| if e == best { uniform + share } else { uniform })
-        .collect()
+        .collect())
 }
 
 /// Draw one index from distribution `p` using the uniform value at position
