@@ -1,15 +1,14 @@
-"""`python -m sim`: run the batteries and print markdown tables.
+"""`python -m sim`: run the environment battery and print a markdown table.
 
-Two tables: the round-based environment battery (every world x every
-comparator), and the event-time battery (daily traffic and delayed rewards
-driving the same policies through the event-queue runner, with phase-split
-regret and the reward-plumbing diagnostics). CI appends the output to the
+Every world x every comparator, round-based. CI appends the output to the
 GitHub job summary, so every run is readable directly in the Actions UI.
 Runs are seeded and paired (see sim.rand): the numbers are exactly
 reproducible for a given harness version, but they are statistics, not
-golden vectors — nothing here is bit-pinned, and these tables are a
+golden vectors — nothing here is bit-pinned, and the table is a
 diagnostic, not a gate. The sweep driver that settles the engine's
-constants is sim/sweep.py.
+constants is sim/sweep.py; the event-time runner (event_runner.py,
+traffic.py) remains available for by-hand studies and is exercised by
+tests/test_event_sim.py.
 """
 
 import sys
@@ -25,8 +24,7 @@ from sim.environments import (
     NeedleEnvironment,
     XorEnvironment,
 )
-from sim.event_runner import run_events
-from sim.metrics import final_window_regret, median_iqr, normalized_regret, phase_regret, rmse
+from sim.metrics import final_window_regret, median_iqr, normalized_regret, rmse
 from sim.policies import (
     EpsilonGreedyPolicy,
     GittinsPolicy,
@@ -35,7 +33,6 @@ from sim.policies import (
     UniformPolicy,
 )
 from sim.runner import run
-from sim.traffic import DAY, HOUR, DailyTraffic, ExponentialDelay, NextMorningDelay, phase
 
 SEEDS = range(5)
 ROUNDS = 1500
@@ -67,32 +64,6 @@ POLICIES = [
     lambda: GittinsPolicy(bits=BITS),
 ]
 
-# The event-time battery: linear-k5 under daily traffic (two peaks,
-# overnight trough, one burst window a day). Forgetting is clocked by
-# updates, so the traffic shape sets how fast the model forgets in wall
-# time. Config A: fast rewards with a tail past the 2h horizon (~7%
-# expire). Config B: every reward lands the next morning — the horizon must
-# span the night, so the ledger holds a whole day of open decisions.
-EVENT_ENV = LinearEnvironment(k=5)
-EVENT_TRAFFIC = DailyTraffic(peak_rate=0.04, trough_rate=0.002, bursts=1)
-EVENT_DURATION = 2 * DAY
-EVENT_CONFIGS = [
-    ("exp 45m, horizon 2h", ExponentialDelay(45 * 60.0), 2 * HOUR),
-    ("next morning, horizon 26h", NextMorningDelay(), 26 * HOUR),
-]
-
-
-def event_policies(horizon: float) -> list:
-    return [
-        OraclePolicy,
-        UniformPolicy,
-        lambda: GreedyPolicy(bits=BITS),
-        lambda: EpsilonGreedyPolicy(0.05, bits=BITS),
-        lambda: EpsilonGreedyPolicy(0.1, bits=BITS),
-        lambda: GittinsPolicy(bits=BITS, horizon=horizon),
-    ]
-
-
 def spread(values: "list[float]") -> str:
     median, q1, q3 = median_iqr(values)
     return f"{median:.3f} [{q1:.3f}, {q3:.3f}]"
@@ -100,6 +71,7 @@ def spread(values: "list[float]") -> str:
 
 def main() -> None:
     start = time.time()
+    decisions = 0
     print("### Environment battery")
     print()
     print(
@@ -118,6 +90,7 @@ def main() -> None:
             for seed in SEEDS:
                 policy = make()
                 result = run(env, policy, seed, ROUNDS)
+                decisions += len(result.regret)
                 regrets.append(normalized_regret(result))
                 finals.append(final_window_regret(result))
                 e = rmse(result, first=ROUNDS // 2)
@@ -129,45 +102,11 @@ def main() -> None:
                 f"| {spread(finals)} | {err} |"
             )
     print()
-    print("### Event-time battery")
-    print()
+    elapsed = time.time() - start
     print(
-        f"{EVENT_ENV.name}, {EVENT_DURATION / DAY:g} days of daily traffic "
-        f"(peak {EVENT_TRAFFIC.peak_rate:g}/s, trough {EVENT_TRAFFIC.trough_rate:g}/s, "
-        f"{EVENT_TRAFFIC.bursts} burst/day), seeds {list(SEEDS)}. Regret is normalized (median [IQR]); phase columns are "
-        "medians; expired is the fraction of decisions the engine's horizon expired; "
-        "open is the ledger high-water mark."
+        f"_{elapsed:.0f}s on {sys.platform}, Python {sys.version.split()[0]}; "
+        f"{decisions:,} decisions total, {decisions / elapsed:,.0f} decisions/s._"
     )
-    print()
-    print(
-        "| delay / horizon | policy | normalized regret "
-        "| peak | trough | morning | expired | open |"
-    )
-    print("|---|---|---|---|---|---|---|---|")
-    for label, delay, horizon in EVENT_CONFIGS:
-        for make in event_policies(horizon):
-            regrets = []
-            phases: "dict[str, list[float]]" = {}
-            expired = []
-            opened = []
-            for seed in SEEDS:
-                policy = make()
-                result = run_events(EVENT_ENV, policy, seed, EVENT_TRAFFIC, delay, EVENT_DURATION)
-                regrets.append(normalized_regret(result))
-                for p, v in phase_regret(result, phase).items():
-                    phases.setdefault(p, []).append(v)
-                expired.append(result.expired / len(result.times))
-                opened.append(result.max_open)
-            cells = " | ".join(
-                f"{median_iqr(phases[p])[0]:.3f}" if p in phases else "—"
-                for p in ("peak", "trough", "morning")
-            )
-            print(
-                f"| {label} | {policy.name} | {spread(regrets)} | {cells} "
-                f"| {median_iqr(expired)[0]:.1%} | {median_iqr(opened)[0]:.0f} |"
-            )
-    print()
-    print(f"_{time.time() - start:.0f}s on {sys.platform}, Python {sys.version.split()[0]}._")
 
 
 if __name__ == "__main__":

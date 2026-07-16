@@ -3,11 +3,10 @@
 The engine deliberately has no user knobs; its fixed constants are settled
 by evidence instead. This driver produces the evidence for
 `DEFAULT_EPSILON` (exploration.py's uniform exploration mass): it re-runs
-every battery environment — and the event-time configurations — with the
-engine constructed at each candidate value, and prints a markdown report of
-normalized regret per (environment, value) with the per-environment best
-marked and the no-ledger epsilon-0.1 baseline alongside as the "would
-something dumber beat us" reference.
+every battery environment with the engine constructed at each candidate
+value, and prints a markdown report of normalized regret per (environment,
+value) with the per-environment best marked and the no-ledger epsilon-0.1
+baseline alongside as the "would something dumber beat us" reference.
 
 The summary applies the battery's pass criteria to each candidate as a
 would-be default: within 10% of the per-environment best on at least 90%
@@ -24,17 +23,7 @@ import math
 import sys
 import time
 
-from sim.__main__ import (
-    BITS,
-    ENVIRONMENTS,
-    EVENT_CONFIGS,
-    EVENT_DURATION,
-    EVENT_ENV,
-    EVENT_TRAFFIC,
-    ROUNDS,
-    SEEDS,
-)
-from sim.event_runner import run_events
+from sim.__main__ import BITS, ENVIRONMENTS, ROUNDS, SEEDS
 from sim.metrics import median_iqr, normalized_regret
 from sim.policies import EpsilonGreedyPolicy, GittinsPolicy
 from sim.runner import run
@@ -47,9 +36,8 @@ CATASTROPHIC = 2.0
 
 
 def cells() -> "list[tuple[str, callable, callable]]":
-    """(label, gittins run, baseline run) per battery cell: the round-based
-    environments plus the event-time configurations, each returning one
-    median normalized regret over the battery's seeds."""
+    """(label, gittins run, baseline run) per battery environment, each
+    returning one median normalized regret over the battery's seeds."""
     out = []
     for env in ENVIRONMENTS:
 
@@ -65,30 +53,6 @@ def cells() -> "list[tuple[str, callable, callable]]":
             return median_iqr(regrets)[0]
 
         out.append((env.name, rounds_cell, lambda env=env: rounds_cell(0.0, env, baseline=True)))
-    for label, delay, horizon in EVENT_CONFIGS:
-
-        def event_cell(epsilon, delay=delay, horizon=horizon, baseline=False):
-            regrets = []
-            for seed in SEEDS:
-                policy = (
-                    EpsilonGreedyPolicy(0.1, bits=BITS)
-                    if baseline
-                    else GittinsPolicy(bits=BITS, horizon=horizon, epsilon=epsilon)
-                )
-                regrets.append(
-                    normalized_regret(
-                        run_events(EVENT_ENV, policy, seed, EVENT_TRAFFIC, delay, EVENT_DURATION)
-                    )
-                )
-            return median_iqr(regrets)[0]
-
-        out.append(
-            (
-                f"event: {label}",
-                event_cell,
-                lambda d=delay, h=horizon: event_cell(0.0, d, h, baseline=True),
-            )
-        )
     return out
 
 

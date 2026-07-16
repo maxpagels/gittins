@@ -11,7 +11,7 @@ point into it for readers who have it locally.
 core (eventually Rust, with Python/JS bindings) where all state is an explicit value,
 decisions are first-class logged records, and non-stationarity is handled by built-in
 forgetting with fixed defaults — tuning lives offline, in replay and off-policy
-evaluation over the decision log, never in knobs. "The SQLite of bandits."
+evaluation over the decision log, never in knobs.
 
 **Current phase: Phase 0 — Specification & pure-Python reference implementation.**
 Every core concept is first written as small, readable, dependency-free Python with
@@ -185,12 +185,12 @@ and ~20 seeds; runs of 10k–50k decisions.
 
 ### Runtime budget
 
-Prediction is O(dim) per candidate, with the weights solved once per decision
-(`factorize` — dim reciprocals, no matrix anywhere). Measured in pure Python:
-dim 64 × 100 arms ≈ 4.5 ms/decision, dim 256 × 100 arms ≈ 46 ms/decision. Every cell
-the battery needs is comfortable. The reference's per-candidate cost is O(dim) rather
-than O(nonzeros) only because vectors are dense Python lists, kept for readability;
-the sparse representation that makes very large `bits` cheap belongs to the Rust core.
+Prediction is O(nonzeros) per candidate, with the weights solved lazily per
+decision (`factorize` — one reciprocal per touched coordinate, no matrix
+anywhere). Measured in pure Python after the PR 16 sparse representation:
+dim 256 × 100 arms ≈ 0.85 ms/decision, dim 16,384 × 10,000 arms ≈ 87 ms/decision
+(~82% of which is `candidate_set_hash`'s per-byte FNV). Every cell the battery
+needs is comfortable.
 
 ### PR slicing
 
@@ -548,3 +548,40 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   saved variance multiplies, sqrt per candidate, and distribution build were never
   going to move the wall clock here; they pay off in the sparse compiled core,
   where per-nonzero arithmetic is the whole cost.
+
+  **Sparse representation end to end** (same PR): the three deferred
+  representation decisions that gate large `bits` and large arm counts, pulled
+  into the reference so the golden corpus pins the sparse semantics the compiled
+  core must match.
+
+  - *Sparse candidates.* `encode` now returns the nonzero (index, value) pairs
+    in strictly increasing index order — never the dense `2**bits` list. Per-slot
+    accumulation keeps the dense formulation's add order, so every surviving
+    value is bit-identical; entries that cancel to exactly 0.0 are absent,
+    matching the candidate-set hash's canonical form. `decide` validates pairs
+    (sorted, nonzero, inside the model dimension); `candidate_set_hash` takes
+    `dim` explicitly and hashes the pairs directly — the byte layout is unchanged,
+    and the regenerated corpus proves it: **zero `candidate_hash` values changed**.
+    Decision records store the chosen candidate's pairs (O(nonzeros) in the
+    ledger and the log, was O(dim)).
+  - *O(nonzeros) updates.* The model stores pre-scaled sums with a movable
+    origin — `scale <- forgetting * scale`, entries += contribution / scale,
+    renormalized when scale <= 2^-512 (~every 355k updates at the default rate) —
+    the decay-on-read formulation the 2026-07-14 decay decision already chose,
+    now clocked by updates. Arithmetic per update is O(nonzeros); the reference's
+    immutable tuples still copy O(dim) pointers (memcpy, no FLOPs — 0.2 ms at
+    dim 16k; the compiled core mutates in place). This is the one semantics
+    change: pre-scaled bookkeeping rounds differently, so model/episode golden
+    values moved at the last-bit level. Same-battery check: every regret cell
+    identical to three decimals — not one decision flipped at the battery's
+    seeds — and battery wall time fell 52s -> 33s.
+  - *Lazy factorization.* A coordinate's (precision, weight) is solved on first
+    touch and memoized per decision — O(coordinates touched), never O(dim) —
+    same operations per coordinate, bit-identical results.
+
+  Feasibility measured at the target scale (pure Python): dim 16,384 x 10,000
+  arms decides in 87 ms (the dense formulation needed ~10 s: k x dim scanning
+  alone was 1.6e8 iterations); dim 256 x 100 arms fell 1.32 -> 0.85 ms. Profile
+  at 10k arms: ~82% of decide is `candidate_set_hash`'s per-byte FNV — the
+  next lever is the per-nonzero mix64 hash redesign (or per-candidate hash
+  memoization), deliberately not taken here to keep the hash contract frozen.
