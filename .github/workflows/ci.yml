@@ -64,23 +64,43 @@ jobs:
       - name: Run environment battery on the Rust core
         run: cargo run --release --manifest-path core/Cargo.toml --bin sim | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # The Python binding: build the wheel (maturin via the PEP 517 backend),
-  # replay the golden api section through it — the binding acceptance gate
-  # (spec/api.md) — and append the decision-cycle benchmark to the summary
-  # so boundary-crossing regressions are visible next to the battery tables.
-  python-binding:
+  # The bindings job, both bindings end to end. Python: build the wheel
+  # (maturin via the PEP 517 backend) and replay the golden api section
+  # through it — the binding acceptance gate (spec/api.md). Wasm: the same
+  # gate plus the serialization section under Node — also the project's
+  # cross-platform bit-identity check, since WASM mandates IEEE-754
+  # semantics — and a packaging smoke build. Then the decision-cycle
+  # benchmark into the summary: native core / wheel / wasm / pure reference
+  # in one table, so both engine and boundary regressions are visible next
+  # to the battery tables.
+  bindings:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - uses: astral-sh/setup-uv@v8.3.2
         with:
           python-version: "3.13"
-      - name: Build and install the binding + the reference
+      - name: Build and install the Python binding + the reference
         run: |
           uv venv
           uv pip install . ./bindings/python pytest
-      - name: Golden gate + binding tests
+      - name: Golden gate + tests, Python binding
         run: .venv/bin/python -m pytest bindings/python/tests -q
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Golden gate under Node, wasm binding
+        run: wasm-pack test --node bindings/wasm
+      - name: Package smoke build (wasm for the web)
+        run: wasm-pack build --target web bindings/wasm
+      # The benchmark compares four implementations in one table, so this
+      # job also builds the native-core bench binary and the wasm package
+      # for Node (bench.py degrades cells to "not built" if absent).
+      - name: Build the native-core benchmark binary
+        run: cargo build --release --bin bench --manifest-path core/Cargo.toml
+      - name: Build the wasm package for Node
+        run: wasm-pack build --target nodejs --out-dir pkg-node bindings/wasm
       - name: Decision-cycle benchmark
         run: .venv/bin/python bindings/python/bench.py | tee -a "$GITHUB_STEP_SUMMARY"

@@ -9,16 +9,15 @@
 //! and encode → score → sample all happen inside Rust; nothing calls back
 //! into Python per candidate or per feature.
 //!
-//! State handling: the reference API is functional — every call returns
-//! (result, state). This binding keeps those exact shapes but returns the
-//! *same* state handle it was given, mutated in place, so nothing is
-//! copied. Rebind it (`record, state = gittins.decide(state, ...)`)
-//! exactly as the reference docs show; a stale alias of the old handle
-//! observes the new state rather than the old one.
+//! State handling, the uniform convention across every implementation
+//! (spec/api.md): the state is an opaque handle, updated in place — calls
+//! return only their results (`record = gittins.decide(state, ...)`), and
+//! every alias of the handle observes the current state. Snapshot or
+//! persist it with `serialize`.
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyString, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple};
 
 use gittins_core::api;
 use gittins_core::decide::{BanditState as CoreState, DecisionRecord as CoreRecord};
@@ -150,13 +149,13 @@ fn model_bits(state: &Bound<'_, BanditState>) -> PyResult<u32> {
 }
 
 #[pyfunction]
-fn decide<'py>(
-    state: Bound<'py, BanditState>,
-    context: &Bound<'py, PyDict>,
-    candidates: Vec<(String, Bound<'py, PyDict>)>,
+fn decide(
+    state: &Bound<'_, BanditState>,
+    context: &Bound<'_, PyDict>,
+    candidates: Vec<(String, Bound<'_, PyDict>)>,
     t: f64,
     salt: &str,
-) -> PyResult<(DecisionRecord, Bound<'py, BanditState>)> {
+) -> PyResult<DecisionRecord> {
     let context = features(context)?;
     let candidates: Vec<(String, Vec<(String, Value)>)> = candidates
         .into_iter()
@@ -164,47 +163,42 @@ fn decide<'py>(
         .collect::<PyResult<_>>()?;
     let record = api::decide(&mut state.borrow_mut().inner, &context, &candidates, t, salt)
         .map_err(value_error)?;
-    Ok((record.into(), state))
+    Ok(record.into())
 }
 
+/// The resolution, or None if the id is unknown or already resolved.
 #[pyfunction]
-fn learn<'py>(
-    state: Bound<'py, BanditState>,
-    decision_id: &str,
-    reward: f64,
-) -> (Option<Resolution>, Bound<'py, BanditState>) {
-    let resolution =
-        api::learn(&mut state.borrow_mut().inner, decision_id, reward).map(Resolution::from);
-    (resolution, state)
+fn learn(state: &Bound<'_, BanditState>, decision_id: &str, reward: f64) -> Option<Resolution> {
+    api::learn(&mut state.borrow_mut().inner, decision_id, reward).map(Resolution::from)
 }
 
+/// The resolution, or None if the id is unknown or already resolved.
 #[pyfunction]
-fn censor<'py>(
-    state: Bound<'py, BanditState>,
-    decision_id: &str,
-) -> (Option<Resolution>, Bound<'py, BanditState>) {
-    let resolution = api::censor(&mut state.borrow_mut().inner, decision_id).map(Resolution::from);
-    (resolution, state)
+fn censor(state: &Bound<'_, BanditState>, decision_id: &str) -> Option<Resolution> {
+    api::censor(&mut state.borrow_mut().inner, decision_id).map(Resolution::from)
 }
 
+/// Every decision past its horizon at time `t`, resolved as expired, in
+/// ledger order.
 #[pyfunction]
 fn expire<'py>(
     py: Python<'py>,
-    state: Bound<'py, BanditState>,
+    state: &Bound<'py, BanditState>,
     t: f64,
-) -> PyResult<(Bound<'py, PyTuple>, Bound<'py, BanditState>)> {
+) -> PyResult<Bound<'py, PyTuple>> {
     let resolutions = api::expire(&mut state.borrow_mut().inner, t);
-    let resolutions = PyTuple::new(py, resolutions.into_iter().map(Resolution::from))?;
-    Ok((resolutions, state))
+    PyTuple::new(py, resolutions.into_iter().map(Resolution::from))
 }
 
 #[pyfunction]
-fn serialize<'py>(py: Python<'py>, state: &Bound<'py, BanditState>) -> Bound<'py, PyBytes> {
-    PyBytes::new(py, &api::serialize(&state.borrow().inner))
+/// The current state as one plain hex string — storable anywhere text
+/// goes, with no byte handling on the caller's side.
+fn serialize(state: &Bound<'_, BanditState>) -> String {
+    api::serialize(&state.borrow().inner)
 }
 
 #[pyfunction]
-fn deserialize(data: &[u8]) -> PyResult<BanditState> {
+fn deserialize(data: &str) -> PyResult<BanditState> {
     Ok(BanditState {
         inner: api::deserialize(data).map_err(value_error)?,
     })

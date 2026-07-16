@@ -43,22 +43,100 @@ def drive(create, decide, learn, contexts, catalog) -> float:
     time-boxed sampling."""
     state = create(bits=BITS, horizon=1e9)
     for i in range(5):  # warm up (fills the reference's hash cache, too)
-        record, state = decide(state, contexts[i % len(contexts)], catalog, float(i), "warm")
-        _, state = learn(state, record.decision_id, 1.0)
+        record = decide(state, contexts[i % len(contexts)], catalog, float(i), "warm")
+        learn(state, record.decision_id, 1.0)
     rounds = 0
     start = time.perf_counter()
     while rounds < MAX_ROUNDS:
         i = rounds
-        record, state = decide(state, contexts[i % len(contexts)], catalog, float(i), "bench")
-        _, state = learn(state, record.decision_id, 1.0 if i % 3 else 0.0)
+        record = decide(state, contexts[i % len(contexts)], catalog, float(i), "bench")
+        learn(state, record.decision_id, 1.0 if i % 3 else 0.0)
         rounds += 1
         if time.perf_counter() - start >= MIN_SECONDS:
             break
     return (time.perf_counter() - start) / rounds
 
 
-def cell(seconds: float) -> str:
+def cell(seconds: "float | None") -> str:
+    if seconds is None:
+        return "not built"
     return f"{seconds * 1e6:,.0f} µs ({1 / seconds:,.0f}/s)"
+
+
+def wasm_grid() -> "dict[tuple[int, int], float] | None":
+    """Per-cell seconds for the wasm binding under Node, on the identical
+    workload (bindings/wasm/bench.cjs), or None if the Node build of the
+    wasm package (`wasm-pack build --target nodejs --out-dir pkg-node
+    bindings/wasm`) or Node itself is unavailable."""
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    wasm_dir = Path(__file__).resolve().parents[1] / "wasm"
+    node = shutil.which("node")
+    if node is None or not (wasm_dir / "pkg-node" / "gittins_wasm.js").exists():
+        return None
+    config = json.dumps(
+        {
+            "bits": BITS,
+            "arm_counts": list(ARM_COUNTS),
+            "feature_counts": list(FEATURE_COUNTS),
+            "min_seconds": MIN_SECONDS,
+            "max_rounds": MAX_ROUNDS,
+            "variants": CONTEXT_VARIANTS,
+        }
+    )
+    run = subprocess.run(
+        [node, str(wasm_dir / "bench.cjs"), config], capture_output=True, text=True
+    )
+    if run.returncode != 0:
+        return None
+    return {(r["arms"], r["features"]): r["seconds"] for r in json.loads(run.stdout)}
+
+
+def core_grid() -> "dict[tuple[int, int], float] | None":
+    """Per-cell seconds for the native Rust core with no binding boundary
+    at all (core/src/bin/bench.rs) — the floor the bindings are measured
+    against. Builds the binary on demand if cargo is available; returns
+    None when neither the binary nor cargo can be had."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    binary = root / "core" / "target" / "release" / "bench"
+    if not binary.exists():
+        cargo = shutil.which("cargo")
+        if cargo is None:
+            return None
+        built = subprocess.run(
+            [cargo, "build", "--release", "--bin", "bench",
+             "--manifest-path", str(root / "core" / "Cargo.toml")],
+            capture_output=True,
+        )
+        if built.returncode != 0 or not binary.exists():
+            return None
+    run = subprocess.run(
+        [
+            str(binary),
+            str(BITS),
+            str(MIN_SECONDS),
+            str(MAX_ROUNDS),
+            str(CONTEXT_VARIANTS),
+            ",".join(map(str, ARM_COUNTS)),
+            ",".join(map(str, FEATURE_COUNTS)),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if run.returncode != 0:
+        return None
+    out = {}
+    for line in run.stdout.splitlines():
+        arms, features, seconds = line.split()
+        out[(int(arms), int(features))] = float(seconds)
+    return out
 
 
 def main() -> None:
@@ -68,29 +146,46 @@ def main() -> None:
         from gittins_reference import api
     except ImportError:
         api = None
+    core = core_grid()
+    wasm = wasm_grid()
 
-    print("### Decision-cycle benchmark (Python binding)")
+    print("### Decision-cycle benchmark")
     print()
     print(
         f"bits={BITS} (dim {1 << BITS}); context features counted per row "
         "(one categorical + numerics); every arm carries 2 action features "
-        "on top; each cell is a full decide + learn cycle, per decision."
+        "on top; each cell is a full decide + learn cycle, per decision. "
+        "Speedups are vs the pure-Python reference (core / wheel / wasm); "
+        "the native core has no binding boundary at all, so the wheel/wasm "
+        "gaps to it are the boundary tax."
     )
     print()
-    print("| arms | context features | binding (Rust core) | reference (pure Python) | speedup |")
-    print("|---|---|---|---|---|")
+    print(
+        "| arms | context features | core (native Rust) | wheel (Python) "
+        "| wasm (Node) | reference (pure Python) | speedup |"
+    )
+    print("|---|---|---|---|---|---|---|")
     for arms in ARM_COUNTS:
         catalog = catalog_for(arms)
         for n_features in FEATURE_COUNTS:
             contexts = contexts_for(n_features)
             bound = drive(gittins.create, gittins.decide, gittins.learn, contexts, catalog)
+            c = None if core is None else core.get((arms, n_features))
+            w = None if wasm is None else wasm.get((arms, n_features))
             if api is None:
-                print(f"| {arms} | {n_features} | {cell(bound)} | not installed | — |")
+                print(
+                    f"| {arms} | {n_features} | {cell(c)} | {cell(bound)} | {cell(w)} "
+                    "| not installed | — |"
+                )
                 continue
             pure = drive(api.create, api.decide, api.learn, contexts, catalog)
+            ratios = [
+                "—" if seconds is None else f"{pure / seconds:,.1f}x"
+                for seconds in (c, bound, w)
+            ]
             print(
-                f"| {arms} | {n_features} | {cell(bound)} | {cell(pure)} "
-                f"| {pure / bound:,.1f}x |"
+                f"| {arms} | {n_features} | {cell(c)} | {cell(bound)} | {cell(w)} "
+                f"| {cell(pure)} | {' / '.join(ratios)} |"
             )
 
 

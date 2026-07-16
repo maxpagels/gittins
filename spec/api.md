@@ -16,16 +16,43 @@ public boundary.
 
 The surface is eight names:
 
-| function | is |
-|---|---|
-| `create(bits, horizon, default_reward=0.0, epsilon=0.05, forgetting=0.999)` | `new_bandit` with `bits` (the one encoding declaration) in place of a raw dimension: the model spans the 2^bits hashed space |
-| `decide(state, context, candidates, t, salt)` | encode each `(arm_id, action dict)` candidate against the context dict, in candidate order, then `decide.py`'s decide |
-| `learn(state, decision_id, reward)` | ledger.py, unchanged |
-| `censor(state, decision_id)` | ledger.py, unchanged |
-| `expire(state, t)` | ledger.py, unchanged |
-| `serialize(state)` | state.py, unchanged |
-| `deserialize(data)` | state.py, unchanged |
-| `model_bits(state)` | the `bits` declaration recovered from the model dimension |
+| function | returns | is |
+|---|---|---|
+| `create(bits, horizon, default_reward=0.0, epsilon=0.05, forgetting=0.999)` | a state handle | `new_bandit` with `bits` (the one encoding declaration) in place of a raw dimension: the model spans the 2^bits hashed space |
+| `decide(state, context, candidates, t, salt)` | the decision record | encode each `(arm_id, action dict)` candidate against the context dict, in candidate order, then `decide.py`'s decide |
+| `learn(state, decision_id, reward)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
+| `censor(state, decision_id)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
+| `expire(state, t)` | the resolutions, in ledger order | ledger.py, unchanged |
+| `serialize(state)` | the state as one hex string | the canonical byte layout (serialization.md), hex-encoded |
+| `deserialize(data)` | a state handle | the inverse; rejects anything malformed |
+| `model_bits(state)` | the `bits` declaration | recovered from the model dimension |
+
+## State handling: one convention everywhere
+
+The state is an **opaque handle, updated in place**: `create` and
+`deserialize` return one, `decide`/`learn`/`censor`/`expire` mutate it and
+return only their results. Every implementation — the reference, the
+Python wheel, the browser module — uses exactly this shape, so code and
+docs are interchangeable across them. (The convention is set by the least
+common denominator: a JS binding cannot idiomatically return
+`(result, state)` tuples, so nothing does.)
+
+This is purely a facade choice. The reference's internal layers
+(`decide.py`, `ledger.py`, `state.py`) remain pure functions over
+immutable values; `api.py`'s handle is a one-field cell that swaps which
+immutable value it holds. Snapshotting, rollback, and replay are one
+`serialize` away.
+
+## Serialization is a plain string
+
+`serialize` returns the canonical byte layout (serialization.md) as a
+lowercase hex string, and `deserialize` takes one back (either case
+accepted; the canonical form is lowercase). A string goes anywhere text
+goes — a file, a database column, localStorage, version control — so no
+caller, in any language, ever handles raw bytes, base64, or `Uint8Array`
+conversions. The bytes remain the specified format; hex is its one public
+text form, identical across implementations (the golden `api` section's
+`state_hex` is exactly what `serialize` returns).
 
 ## Inputs
 
@@ -41,9 +68,9 @@ The surface is eight names:
   against the layered API and is rejected with ValueError (the core's
   `Error`).
 
-## No new state, no new semantics
+## No new state format, no new semantics
 
-`create` returns a plain `BanditState`; the serialization format (PR 18)
+The handle wraps a plain `BanditState`; the serialization format (PR 18)
 is unchanged, and `bits` is recoverable rather than stored. The facade
 adds no randomness, no reordering, and no arithmetic: `decide` through the
 facade is bit-identical to `encode` + `decide` by hand, which the test

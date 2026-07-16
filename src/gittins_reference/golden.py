@@ -288,18 +288,15 @@ def api_vectors():
     resolutions = []
     for i, seg in enumerate(["a", "b", "a", "b"]):
         context = {"seg": seg, "hour": 9 + i}
-        record, state = api.decide(state, context, catalog, T0 + i * 900.0, salt)
+        record = api.decide(state, context, catalog, T0 + i * 900.0, salt)
         events.append({"t": record.t, "context": context, "record": record_json(record)})
         records.append(record)
     for decision_id, reward in [(records[1].decision_id, 1.0), (records[0].decision_id, 0.0)]:
-        resolution, state = api.learn(state, decision_id, reward)
-        resolutions.append(resolution_json(resolution))
-    resolution, state = api.censor(state, records[2].decision_id)
-    resolutions.append(resolution_json(resolution))
+        resolutions.append(resolution_json(api.learn(state, decision_id, reward)))
+    resolutions.append(resolution_json(api.censor(state, records[2].decision_id)))
     sweep_t = T0 + 3 * 900.0 + horizon  # the one open decision is exactly due
-    expired, state = api.expire(state, sweep_t)
-    resolutions.extend(resolution_json(r) for r in expired)
-    assert not state.ledger, "api scenario must end with nothing open"
+    resolutions.extend(resolution_json(r) for r in api.expire(state, sweep_t))
+    assert not state._state.ledger, "api scenario must end with nothing open"
     return {
         "bits": bits, "forgetting": forgetting, "horizon": horizon,
         "salt": salt,
@@ -308,9 +305,9 @@ def api_vectors():
         "resolutions": resolutions,
         "expire_sweep_at": sweep_t,
         "final": {
-            "model_version": state.model_version,
-            "next_seq": state.next_seq,
-            "state_hex": serialize(state).hex(),
+            "model_version": state._state.model_version,
+            "next_seq": state._state.next_seq,
+            "state_hex": api.serialize(state),
         },
     }
 
