@@ -26,7 +26,8 @@ def normalized_regret(result: RunResult, first: int = 0, last: "int | None" = No
 
 def final_window_regret(result: RunResult, window_fraction: float = 0.1) -> float:
     """Normalized regret over just the final window of the run — the
-    steady-state rate, where the floor's cost shows once learning is done."""
+    steady-state rate, where the epsilon mass's cost shows once learning is
+    done."""
     if not (0.0 < window_fraction <= 1.0):
         raise ValueError("window_fraction must be in (0, 1]")
     n = len(result.regret)

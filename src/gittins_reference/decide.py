@@ -17,7 +17,7 @@ of records *is* the offline-evaluation dataset (R3). The record carries:
     chosen         — index into the candidate list
     features       — the chosen candidate's feature vector (what `learn`
                      will train on; the record is self-contained)
-    propensity     — the floored probability the choice was made with
+    propensity     — the probability the choice was made with
     model_version  — how many observations the model had absorbed
                      (bumped by the ledger's trained resolutions)
     salt           — the RNG salt, so the draw is exactly replayable
@@ -32,28 +32,16 @@ At this layer a candidate *is* its feature vector in the model's space;
 folding a context and an action description into that vector is the feature
 encoder's job (encoding.py), and the dict-shaped public API arrives with it.
 
-**Where gamma comes from.** The exploration rule (exploration.py) left its greediness
-`gamma` to this layer. It is derived from the model's own uncertainty:
-
-    gamma = GAMMA_SCALE / mean(uncertainty over the candidates)
-
-Uncertainty shrinks like 1/sqrt(n) as evidence accumulates, so gamma grows
-like sqrt(n) — the schedule SquareCB's guarantee wants — with no clock or
-knob. A fresh model estimates every candidate at 0, so the first
-distributions are uniform whatever gamma is; the probability floor
-(exploration.py) guarantees exploration ever after. Because the model's
-forgetting bounds the effective sample size at ~1/(1 - forgetting), gamma
-is bounded too: the system never becomes fully greedy (R2). After a world
-shift, re-exploration comes from the rule itself — stale estimates make
-the gaps shrink or flip, and inverse-gap weighting spreads probability
-over close candidates — plus the floor's guaranteed minimum. GAMMA_SCALE
-is a fixed engine constant, never a user knob; its value was settled by
-the battery sweep (sim/sweep.py): 300 was near-best almost everywhere,
-never far from the per-environment best, and ahead of epsilon-greedy
-overall, where the original 1.0 kept gamma so low the engine spent over
-half its traffic on non-best arms forever. Whether the mean is the right
-uncertainty aggregate is still open; the *interface* — gamma is computed
-here, never asked of the user — is settled.
+**Where epsilon comes from.** The exploration rule (exploration.py) takes
+its uniform-exploration mass `epsilon` from the state: declared once at
+construction, defaulting to `DEFAULT_EPSILON` — an expert override like
+`forgetting`, not a routine knob (R2). The rule needs only the reward
+estimates, so scoring is one dot product per candidate — no uncertainties,
+no sqrt, no schedule. A fresh model estimates every candidate at 0.0 and
+the exact-tie split makes the first distributions uniform; the epsilon
+mass guarantees exploration (and re-exploration after a world shift) ever
+after. Epsilon-greedy replaced the SquareCB rule and its uncertainty-driven
+gamma schedule here — see exploration.py for the reasoning and the price.
 
 RNG counter allocation: counter 0 of the decision's stream is the sampling
 draw. Later counters are reserved for future per-decision randomness.
@@ -63,22 +51,18 @@ import struct
 from dataclasses import dataclass
 
 from gittins_reference.exploration import (
-    apply_floor,
-    inverse_gap_probabilities,
+    DEFAULT_EPSILON,
+    epsilon_greedy_probabilities,
     sample_index,
 )
 from gittins_reference.model import (
     DEFAULT_FORGETTING,
     LinearModel,
+    estimate_factored,
     factorize,
     new_model,
-    predict_factored,
 )
 from gittins_reference.rng import derive_key, fnv1a_64
-
-# Fixed scale of the uncertainty-driven gamma schedule; not a user knob.
-# Settled by the battery sweep (sim/sweep.py) — see the module docstring.
-GAMMA_SCALE = 300.0
 
 
 @dataclass(frozen=True)
@@ -88,6 +72,7 @@ class BanditState:
     model_version: int  # observations absorbed so far (bumped by the ledger)
     horizon: float  # seconds an unresolved decision waits before expiring
     default_reward: float  # the reward an expired decision trains with
+    epsilon: float  # probability mass spent uniformly per decision
     ledger: "tuple[DecisionRecord, ...]"  # open decisions awaiting resolution
 
 
@@ -107,22 +92,27 @@ def new_bandit(
     dim: int,
     horizon: float,
     default_reward: float = 0.0,
+    epsilon: float = DEFAULT_EPSILON,
     forgetting: float = DEFAULT_FORGETTING,
 ) -> BanditState:
     """`horizon` and `default_reward` are the application's reward-handling
     declaration (design doc section 6), made once, up front: a decision with
     no reward after `horizon` seconds resolves as expired(`default_reward`).
-    `forgetting` is the model's per-update tracking rate — an expert
-    override, not a default-API knob; the right value for a deployment is
-    selected offline from the decision log (see model.py)."""
+    `epsilon` (uniform-exploration mass) and `forgetting` (the model's
+    per-update tracking rate) are expert overrides, not default-API knobs;
+    the right values for a deployment are selected offline from the decision
+    log (see exploration.py, model.py)."""
     if not (horizon > 0.0):
         raise ValueError("horizon must be positive")
+    if not (0.0 <= epsilon <= 1.0):
+        raise ValueError("epsilon must be in [0, 1]")
     return BanditState(
         model=new_model(dim, forgetting),
         next_seq=0,
         model_version=0,
         horizon=horizon,
         default_reward=default_reward,
+        epsilon=epsilon,
         ledger=(),
     )
 
@@ -148,17 +138,6 @@ def candidate_set_hash(candidates: list[list[float]]) -> int:
     return fnv1a_64(bytes(data))
 
 
-def choose_gamma(uncertainties: list[float]) -> float:
-    """The uncertainty-driven greediness schedule (see module docstring)."""
-    total = 0.0
-    for u in uncertainties:
-        total += u
-    mean = total / len(uncertainties)
-    if mean <= 0.0:  # every candidate a zero vector; nothing to be greedy about
-        return 0.0
-    return GAMMA_SCALE / mean
-
-
 def decide(
     state: BanditState, candidates: list[list[float]], t: float, salt: str
 ) -> tuple[DecisionRecord, BanditState]:
@@ -177,15 +156,8 @@ def decide(
     # The weights depend on the model only, so they are solved once and
     # shared by every candidate.
     factored = factorize(state.model)
-    estimates = []
-    uncertainties = []
-    for x in candidates:
-        est, unc = predict_factored(factored, x)
-        estimates.append(est)
-        uncertainties.append(unc)
-
-    gamma = choose_gamma(uncertainties)
-    p = apply_floor(inverse_gap_probabilities(estimates, gamma))
+    estimates = [estimate_factored(factored, x) for x in candidates]
+    p = epsilon_greedy_probabilities(estimates, state.epsilon)
 
     decision_id = f"{salt}:{state.next_seq}"
     key = derive_key(decision_id, salt)
@@ -207,6 +179,7 @@ def decide(
         model_version=state.model_version,
         horizon=state.horizon,
         default_reward=state.default_reward,
+        epsilon=state.epsilon,
         ledger=state.ledger + (record,),
     )
     return record, new_state

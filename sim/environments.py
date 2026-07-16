@@ -92,8 +92,8 @@ class LinearEnvironment(Environment):
     features x drawn fresh each round — exactly the dimensions the hashed
     outer-product encoding produces (identity x bias is the per-arm
     intercept, context x identity the per-arm slopes), so the linear model
-    is correctly specified up to hash collisions. The floor's cost is
-    measured here.
+    is correctly specified up to hash collisions. The epsilon mass's cost
+    is measured here.
     """
 
     def __init__(self, k: int, n_features: int = 3, noise: float = 0.1):

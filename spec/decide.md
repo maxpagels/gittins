@@ -10,7 +10,7 @@ counter RNG (`spec/rng.md`).
 ## State
 
 A `BanditState` is `(model, next_seq, model_version, horizon,
-default_reward, ledger)`:
+default_reward, epsilon, ledger)`:
 
 - `model` — the LinearModel of `spec/model.md`.
 - `next_seq` — the sequence number of the next decision.
@@ -19,6 +19,9 @@ default_reward, ledger)`:
   record so offline evaluation can tell which policy made each decision.
 - `horizon`, `default_reward` — the application's reward-handling
   declaration, made once at creation (`spec/ledger.md`).
+- `epsilon` — the uniform exploration mass every decision spends
+  (`spec/exploration.md`), declared once at creation; defaults to
+  `DEFAULT_EPSILON = 0.05`, an expert override rather than a routine knob.
 - `ledger` — the open decision records, in decision order
   (`spec/ledger.md`).
 
@@ -33,7 +36,7 @@ default_reward, ledger)`:
 | `candidate_hash` | 64-bit hash of the entire candidate set |
 | `chosen` | index into the candidate list |
 | `features` | the chosen candidate's feature vector |
-| `propensity` | the floored probability the choice was made with |
+| `propensity` | the probability the choice was made with |
 | `model_version` | the state's `model_version` at decision time |
 | `salt` | the RNG salt, making the draw exactly replayable |
 
@@ -65,44 +68,31 @@ sets with equal flattenings distinct.
 vector in the model's space (folding context + action description into
 that vector is the feature encoder's job, PR 8):
 
-1. `(estimate, uncertainty) = predict(model, x, t)` for every candidate,
-   in list order.
-2. `gamma = choose_gamma(uncertainties)` — see below.
-3. `p = apply_floor(inverse_gap_probabilities(estimates, gamma))`.
-4. `key = derive_key(decision_id, salt)`; the choice is
+1. `estimate = estimate_factored(f, x)` for every candidate, in list order
+   (`spec/model.md`); the weights are solved once per decision and shared.
+   No uncertainties are computed anywhere on the decision path.
+2. `p = epsilon_greedy_probabilities(estimates, state.epsilon)`
+   (`spec/exploration.md`).
+3. `key = derive_key(decision_id, salt)`; the choice is
    `sample_index(p, key, 0)`. **Counter 0 of a decision's RNG stream is
    reserved for the sampling draw**; later counters are reserved for future
    per-decision randomness.
-5. The model is untouched; the new state is the old state with
+4. The model is untouched; the new state is the old state with
    `next_seq + 1` and the record appended to the ledger.
 
-Steps 1–4 are fixed-order IEEE-754 arithmetic over already-deterministic
+Steps 1–3 are fixed-order IEEE-754 arithmetic over already-deterministic
 layers, so the whole record is bit-identical across platforms.
 
-## The gamma schedule
+## Where epsilon comes from
 
-    gamma = GAMMA_SCALE / mean(uncertainty over the candidates)
-
-with `GAMMA_SCALE = 300.0` a fixed engine constant. If the mean is 0
-(every candidate a zero vector), gamma is 0 (uniform).
-
-Why this is the right shape: with n effective observations uncertainty
-shrinks like 1/sqrt(n), so gamma grows like sqrt(n), which is the schedule
-SquareCB's regret guarantee wants — obtained from the model's own
-posterior instead of a clock or a knob. A fresh model estimates every
-candidate at 0, so the first distributions are uniform whatever gamma is,
-and the probability floor guarantees exploration ever after. Because the
-model's forgetting bounds the effective sample size at ~1/(1 - forgetting),
-gamma is bounded (never fully greedy, R2); after a world shift,
-re-exploration comes from the rule itself — stale estimates make the gaps
-shrink or flip and inverse-gap weighting spreads probability over close
-candidates — plus the floor's guaranteed minimum. The constant's value was settled by the battery
-sweep (`sim/sweep.py`): 300 was within 1.1x of the best swept value on 9
-of 12 environments, never worse than 1.34x, and ahead of epsilon-greedy
-overall; the original provisional 1.0 kept gamma so low the engine spent
-over half its traffic on non-best arms indefinitely. The choice of mean as
-the uncertainty aggregate remains provisional; the interface — gamma is
-computed inside the engine, never asked of the user — is settled.
+`epsilon` is state, not schedule: declared once at `new_bandit`, spent
+identically on every decision. A fresh model estimates every candidate at
+0.0 and the exact-tie split makes the first distributions uniform; the
+epsilon mass guarantees exploration — and re-exploration after a world
+shift, alongside the model's forgetting — ever after (R2). There is no
+uncertainty aggregate, no gamma schedule, and no swept scale constant;
+the epsilon default itself is settled by the battery sweep
+(`sim/sweep.py`), like every engine constant.
 
 ## Golden vectors
 
@@ -115,4 +105,4 @@ Model dim 2, default forgetting (0.999); updates `([1,0], 1.0)` then
     candidate_hash = 8340395383735871362
     chosen         = 0
     features       = (1.0, 0.0)
-    propensity     = 0.953426773277985
+    propensity     = 0.9666666666666667

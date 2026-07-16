@@ -2,17 +2,18 @@
 
 `gittins` is the engine under test, run on the real public path — encode
 -> decide -> ledger learn/expire — never the layers in
-isolation, so hashing, the gamma schedule, the floor, and forgetting are
-all in the loop together. The baselines bracket and challenge it:
+isolation, so hashing, the epsilon-greedy rule, the tie split, and
+forgetting are all in the loop together. The baselines bracket and
+challenge it:
 
     oracle          — argmax of the true means: the regret upper bound
     uniform         — uniform random: the regret lower bound; together these
                       normalize regret to [0 (oracle) .. 1 (uniform)]
-    greedy          — gittins with gamma -> inf and no floor: same model,
-                      same encoding, pure argmax of the estimates
-    epsilon-greedy  — same model again, exploration replaced by an
-                      epsilon coin: the "would something dumber beat us"
-                      check (PROGRESS.md suggests eps in {0.05, 0.1})
+    greedy          — gittins with epsilon = 0 and first-max ties: same
+                      model, same encoding, pure argmax of the estimates
+    epsilon-greedy  — same model again, exploration as an epsilon coin
+                      outside the engine: no ledger, no horizon, first-max
+                      ties — what the engine's plumbing is priced against
 
 A policy is reset per run with `begin(seed)`; `choose` returns the chosen
 candidate index plus its per-candidate reward estimates (None for the
@@ -23,6 +24,7 @@ streams keyed by (policy name, seed, t), so runs replay exactly.
 
 from gittins_reference.decide import decide, new_bandit
 from gittins_reference.encoding import encode
+from gittins_reference.exploration import DEFAULT_EPSILON
 from gittins_reference.ledger import expire, learn
 from gittins_reference.model import (
     DEFAULT_FORGETTING,
@@ -119,14 +121,26 @@ class GittinsPolicy(Policy):
     after its decision expired is structurally a no-op (the ledger has
     already spent the record)."""
 
-    def __init__(self, bits: int = 8, forgetting: float = DEFAULT_FORGETTING, horizon: float = 10.0):
+    def __init__(
+        self,
+        bits: int = 8,
+        forgetting: float = DEFAULT_FORGETTING,
+        horizon: float = 10.0,
+        epsilon: float = DEFAULT_EPSILON,
+    ):
         self.name = "gittins"
         self.bits = bits
         self.forgetting = forgetting
         self.horizon = horizon
+        self.epsilon = epsilon
 
     def begin(self, seed: int) -> None:
-        self.state = new_bandit(2**self.bits, horizon=self.horizon, forgetting=self.forgetting)
+        self.state = new_bandit(
+            2**self.bits,
+            horizon=self.horizon,
+            epsilon=self.epsilon,
+            forgetting=self.forgetting,
+        )
         self.salt = f"{self.name}:{seed}"
         self.expired = 0
 
@@ -189,7 +203,7 @@ class ModelPolicy(Policy):
 
 
 class GreedyPolicy(ModelPolicy):
-    """gamma -> inf, no floor: always the argmax estimate."""
+    """epsilon = 0, first-max ties: always the argmax estimate."""
 
     def __init__(self, bits: int = 8, forgetting: float = DEFAULT_FORGETTING):
         super().__init__(bits, forgetting)

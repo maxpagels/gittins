@@ -32,7 +32,7 @@ import sys
 
 from gittins_reference.decide import candidate_set_hash, decide, new_bandit
 from gittins_reference.encoding import encode, feature_tokens, pair_hash
-from gittins_reference.exploration import apply_floor, inverse_gap_probabilities, sample_index
+from gittins_reference.exploration import epsilon_greedy_probabilities, sample_index
 from gittins_reference.ledger import censor, expire, learn
 from gittins_reference.model import new_model, predict, update
 from gittins_reference.rng import derive_key, random_u64, random_unit
@@ -99,15 +99,14 @@ def model_vectors():
 
 
 def exploration_vectors():
-    estimates = [0.5, -0.25, 0.0, 0.5]
-    gamma = 10.0
-    raw = inverse_gap_probabilities(estimates, gamma)
-    floored = apply_floor(raw)
+    estimates = [0.5, -0.25, 0.0, 0.5]  # a tie for the maximum, deliberately
+    epsilon = 0.05
+    p = epsilon_greedy_probabilities(estimates, epsilon)
     key = derive_key("decision-0001", "pepper")
     return {
-        "estimates": estimates, "gamma": gamma,
-        "inverse_gap": raw, "floored": floored,
-        "key": key, "samples": [sample_index(floored, key, c) for c in range(6)],
+        "estimates": estimates, "epsilon": epsilon,
+        "probabilities": p,
+        "key": key, "samples": [sample_index(p, key, c) for c in range(6)],
     }
 
 

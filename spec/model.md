@@ -63,9 +63,13 @@ skipped.
 
 **factorize(model) / predict_factored(f, x)** — the candidate-independent
 part of predict (`theta` and the reciprocals `1/(xx_j + ridge)`) is
-computed once per decision and shared by every candidate (used by
-`decide`). `predict` is exactly `predict_factored(factorize(model), x)`.
-A factorization is valid until the next update.
+computed once per decision and shared by every candidate. `predict` is
+exactly `predict_factored(factorize(model), x)`. A factorization is valid
+until the next update.
+
+**estimate_factored(f, x)** — the estimate alone, for callers that need no
+uncertainty: half the arithmetic and no sqrt. This is what `decide` scores
+candidates with — the epsilon-greedy rule consumes estimates only.
 
 ## Why the diagonal
 

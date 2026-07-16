@@ -132,6 +132,21 @@ def factorize(model: LinearModel) -> Factorization:
     return Factorization(inv_a=inv_a, theta=theta)
 
 
+def estimate_factored(f: Factorization, x: list[float]) -> float:
+    """Estimated reward only, for callers that need no uncertainty (the
+    decide layer): half the arithmetic of `predict_factored` and no sqrt.
+    Zero entries are skipped — see `predict_factored` for why that is
+    bit-identical to the dense loop."""
+    theta = f.theta
+    estimate = 0.0
+    for j in range(len(x)):
+        v = x[j]
+        if v == 0.0:
+            continue
+        estimate += v * theta[j]
+    return estimate
+
+
 def predict_factored(f: Factorization, x: list[float]) -> tuple[float, float]:
     """(estimated reward, uncertainty) for features x, given a factorization
     built from the same model state.

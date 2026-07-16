@@ -65,10 +65,12 @@ currently marked provisional in the source:
    when the true reward is nonlinear in them, and the cost of never splitting credit
    (co-firing/redundant features double-count), which makes the misspecified and
    redundant-feature environments doubly important.
-2. **Exploration** — SquareCB + floor (`exploration.py`, `decide.py`): `GAMMA_SCALE = 1.0`,
-   the *mean* as the uncertainty aggregate in `choose_gamma`, and `FLOOR_MASS = 0.05`
-   (is 5% forced exploration too costly on stationary problems with many arms, and is it
-   enough to rediscover a recovered arm quickly?).
+2. **Exploration** — at battery time, SquareCB + floor (`exploration.py`, `decide.py`):
+   `GAMMA_SCALE = 1.0`, the *mean* as the uncertainty aggregate in `choose_gamma`, and
+   `FLOOR_MASS = 0.05` (is 5% forced exploration too costly on stationary problems with
+   many arms, and is it enough to rediscover a recovered arm quickly?). PR 16 later
+   replaced the rule with epsilon-greedy (`DEFAULT_EPSILON = 0.05`) — see the in-flight
+   notes.
 3. **Forgetting** — the single fixed forgetting rate baked into the model: how large is
    the regret gap between one default rate and the best per-environment rate? That gap is
    precisely the case for (or against) more forgetting machinery than one fixed default —
@@ -498,3 +500,49 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   spans 0.11-1.03 across RNG salts alone, so xor comparisons at 5 seeds are
   noise; xor rows need many seeds or per-seed worlds before they can decide
   anything.
+
+- **PR 16** (`pr-16`) — exploration becomes epsilon-greedy; SquareCB and the gamma
+  schedule are removed.
+
+  Rationale. The permanent uniform floor R2 demands already forfeits SquareCB's
+  regret guarantee — with the floor in place both rules carry the same asymptotic
+  exploration cost, and they differ only in how the transient exploration is spent.
+  SquareCB pays for that transient with per-candidate uncertainties (double the
+  prediction arithmetic plus a sqrt per candidate), a full distribution build per
+  decision, and a swept schedule constant whose aggregate was still an open
+  question; epsilon-greedy needs one max-scan over the estimates and nothing from
+  the model but them (R7). The empirical CB literature (Bietti–Agarwal–Langford's
+  bake-off) finds greedy/small-epsilon competitive with everything once the online
+  regression oracle is good, which matches what the battery showed.
+
+  The rule (`exploration.py`): `p[i] = epsilon/k + (1-epsilon)/m` for the `m`
+  candidates tied (exact float equality) for the best estimate, `epsilon/k`
+  otherwise. **Ties split the greedy mass** — the cold-start rule: a fresh model
+  estimates everything at 0.0, so the first distributions are uniform instead of a
+  95% lock on index 0, with no tie-break draw and no schedule. `epsilon` lives in
+  `BanditState` (declared once at `new_bandit`, default `DEFAULT_EPSILON = 0.05`,
+  an expert override like `forgetting`); `FLOOR_MASS`, `GAMMA_SCALE`, and
+  `choose_gamma` are gone. The decision path no longer computes uncertainty at all
+  (`estimate_factored`: half the per-candidate arithmetic, no sqrt); `predict`
+  keeps returning (estimate, uncertainty) for user models and offline tooling.
+  Golden corpus regenerated — the diff is exactly the blast radius: episode
+  propensities (all 0.975 = 1 - eps + eps/2 at k=2) and the exploration section;
+  every chosen index in the episode survived unchanged. Specs rewritten
+  (`exploration.md`, `decide.md`, `model.md`, `golden.md`); `sim/sweep.py`
+  repurposed from `GAMMA_SCALE` to `DEFAULT_EPSILON` (the value is provisional
+  until that sweep is run and recorded here).
+
+  Same-battery A/B (1500 rounds, seeds 0-4, bits 8; SquareCB@300 from HEAD vs
+  epsilon-greedy@0.05), median normalized regret: linear-k5 0.100 -> 0.107,
+  linear-k20 0.204 -> 0.175, actions-k16 0.240 -> 0.222, shift 0.529 -> 0.510,
+  drift 0.889 -> 0.828, dropout 0.299 -> 0.237, event exp-45m 0.108 -> 0.095,
+  event next-morning 0.623 -> 0.621; churn 0.287 -> 0.415 (worse; IQRs overlap),
+  needle 0.129 -> 0.488 whole-run but final-10% 0.111 -> 0.067 — epsilon explores
+  the context-free needle more slowly but ends better; xor cells moved (0.32/0.40
+  -> 0.75/0.67) but are noise at 5 seeds per the PR 15 finding. Net: at or ahead
+  nearly everywhere, half the per-nonzero decision arithmetic, and one less engine
+  constant. Measured honestly: reference decide latency is unchanged (1.3
+  ms/decision at dim 256 x 100 arms, both engines) — pure-Python cost is dominated
+  by iterating the dense vectors and by `factorize`, so the saved variance
+  multiplies, sqrt per candidate, and distribution build only pay off in the
+  sparse compiled core, where per-nonzero arithmetic is the whole cost.
