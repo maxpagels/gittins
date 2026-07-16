@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use crate::encoding::Features;
+use crate::error::Error;
 
 pub const DEFAULT_FORGETTING: f64 = 0.999;
 
@@ -26,21 +27,24 @@ pub struct LinearModel {
     pub xy: Vec<f64>,    // dim pre-scaled sums of reward * x_j
 }
 
-pub fn new_model(dim: usize, forgetting: f64, ridge: f64) -> LinearModel {
-    assert!(dim >= 1, "dim must be at least 1");
-    assert!(
-        0.0 < forgetting && forgetting <= 1.0,
-        "forgetting must be in (0, 1] (1.0 = never forget)"
-    );
-    assert!(ridge > 0.0, "ridge must be positive");
-    LinearModel {
+pub fn new_model(dim: usize, forgetting: f64, ridge: f64) -> Result<LinearModel, Error> {
+    if dim < 1 {
+        return Err(Error::new("dim must be at least 1"));
+    }
+    if !(0.0 < forgetting && forgetting <= 1.0) {
+        return Err(Error::new("forgetting must be in (0, 1] (1.0 = never forget)"));
+    }
+    if !(ridge > 0.0) {
+        return Err(Error::new("ridge must be positive"));
+    }
+    Ok(LinearModel {
         dim,
         ridge,
         forgetting,
         scale: 1.0,
         xx: vec![0.0; dim],
         xy: vec![0.0; dim],
-    }
+    })
 }
 
 /// Absorb one observation: fold the forgetting discount into the scale, add
@@ -138,7 +142,7 @@ mod tests {
         // forgetting = 0.5 halves the scale per update: exactly 2^-512
         // after 512 updates, so update 512 renormalizes.
         let x: Features = vec![(0, 1.0)];
-        let mut m = new_model(1, 0.5, 1.0);
+        let mut m = new_model(1, 0.5, 1.0).unwrap();
         let mut true_xx = 0.0;
         for i in 0..600 {
             update(&mut m, &x, 1.0);
@@ -161,7 +165,7 @@ mod tests {
     #[test]
     fn never_forget_keeps_plain_sums() {
         let x: Features = vec![(0, 1.0)];
-        let mut m = new_model(2, 1.0, 1.0);
+        let mut m = new_model(2, 1.0, 1.0).unwrap();
         for _ in 0..9 {
             update(&mut m, &x, 1.0);
         }

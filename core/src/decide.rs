@@ -9,6 +9,7 @@
 //! record returned is a clone of the one the ledger holds.
 
 use crate::encoding::Features;
+use crate::error::Error;
 use crate::exploration::{epsilon_greedy_probabilities, sample_index};
 use crate::model::{estimate_factored, factorize, new_model, LinearModel};
 use crate::rng::{derive_key, fnv1a_64};
@@ -45,18 +46,22 @@ pub fn new_bandit(
     default_reward: f64,
     epsilon: f64,
     forgetting: f64,
-) -> BanditState {
-    assert!(horizon > 0.0, "horizon must be positive");
-    assert!((0.0..=1.0).contains(&epsilon), "epsilon must be in [0, 1]");
-    BanditState {
-        model: new_model(dim, forgetting, 1.0),
+) -> Result<BanditState, Error> {
+    if !(horizon > 0.0) {
+        return Err(Error::new("horizon must be positive"));
+    }
+    if !(0.0..=1.0).contains(&epsilon) {
+        return Err(Error::new("epsilon must be in [0, 1]"));
+    }
+    Ok(BanditState {
+        model: new_model(dim, forgetting, 1.0)?,
         next_seq: 0,
         model_version: 0,
         horizon,
         default_reward,
         epsilon,
         ledger: Vec::new(),
-    }
+    })
 }
 
 /// 64-bit FNV-1a over the canonical sparse encoding of the candidate set:
@@ -84,18 +89,23 @@ pub fn decide(
     candidates: &[Features],
     t: f64,
     salt: &str,
-) -> DecisionRecord {
-    assert!(!candidates.is_empty(), "need at least one candidate");
+) -> Result<DecisionRecord, Error> {
+    if candidates.is_empty() {
+        return Err(Error::new("need at least one candidate"));
+    }
     let dim = state.model.dim;
     for x in candidates {
         let mut prev: i64 = -1;
         for &(j, v) in x {
-            assert!(
-                prev < j as i64 && j < dim,
-                "candidate features must be (index, value) pairs in strictly \
-                 increasing index order within the model dimension"
-            );
-            assert!(v != 0.0, "candidate feature values must be nonzero");
+            if !(prev < j as i64 && j < dim) {
+                return Err(Error::new(
+                    "candidate features must be (index, value) pairs in strictly \
+                     increasing index order within the model dimension",
+                ));
+            }
+            if v == 0.0 {
+                return Err(Error::new("candidate feature values must be nonzero"));
+            }
             prev = j as i64;
         }
     }
@@ -107,7 +117,7 @@ pub fn decide(
         .iter()
         .map(|x| estimate_factored(&mut factored, x))
         .collect();
-    let p = epsilon_greedy_probabilities(&estimates, state.epsilon);
+    let p = epsilon_greedy_probabilities(&estimates, state.epsilon)?;
 
     let decision_id = format!("{salt}:{}", state.next_seq);
     let key = derive_key(&decision_id, salt);
@@ -125,5 +135,5 @@ pub fn decide(
     };
     state.next_seq += 1;
     state.ledger.push(record.clone());
-    record
+    Ok(record)
 }

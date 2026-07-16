@@ -36,6 +36,7 @@ from gittins_reference.exploration import epsilon_greedy_probabilities, sample_i
 from gittins_reference.ledger import censor, expire, learn
 from gittins_reference.model import new_model, predict, update
 from gittins_reference.rng import derive_key, random_u64, random_unit
+from gittins_reference.state import FORMAT_VERSION, deserialize, serialize
 
 HOUR = 3600.0
 T0 = 1_752_000_000.0
@@ -151,12 +152,16 @@ def encoding_vectors():
     }
 
 
-def episode_vector():
+def run_episode():
     """The end-to-end acceptance scenario: one agent decides and learns over
     hash-encoded candidates with out-of-order rewards, a censor, and an
     expiry sweep. Training is order-dependent, so the exact resolution
     sequence below *is* the contract. Matching this section exactly means
-    an independent decide/learn implementation is done (Phase 0 exit)."""
+    an independent decide/learn implementation is done (Phase 0 exit).
+
+    Returns (episode section, mid state, final state): the mid state is the
+    snapshot just before the censor — the moment the ledger holds two open
+    records — and both states feed the serialization section."""
     bits = 4
     forgetting = 0.9
     horizon = 2 * HOUR
@@ -192,6 +197,7 @@ def episode_vector():
     for decision_id, reward in reversed(deferred):
         a = resolve(learn, a, decision_id, reward)
     a, record, _ = play(a, T0 + 6000.0, "a")
+    mid_state = a  # decisions 7 and 10 open: the serialization mid snapshot
     a = resolve(censor, a, record.decision_id)
     sweep_t = T0 + 7 * 600.0 + horizon  # decision 7 is exactly due
     expired, a = expire(a, sweep_t)
@@ -220,7 +226,7 @@ def episode_vector():
             est, unc = predict(a.model, encode({"seg": seg}, arm, {}, bits))
             predictions.append({"seg": seg, "arm": arm,
                                 "estimate": est, "uncertainty": unc})
-    return {
+    section = {
         "bits": bits, "forgetting": forgetting, "horizon": horizon,
         "default_reward": 0.0,
         "reward_rule": "1.0 if (arm == 'x') == (seg == 'a') else 0.0",
@@ -236,9 +242,30 @@ def episode_vector():
         },
         "predictions": predictions,
     }
+    return section, mid_state, a
+
+
+def serialization_vectors(mid_state, final_state):
+    """The canonical byte serialization (state.py) as hex: a fresh state, the
+    episode's mid snapshot (two open ledger records, covering the
+    DecisionRecord encoding), and the episode's final state. Independent
+    implementations must produce these exact bytes and accept them back."""
+    fresh = new_bandit(4, horizon=60.0)
+    for state in (fresh, mid_state, final_state):
+        assert deserialize(serialize(state)) == state, "serialization must round-trip"
+    return {
+        "format_version": FORMAT_VERSION,
+        "fresh": {"dim": 4, "horizon": 60.0, "bytes_hex": serialize(fresh).hex()},
+        "episode_mid": {
+            "open_ids": [r.decision_id for r in mid_state.ledger],
+            "bytes_hex": serialize(mid_state).hex(),
+        },
+        "episode_final": {"bytes_hex": serialize(final_state).hex()},
+    }
 
 
 def generate() -> dict:
+    episode, mid_state, final_state = run_episode()
     return {
         "format_version": 2,
         "sections": {
@@ -246,7 +273,8 @@ def generate() -> dict:
             "model": model_vectors(),
             "exploration": exploration_vectors(),
             "encoding": encoding_vectors(),
-            "episode": episode_vector(),
+            "episode": episode,
+            "serialization": serialization_vectors(mid_state, final_state),
         },
     }
 

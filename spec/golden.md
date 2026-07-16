@@ -29,6 +29,7 @@ diff like code.
 | `exploration` | epsilon-greedy distribution (with a tie for the maximum), sampled indices |
 | `encoding` | tokenization, pair hashes, sparse (index, value) encodings at bits 4 and 6 |
 | `episode` | the end-to-end acceptance scenario (below) |
+| `serialization` | canonical state bytes (hex): a fresh state, the episode's mid snapshot (two open records), and its final state — see `serialization.md` |
 
 The `episode` section is one agent making hash-encoded decisions with
 out-of-order (deferred) rewards, one censored decision, and one
