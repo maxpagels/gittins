@@ -12,8 +12,8 @@ every policy driven on the same seed sees identical rounds. The reward
 noise draw is likewise keyed by (name, seed, t) alone — shared across
 candidates (common random numbers), which tightens paired comparisons.
 
-This module holds the two stationary environments (PR 11); the
-non-stationary, churn, and missing-feature batteries follow in PR 12.
+This module holds the stationary environments; the non-stationary, churn,
+and missing-feature batteries follow in PR 12.
 """
 
 from dataclasses import dataclass
@@ -142,5 +142,109 @@ class XorEnvironment(Environment):
             context={"s1": str(s1), "s2": str(s2)},
             arm_ids=tuple(f"arm{a}" for a in range(self.k)),
             actions=({},) * self.k,
+            means=means,
+        )
+
+
+class NeedleEnvironment(Environment):
+    """Stationary, context-free: the pure exploration stress test.
+
+    Every arm pays BASE except one hidden needle arm — a pure function of
+    (name, seed) — which pays BASE + gap. There is no context and no action
+    feature to generalize from, so finding the needle is a matter of
+    sampling arms; with many arms and a small gap this isolates the
+    exploration rule from the model. Greedy can lock onto a lucky early
+    draw and never leave it; a sound explorer's regret must keep shrinking.
+    """
+
+    BASE = 0.5
+
+    def __init__(self, k: int, gap: float = 0.2, noise: float = 0.1):
+        if k < 2:
+            raise ValueError("need at least two arms to hide a needle")
+        if not (gap > 0.0):
+            raise ValueError("gap must be positive")
+        self.name = f"needle-k{k}-g{gap:g}"
+        self.k = k
+        self.gap = gap
+        self.noise = noise
+
+    def needle(self, seed: int) -> int:
+        """The needle arm's index for one seed."""
+        return randint(stream(self.name, seed, "needle"), 0, self.k)
+
+    def round(self, seed: int, t: int) -> Round:
+        needle = self.needle(seed)
+        means = tuple(
+            self.BASE + self.gap if a == needle else self.BASE for a in range(self.k)
+        )
+        return Round(
+            t=float(t),
+            context={},
+            arm_ids=tuple(f"arm{a}" for a in range(self.k)),
+            actions=({},) * self.k,
+            means=means,
+        )
+
+
+class ActionFeatureEnvironment(Environment):
+    """Stationary, well-specified through action features: the
+    generalization-across-arms check.
+
+    Each arm carries a numeric action-feature vector z — drawn once per
+    (name, seed) and presented to the policy in its action dict — and the
+    expected reward is the bilinear form x . W z over the round's fresh
+    context vector x, with W hidden. Every term is a context x action
+    product, exactly the interaction dimensions the hashed outer-product
+    encoding produces, so the model is correctly specified — but only
+    through the action features: with many arms and few features, evidence
+    must transfer between arms that share structure, not accrue per
+    identity (whose true weight is zero). The first battery environment to
+    exercise the encoder's action namespace at all.
+    """
+
+    def __init__(self, k: int, n_features: int = 3, noise: float = 0.1):
+        if k < 1 or n_features < 1:
+            raise ValueError("need at least one arm and one feature")
+        self.name = f"actions-k{k}-f{n_features}"
+        self.k = k
+        self.n_features = n_features
+        self.noise = noise
+        self._params: "dict[int, tuple[list[list[float]], list[list[float]]]]" = {}
+
+    def params(self, seed: int) -> "tuple[list[list[float]], list[list[float]]]":
+        """(per-arm action vectors, hidden weight matrix) for one seed;
+        memoized. Weights are scaled 1/n_features so means stay roughly
+        unit-scale at any feature count, matching LinearEnvironment."""
+        if seed not in self._params:
+            key = stream(self.name, seed, "params")
+            n = self.n_features
+            scale = 1.0 / n
+            c = 0
+            arms = []
+            for _ in range(self.k):
+                arms.append([uniform(key, c + j, -1.0, 1.0) for j in range(n)])
+                c += n
+            weights = []
+            for _ in range(n):
+                weights.append([uniform(key, c + j, -scale, scale) for j in range(n)])
+                c += n
+            self._params[seed] = (arms, weights)
+        return self._params[seed]
+
+    def round(self, seed: int, t: int) -> Round:
+        arms, weights = self.params(seed)
+        n = self.n_features
+        key = stream(self.name, seed, f"context:{t}")
+        x = [uniform(key, j, -1.0, 1.0) for j in range(n)]
+        means = tuple(
+            sum(x[i] * weights[i][j] * arms[a][j] for i in range(n) for j in range(n))
+            for a in range(self.k)
+        )
+        return Round(
+            t=float(t),
+            context={f"f{j}": x[j] for j in range(n)},
+            arm_ids=tuple(f"arm{a}" for a in range(self.k)),
+            actions=tuple({f"z{j}": arms[a][j] for j in range(n)} for a in range(self.k)),
             means=means,
         )

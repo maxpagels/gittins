@@ -7,7 +7,12 @@ seed), so the assertions are exact-reproducibility checks plus loose,
 evidence-based bounds that the same seeds reproduce deterministically.
 """
 
-from sim.environments import LinearEnvironment, XorEnvironment
+from sim.environments import (
+    ActionFeatureEnvironment,
+    LinearEnvironment,
+    NeedleEnvironment,
+    XorEnvironment,
+)
 from sim.metrics import (
     final_window_regret,
     median_iqr,
@@ -34,10 +39,15 @@ def median_regret(env, make_policy, rounds=ROUNDS):
 
 
 def test_runs_replay_exactly():
-    env = LinearEnvironment(k=3)
-    a = run(env, GittinsPolicy(bits=BITS), seed=7, rounds=50)
-    b = run(env, GittinsPolicy(bits=BITS), seed=7, rounds=50)
-    assert a == b
+    for env in [
+        LinearEnvironment(k=3),
+        XorEnvironment(k=4),
+        NeedleEnvironment(k=6),
+        ActionFeatureEnvironment(k=8),
+    ]:
+        a = run(env, GittinsPolicy(bits=BITS), seed=7, rounds=50)
+        b = run(env, GittinsPolicy(bits=BITS), seed=7, rounds=50)
+        assert a == b
 
 
 def test_rounds_are_paired_across_policies():
@@ -58,13 +68,23 @@ def test_different_seeds_differ():
 
 
 def test_oracle_has_zero_regret():
-    for env in [LinearEnvironment(k=5), XorEnvironment(k=4)]:
+    for env in [
+        LinearEnvironment(k=5),
+        XorEnvironment(k=4),
+        NeedleEnvironment(k=10),
+        ActionFeatureEnvironment(k=16),
+    ]:
         result = run(env, OraclePolicy(), seed=0, rounds=200)
         assert normalized_regret(result) == 0.0
 
 
 def test_uniform_normalizes_to_about_one():
-    for env in [LinearEnvironment(k=5), XorEnvironment(k=4)]:
+    for env in [
+        LinearEnvironment(k=5),
+        XorEnvironment(k=4),
+        NeedleEnvironment(k=10),
+        ActionFeatureEnvironment(k=16),
+    ]:
         assert 0.8 < median_regret(env, UniformPolicy) < 1.2
 
 
@@ -98,6 +118,33 @@ def test_gittins_drives_the_real_ledger_path():
     assert policy.state.model_version == 40
     assert policy.state.ledger == ()
     assert len(result.regret) == 40
+
+
+def test_needle_traps_greedy_but_not_explorers():
+    # No context, no action features: nothing to generalize from. Greedy
+    # pulls arm 0 first (all estimates 0, first-max tie-break), sees a
+    # positive reward, and locks on forever — worse than uniform whenever
+    # the needle is elsewhere (regret k/(k-1), deterministic on these
+    # seeds). Anything that explores must escape the trap.
+    env = NeedleEnvironment(k=10)
+    assert median_regret(env, lambda: GreedyPolicy(bits=BITS)) > 1.0
+    assert median_regret(env, lambda: EpsilonGreedyPolicy(0.1, bits=BITS)) < 0.85
+    assert median_regret(env, lambda: GittinsPolicy(bits=BITS)) < 1.2
+
+
+def test_action_features_generalize_across_arms():
+    # 16 arms but only 3 action features: the reward is learnable only
+    # through the context x action interactions, so low regret here means
+    # evidence transferred between arms rather than accruing per identity.
+    env = ActionFeatureEnvironment(k=16)
+    assert median_regret(env, lambda: GreedyPolicy(bits=BITS)) < 0.6
+    assert median_regret(env, lambda: EpsilonGreedyPolicy(0.1, bits=BITS)) < 0.7
+    # The engine over-explores at this horizon (the GAMMA_SCALE finding)
+    # but must stay inside uniform, and the exploration must buy the best
+    # late-run model of any comparator (calibrated ~0.16).
+    results = [run(env, GittinsPolicy(bits=BITS), s, ROUNDS) for s in SEEDS]
+    assert median_iqr([normalized_regret(r) for r in results])[0] < 1.1
+    assert median_iqr([rmse(r, first=ROUNDS // 2) for r in results])[0] < 0.3
 
 
 def test_xor_degrades_gracefully():

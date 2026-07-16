@@ -11,7 +11,12 @@ and the full battery report belong to PR 14.
 import sys
 import time
 
-from sim.environments import LinearEnvironment, XorEnvironment
+from sim.environments import (
+    ActionFeatureEnvironment,
+    LinearEnvironment,
+    NeedleEnvironment,
+    XorEnvironment,
+)
 from sim.metrics import final_window_regret, median_iqr, normalized_regret, rmse
 from sim.policies import (
     EpsilonGreedyPolicy,
@@ -28,7 +33,11 @@ BITS = 8
 
 ENVIRONMENTS = [
     LinearEnvironment(k=5),
+    LinearEnvironment(k=20),
     XorEnvironment(k=4),
+    XorEnvironment(k=10),
+    NeedleEnvironment(k=10),
+    ActionFeatureEnvironment(k=16),
 ]
 
 POLICIES = [
