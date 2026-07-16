@@ -310,8 +310,9 @@ decisions log above, and this file's git history has the full entries.
   and actions are plain objects, candidates [armId, features] pairs,
   records/resolutions plain objects with the reference's field names —
   `candidate_hash` is a BigInt, since a JS number would round 64-bit
-  hashes. Acceptance (`wasm-pack test --node`, in CI as the new
-  wasm-binding job): the golden `api` section replayed through the module
+  hashes. Acceptance (`wasm-pack test --node`, in CI inside the single
+  `bindings` job that covers both bindings and the four-way benchmark):
+  the golden `api` section replayed through the module
   with real JS objects, the `serialization` bytes re-emitted exactly, and
   rejections thrown as JS errors — all passed on the first run. Because
   WASM mandates IEEE-754 semantics and the engine uses no libm
