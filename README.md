@@ -3,6 +3,9 @@
 Gittins aims to be a production-ready contextual bandit engine that addresses the practical
 considerations with such systems:
 
+- **R0 — Incremental / online.** The engine learns one observation at a time, in fixed
+  memory and O(nonzeros) work per update: no batch retraining, no training pipeline, no
+  offline fitting step needed to stay current.
 - **R1 — Dynamic arms and context.** The set of available actions must change at any moment.
   New arms must be usable immediately; dead arms must be cleaned up automatically.
 - **R2 — Non-stationarity, as few hyperparameters as possible.** Learning is incremental.
@@ -13,10 +16,8 @@ considerations with such systems:
 - **R3 — Offline policy evaluation (OPE).** It must be possible to estimate how a new policy
   *would have* performed using only logged decisions from an old policy.
 - **R4 — Safe reward handling.** Rewards can arrive late, out of order, more than once, or
-  never. Constructing invalid training data from logs must be *impossible by design*, not
-  merely discouraged. The system must take into account that the order in which experience arrives
-  is not the only consideration; for many real world problems, decisions are made are different
-  frequencies during different times of day.
+  never. Constructing invalid training data from logs or external sources must be *impossible by design*, not
+  merely discouraged.
 - **R5 — Multislot and large action sets.** Ranking / multi-position problems and problems
   with thousands of candidate arms must be practical, fast, and robust.
 - **R6 — Speed and determinism.** Sub-microsecond decision cycles. Few to zero dependencies.

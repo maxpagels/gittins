@@ -70,7 +70,7 @@ def spread(values: "list[float]") -> str:
 def main() -> None:
     start = time.time()
     decisions = 0
-    print("### Environment battery")
+    print("### Environment battery (Python Reference implementation)")
     print()
     print(
         f"{ROUNDS} rounds, seeds {list(SEEDS)}, bits={BITS}. Normalized regret: "

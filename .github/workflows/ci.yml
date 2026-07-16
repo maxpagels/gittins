@@ -11,9 +11,15 @@
 # appends its markdown table to the job summary, so regret against the
 # baselines is readable on every PR. Diagnostic, not a gate.
 #
-# Planned growth (design doc sections 8 and 10): the full battery and sweep
-# report (PR 13); the Rust core and each language binding checked against
-# spec/golden.json; macOS/Windows/WASM legs.
+# The rust job is the compiled core (core/): `cargo test` includes the
+# golden corpus and verifies every section bit for bit — the same contract
+# the reference pins itself to — and the battery reruns on the Rust core
+# into the same job summary, so the two tables can be compared line by
+# line (they should be identical: same counter-RNG streams, same libm on
+# one platform; only the runtime differs).
+#
+# Planned growth (design doc sections 8 and 10): each language binding
+# checked against spec/golden.json; macOS/Windows/WASM legs.
 
 name: ci
 
@@ -38,7 +44,7 @@ jobs:
       - name: Run test suite
         run: uv run pytest -q
 
-  sim:
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -47,3 +53,13 @@ jobs:
           python-version: "3.13"
       - name: Run environment battery
         run: uv run python -m sim | tee -a "$GITHUB_STEP_SUMMARY"
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify the core against the golden corpus
+        run: cargo test --manifest-path core/Cargo.toml
+      - name: Run environment battery on the Rust core
+        run: cargo run --release --manifest-path core/Cargo.toml --bin sim | tee -a "$GITHUB_STEP_SUMMARY"
