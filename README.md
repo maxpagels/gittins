@@ -42,7 +42,7 @@ precise, computable value.
 **Status: early development.** The pure-Python reference implementation and its
 bit-identical Rust core are complete; language bindings are in progress. See
 [PROGRESS.md](PROGRESS.md) for the roadmap and current state, and
-[docs/usage.md](docs/usage.md) for example usage of the reference API.
+[docs/usage.md](docs/usage.md) for example usage of the public API.
 
 ## Development
 

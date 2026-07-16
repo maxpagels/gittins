@@ -1,14 +1,18 @@
-# Using the reference API
+# Using gittins
 
-Everything goes through one module, `gittins_reference.api`. It has eight
-functions, and the four steps below are the whole integration — there is no
-schema to define, nothing to register, and no background machinery.
+Everything goes through one module, `gittins` — the Rust engine as a Python
+package. It has eight functions, and the four steps below are the whole
+integration: no schema to define, nothing to register, no background
+machinery. (Until the wheel is on PyPI, install it from the repo with
+`pip install ./bindings/python`. The pure-Python reference implementation
+exposes the same eight functions as `gittins_reference.api`, so everything
+on this page works there too.)
 
 Two things to know before the code makes sense:
 
-- **The bandit's state is a plain value.** Every call returns a new state;
-  keep the latest one. Saving, copying, or rolling back a bandit is just
-  handling that value.
+- **Always keep the returned state.** Every call gives the state back;
+  rebind it each time, exactly as written below, and don't hold on to old
+  state variables.
 - **You supply the time.** Pass your own clock's `t` (seconds, e.g.
   `time.time()`) into `decide` and `expire`. The engine never looks at a
   clock itself, so any run can be replayed exactly.
@@ -16,9 +20,9 @@ Two things to know before the code makes sense:
 ## Setting up
 
 ```python
-from gittins_reference import api
+import gittins
 
-state = api.create(bits=8, horizon=3600.0)
+state = gittins.create(bits=8, horizon=3600.0)
 ```
 
 `bits` sets how much room the model has for features: it learns in a space
@@ -42,7 +46,7 @@ candidates = [                                       # (arm id, that arm's featu
     ("banner-plain", {}),
 ]
 
-record, state = api.decide(state, context, candidates, t=1_752_000_000.0, salt="agent-1")
+record, state = gittins.decide(state, context, candidates, t=1_752_000_000.0, salt="agent-1")
 
 chosen_arm_id = candidates[record.chosen][0]         # act on this
 ```
@@ -65,15 +69,15 @@ only be resolved once:
 
 ```python
 # The reward came in (late or out of order is fine):
-resolution, state = api.learn(state, record.decision_id, reward=1.0)
+resolution, state = gittins.learn(state, record.decision_id, reward=1.0)
 
 # Call this regularly with the current time; decisions that waited past
 # the horizon are trained as default_reward:
-resolutions, state = api.expire(state, t=1_752_003_600.0)
+resolutions, state = gittins.expire(state, t=1_752_003_600.0)
 
 # Throw a decision out of training, but keep that fact on record
 # (say, an outage corrupted the outcome):
-resolution, state = api.censor(state, record.decision_id)
+resolution, state = gittins.censor(state, record.decision_id)
 ```
 
 Each call tells you what it did, so you can log it. Reporting the same
@@ -89,13 +93,14 @@ on any machine:
 ```python
 from pathlib import Path
 
-Path("bandit.state").write_bytes(api.serialize(state))
+Path("bandit.state").write_bytes(gittins.serialize(state))
 # ... later, or on another machine:
-state = api.deserialize(Path("bandit.state").read_bytes())
+state = gittins.deserialize(Path("bandit.state").read_bytes())
 ```
 
 `deserialize` checks everything (a checksum plus every internal
 consistency rule) and raises `ValueError` rather than load anything
-corrupt. The file format is shared with the Rust core, so a state saved
-here loads there unchanged — small enough and stable enough to commit to
-version control alongside your code.
+corrupt. The format is shared across implementations — a state saved by
+the Rust engine loads in the pure-Python reference and vice versa — and is
+small enough and stable enough to commit to version control alongside your
+code.

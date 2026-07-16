@@ -1,0 +1,15 @@
+# The Python binding: the public API (core/src/api.rs) exposed to Python
+# via PyO3, one wheel per platform via maturin (abi3: one wheel covers
+# CPython >= 3.10). The core crate stays zero-dependency; PyO3 lives here.
+[package]
+name = "gittins-python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "gittins"
+crate-type = ["cdylib"]
+
+[dependencies]
+gittins-core = { path = "../../core" }
+pyo3 = { version = "0.25", features = ["extension-module", "abi3-py310"] }
