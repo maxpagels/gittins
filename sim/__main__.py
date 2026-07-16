@@ -8,8 +8,8 @@ GitHub job summary, so every run is readable directly in the Actions UI.
 Runs are seeded and paired (see sim.rand): the numbers are exactly
 reproducible for a given harness version, but they are statistics, not
 golden vectors — nothing here is bit-pinned, and these tables are a
-diagnostic, not a gate. The sweep driver and the full battery report
-belong to PR 14.
+diagnostic, not a gate. The sweep driver that settles the engine's
+constants is sim/sweep.py.
 """
 
 import sys
@@ -48,7 +48,7 @@ ENVIRONMENTS = [
     XorEnvironment(k=10),
     NeedleEnvironment(k=10),
     ActionFeatureEnvironment(k=16),
-    # PR 12: non-stationary, churn, and missing-feature worlds. The policy
+    # Non-stationary, churn, and missing-feature worlds. The policy
     # half-life is 1000 rounds: shift period 375 is well inside it (four
     # epochs per 1500-round run), drift period 500 is seasonal (three full
     # cycles), churn's events land at rounds 400/800/1100.
@@ -67,7 +67,7 @@ POLICIES = [
     lambda: GittinsPolicy(bits=BITS),
 ]
 
-# The event-time battery (PR 13): linear-k5 under daily traffic (two peaks,
+# The event-time battery: linear-k5 under daily traffic (two peaks,
 # overnight trough, one burst window a day) with wall-clock half-life and
 # horizon. Config A: fast rewards with a tail past the 2h horizon (~7%
 # expire). Config B: every reward lands the next morning — the horizon must

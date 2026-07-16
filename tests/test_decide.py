@@ -4,6 +4,7 @@ from collections import Counter
 import pytest
 
 from gittins_reference.decide import (
+    GAMMA_SCALE,
     BanditState,
     DecisionRecord,
     candidate_set_hash,
@@ -118,7 +119,7 @@ class TestDecide:
 
 class TestChooseGamma:
     def test_inverse_mean_uncertainty(self):
-        assert choose_gamma([0.5, 0.25]) == 1.0 / 0.375
+        assert choose_gamma([0.5, 0.25]) == GAMMA_SCALE / 0.375
 
     def test_all_zero_uncertainty_gives_uniform(self):
         assert choose_gamma([0.0, 0.0]) == 0.0
@@ -160,7 +161,7 @@ class TestPinnedVectors:
             candidate_hash=8340395383735871362,
             chosen=0,
             features=(1.0, 0.0),
-            propensity=0.4086828696415729,
+            propensity=0.9482851123609886,
             model_version=2,
             salt="pepper",
         )

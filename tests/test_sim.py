@@ -1,4 +1,4 @@
-"""The sim harness (PR 11): reproducibility, pairing, the real public path,
+"""The round-based sim harness: reproducibility, pairing, the real public path,
 and the regret scale behaving as the metrics claim.
 
 Unlike the reference's tests, nothing here is bit-pinned — sims are
@@ -38,7 +38,7 @@ BITS = 6
 SEEDS = [0, 1, 2]
 ROUNDS = 600
 
-# The PR 12 environments at test scale: 600-round runs, events scaled to
+# The non-stationary environments at test scale: 600-round runs, events scaled to
 # land inside them (the battery instances in sim/__main__.py assume 1500).
 def shift_env():
     return AbruptShiftEnvironment(k=5, period=150)
@@ -130,15 +130,13 @@ def test_model_baselines_learn_the_linear_environment():
 
 
 def test_gittins_learns_the_linear_environment():
-    # Loose ceiling: with GAMMA_SCALE = 1.0 the engine is still very
-    # explorative at this horizon (that finding is the battery's point);
-    # it must nonetheless be clearly inside the uniform-random bound.
+    # On its home turf the engine must be competitive with the baselines
+    # while keeping the floor and propensities they lack (calibrated ~0.15
+    # regret, ~0.23 late-run RMSE at the swept GAMMA_SCALE).
     env = LinearEnvironment(k=5)
     results = [run(env, GittinsPolicy(bits=BITS), s, ROUNDS) for s in SEEDS]
-    assert median_iqr([normalized_regret(r) for r in results])[0] < 0.9
-    # The broad exploration buys the best model of any comparator: its
-    # late-run predictions should be tight (calibrated ~0.12).
-    assert median_iqr([rmse(r, first=ROUNDS // 2) for r in results])[0] < 0.25
+    assert median_iqr([normalized_regret(r) for r in results])[0] < 0.4
+    assert median_iqr([rmse(r, first=ROUNDS // 2) for r in results])[0] < 0.4
 
 
 def test_gittins_drives_the_real_ledger_path():
@@ -173,12 +171,11 @@ def test_action_features_generalize_across_arms():
     env = ActionFeatureEnvironment(k=16)
     assert median_regret(env, lambda: GreedyPolicy(bits=BITS)) < 0.6
     assert median_regret(env, lambda: EpsilonGreedyPolicy(0.1, bits=BITS)) < 0.7
-    # The engine over-explores at this horizon (the GAMMA_SCALE finding)
-    # but must stay inside uniform, and the exploration must buy the best
-    # late-run model of any comparator (calibrated ~0.16).
+    # The engine must generalize too (calibrated ~0.34 regret, ~0.38
+    # late-run RMSE at the swept GAMMA_SCALE).
     results = [run(env, GittinsPolicy(bits=BITS), s, ROUNDS) for s in SEEDS]
-    assert median_iqr([normalized_regret(r) for r in results])[0] < 1.1
-    assert median_iqr([rmse(r, first=ROUNDS // 2) for r in results])[0] < 0.3
+    assert median_iqr([normalized_regret(r) for r in results])[0] < 0.7
+    assert median_iqr([rmse(r, first=ROUNDS // 2) for r in results])[0] < 0.6
 
 
 def test_xor_degrades_gracefully():

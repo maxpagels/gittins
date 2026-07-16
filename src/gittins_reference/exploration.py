@@ -31,7 +31,7 @@ the cumulative sum in index order. Every step everywhere in this module is
 IEEE-754 add/multiply/divide in a fixed order, so the distribution and the
 choice are bit-identical across platforms.
 
-`gamma` is supplied by the layer above (the decide layer, PR 6): scheduling
+`gamma` is supplied by the layer above (the decide layer): scheduling
 or self-tuning it is that layer's concern, keeping this rule a pure function.
 """
 

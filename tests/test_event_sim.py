@@ -1,4 +1,4 @@
-"""The event-time harness (PR 13): traffic, delays, the event-queue runner,
+"""The event-time harness: traffic, delays, the event-queue runner,
 and the phase-split metrics.
 
 Same testing philosophy as test_sim.py: nothing is bit-pinned, but every
