@@ -30,23 +30,28 @@ no collision math.
 
 At this layer a candidate *is* its feature vector in the model's space;
 folding a context and an action description into that vector is the feature
-encoder's job (PR 8), and the dict-shaped public API arrives with it.
+encoder's job (encoding.py), and the dict-shaped public API arrives with it.
 
-**Where gamma comes from.** The exploration rule (PR 5) left its greediness
+**Where gamma comes from.** The exploration rule (exploration.py) left its greediness
 `gamma` to this layer. It is derived from the model's own uncertainty:
 
     gamma = GAMMA_SCALE / mean(uncertainty over the candidates)
 
-A fresh model has uncertainty ~1 on unit-scale features, so gamma ~1 and
-the distribution is near-uniform; uncertainty shrinks like 1/sqrt(n) as
-evidence accumulates, so gamma grows like sqrt(n) — the schedule SquareCB's
-guarantee wants — with no clock or knob. Because decayed sums bound the
-effective sample size, gamma is bounded too: the system never becomes fully
-greedy (R2), and after a world shift uncertainty regrows and gamma falls
-back on its own. GAMMA_SCALE is a fixed engine constant; its value (and
-whether the mean is the right aggregate) is provisional until the Phase 2
-battery, but the *interface* — gamma is computed here, never asked of the
-user — is settled.
+Uncertainty shrinks like 1/sqrt(n) as evidence accumulates, so gamma grows
+like sqrt(n) — the schedule SquareCB's guarantee wants — with no clock or
+knob. A fresh model estimates every candidate at 0, so the first
+distributions are uniform whatever gamma is; the probability floor
+(exploration.py) guarantees exploration ever after. Because decayed sums
+bound the effective sample size, gamma is bounded too: the system never
+becomes fully greedy (R2), and after a world shift uncertainty regrows and
+gamma falls back on its own. GAMMA_SCALE is a fixed engine constant, never
+a user knob; its value was settled by the battery sweep (sim/sweep.py):
+300 was near-best almost everywhere, never far from the per-environment
+best, and ahead of epsilon-greedy overall, where the original 1.0 kept
+gamma so low the engine spent over half its traffic on non-best arms
+forever. Whether the mean is the right uncertainty aggregate is still
+open; the *interface* — gamma is computed here, never asked of the user —
+is settled.
 
 RNG counter allocation: counter 0 of the decision's stream is the sampling
 draw. Later counters are reserved for future per-decision randomness.
@@ -64,7 +69,8 @@ from gittins_reference.model import LinearModel, factorize, new_model, predict_f
 from gittins_reference.rng import derive_key, fnv1a_64
 
 # Fixed scale of the uncertainty-driven gamma schedule; not a user knob.
-GAMMA_SCALE = 1.0
+# Settled by the battery sweep (sim/sweep.py) — see the module docstring.
+GAMMA_SCALE = 300.0
 
 
 @dataclass(frozen=True)

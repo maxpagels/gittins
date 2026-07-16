@@ -1,5 +1,5 @@
 """The event-time runner: one policy through one environment, driven by a
-time-ordered event stream instead of rounds (PR 13).
+time-ordered event stream instead of rounds.
 
 Decision arrivals (from a traffic model) and reward arrivals (each
 decision's reward lands `delay` later) interleave in one queue. At every

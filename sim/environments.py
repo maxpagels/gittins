@@ -12,9 +12,9 @@ every policy driven on the same seed sees identical rounds. The reward
 noise draw is likewise keyed by (name, seed, t) alone — shared across
 candidates (common random numbers), which tightens paired comparisons.
 
-This module holds the stationary environments (PR 11) and the
-non-stationary, churn, and missing-feature environments (PR 12); the
-event-time battery (variable traffic, delayed rewards) follows in PR 13.
+This module holds the stationary environments and the non-stationary,
+churn, and missing-feature ones; traffic and reward delays (the event-time
+battery) live in sim/traffic.py.
 """
 
 import math

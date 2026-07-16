@@ -1,7 +1,7 @@
 """The comparator policies, all driven through one identical loop (runner.py).
 
 `gittins` is the engine under test, run on the real public path — encode
-(PR 8) -> decide (PR 6) -> ledger learn/expire (PR 7) — never the layers in
+-> decide -> ledger learn/expire — never the layers in
 isolation, so hashing, the gamma schedule, the floor, and decay are all in
 the loop together. The baselines bracket and challenge it:
 
@@ -31,7 +31,7 @@ from sim.rand import randint, stream, uniform
 
 class Policy:
     """The round-based interface is choose/observe (reward immediately after
-    each decision). The event-time runner (PR 13) instead drives the
+    each decision). The event-time runner instead drives the
     primitives sweep/decide_at/resolve, where a decision's reward may arrive
     any amount of time later, out of order, or never; choose/observe are the
     same primitives composed for the immediate-reward special case."""

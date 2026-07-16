@@ -391,9 +391,7 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   (0.30) and the engine stays uniform-bounded (0.86); dropout degrades gracefully
   (greedy 0.17, engine 0.71 with the best RMSE, 0.24).
 
-## Currently in flight
-
-- **PR 13** (`pr-13`) — event-time simulation. `sim/traffic.py`: `DailyTraffic`, a
+- **PR 13** (2026-07-16) — event-time simulation. `sim/traffic.py`: `DailyTraffic`, a
   non-homogeneous Poisson arrival process (Gaussian bumps at 10:00 and 19:00, an
   overnight trough, peak/trough rate swing set by construction, optional burst
   windows multiplying the rate), sampled by thinning; delay models `ConstantDelay`,

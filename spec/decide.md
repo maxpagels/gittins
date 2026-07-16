@@ -83,20 +83,24 @@ layers, so the whole record is bit-identical across platforms.
 
     gamma = GAMMA_SCALE / mean(uncertainty over the candidates)
 
-with `GAMMA_SCALE = 1.0` a fixed engine constant. If the mean is 0 (every
-candidate a zero vector), gamma is 0 (uniform).
+with `GAMMA_SCALE = 300.0` a fixed engine constant. If the mean is 0
+(every candidate a zero vector), gamma is 0 (uniform).
 
-Why this is the right shape: a fresh model has uncertainty ~1 on
-unit-scale features, giving gamma ~1 — near-uniform exploration; with n
-effective observations uncertainty shrinks like 1/sqrt(n), so gamma grows
-like sqrt(n), which is the schedule SquareCB's regret guarantee wants —
-obtained from the model's own posterior instead of a clock or a knob.
-Because decaying sums bound the effective sample size, gamma is bounded
-(never fully greedy, R2), and after a world shift uncertainty regrows and
-gamma falls back automatically. The constant's value and the choice of
-mean as the aggregate are provisional until the Phase 2 battery; the
-interface — gamma is computed inside the engine, never asked of the user —
-is settled.
+Why this is the right shape: with n effective observations uncertainty
+shrinks like 1/sqrt(n), so gamma grows like sqrt(n), which is the schedule
+SquareCB's regret guarantee wants — obtained from the model's own
+posterior instead of a clock or a knob. A fresh model estimates every
+candidate at 0, so the first distributions are uniform whatever gamma is,
+and the probability floor guarantees exploration ever after. Because
+decaying sums bound the effective sample size, gamma is bounded (never
+fully greedy, R2), and after a world shift uncertainty regrows and gamma
+falls back automatically. The constant's value was settled by the battery
+sweep (`sim/sweep.py`): 300 was within 1.1x of the best swept value on 9
+of 12 environments, never worse than 1.34x, and ahead of epsilon-greedy
+overall; the original provisional 1.0 kept gamma so low the engine spent
+over half its traffic on non-best arms indefinitely. The choice of mean as
+the uncertainty aggregate remains provisional; the interface — gamma is
+computed inside the engine, never asked of the user — is settled.
 
 ## Golden vectors
 
@@ -109,4 +113,4 @@ with salt `"pepper"`:
     candidate_hash = 8340395383735871362
     chosen         = 0
     features       = (1.0, 0.0)
-    propensity     = 0.4086828696415729
+    propensity     = 0.9482851123609886
