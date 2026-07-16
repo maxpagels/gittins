@@ -88,10 +88,10 @@ docs/                    user-facing documentation (usage.md: the public API
                          by example)
 bindings/python/         Python binding (Phase 2): the public API as a
                          PyO3/maturin wheel, gated on the golden api section
+bindings/wasm/           browser/JS binding (Phase 2): the same surface via
+                         wasm-bindgen, gated under Node
 PROGRESS.md              this file
 ```
-
-Planned: `bindings/wasm` (wasm-bindgen).
 
 ## Roadmap (Phase 2 — bindings)
 
@@ -99,13 +99,6 @@ The rule that governs the phase: the dict-shaped public API is specified
 once, in the reference, and every binding mirrors it exactly; each binding's
 CI gate is the golden episode replayed through the binding, bit for bit.
 
-- **PR 21 — browser (`bindings/wasm`: wasm-bindgen → npm).** The engine core
-  uses only IEEE-exact operations (add/mul/div/sqrt — no libm transcendentals),
-  and WASM mandates IEEE-754 semantics, so the corpus should pass in wasm by
-  construction; `wasm-pack test --node` in CI becomes the first
-  cross-platform bit-identity gate. State serialized to a string makes a
-  localStorage-persisted browser bandit the natural demo of R8's ephemeral
-  mode.
 - **PR 22 — cross-OS CI + packaging.** macOS/Windows legs (the release gate
   the golden spec defers), wheels via maturin-action, npm packaging.
 
@@ -262,9 +255,7 @@ decisions log above, and this file's git history has the full entries.
   own public API. The Rust facade reproduced it on the first run.
   Follow-up in the same PR: `docs/usage.md`, the public API by example.
 
-## Currently in flight
-
-- **PR 20** (`pr-20`) — the Python binding (`bindings/python`): PyO3 +
+- **PR 20** (2026-07-16) — the Python binding (`bindings/python`): PyO3 +
   maturin, abi3 (one wheel per platform covers CPython ≥ 3.10). The module
   mirrors `gittins_reference.api` name for name; the reference's functional
   shapes are kept, with the returned state being the same handle mutated in
@@ -286,4 +277,27 @@ decisions log above, and this file's git history has the full entries.
   10–50 µs target at the 100-arm shape; the gap is the known encoding hot
   spot (per-decision token formatting + pair hashing), deliberately
   deferred until this benchmark existed to price it, and now first on the
-  perf list.
+  perf list. Follow-ups in the same PR: the benchmark became an arms ×
+  context-features grid (5/10/100 each way; steady ~8–11x on every shape),
+  and docs/usage.md now leads with the binding.
+
+## Currently in flight
+
+- **PR 21** (`pr-21`) — the browser/JS binding (`bindings/wasm`):
+  wasm-bindgen + js-sys over the core's api module, packaged by wasm-pack
+  (npm publishing lands with PR 22). Same eight names; the one JS-flavored
+  deviation, documented in the module: calls return their result only and
+  the state handle mutates in place (no (result, state) tuples). Contexts
+  and actions are plain objects, candidates [armId, features] pairs,
+  records/resolutions plain objects with the reference's field names —
+  `candidate_hash` is a BigInt, since a JS number would round 64-bit
+  hashes. Acceptance (`wasm-pack test --node`, in CI as the new
+  wasm-binding job): the golden `api` section replayed through the module
+  with real JS objects, the `serialization` bytes re-emitted exactly, and
+  rejections thrown as JS errors — all passed on the first run. Because
+  WASM mandates IEEE-754 semantics and the engine uses no libm
+  transcendentals, that pass is the project's first cross-platform
+  bit-identity check: the corpus generated on macOS/arm64 reproduces bit
+  for bit inside the wasm VM. `bindings/wasm/README.md` carries the
+  localStorage browser-bandit example (R8's ephemeral mode); CI also smoke-
+  builds the npm package (`wasm-pack build --target web`).

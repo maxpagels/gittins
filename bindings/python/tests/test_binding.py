@@ -22,19 +22,15 @@ def replay_api_section():
     catalog = [(arm_id, action) for arm_id, action in s["catalog"]]
     records = []
     for event in s["events"]:
-        record, state = gittins.decide(state, event["context"], catalog, event["t"], s["salt"])
+        record = gittins.decide(state, event["context"], catalog, event["t"], s["salt"])
         records.append((record, event["record"]))
     resolutions = []
     _, expected0 = records[0]
     _, expected1 = records[1]
-    r, state = gittins.learn(state, expected1["decision_id"], 1.0)
-    resolutions.append(r)
-    r, state = gittins.learn(state, expected0["decision_id"], 0.0)
-    resolutions.append(r)
-    r, state = gittins.censor(state, records[2][1]["decision_id"])
-    resolutions.append(r)
-    expired, state = gittins.expire(state, s["expire_sweep_at"])
-    resolutions.extend(expired)
+    resolutions.append(gittins.learn(state, expected1["decision_id"], 1.0))
+    resolutions.append(gittins.learn(state, expected0["decision_id"], 0.0))
+    resolutions.append(gittins.censor(state, records[2][1]["decision_id"]))
+    resolutions.extend(gittins.expire(state, s["expire_sweep_at"]))
     return s, state, records, resolutions
 
 
@@ -82,19 +78,19 @@ class TestReferenceEquivalence:
         pure = api.create(bits=6, horizon=100.0, epsilon=0.1)
         for i in range(40):
             context = {"seg": "a" if i % 3 else "b", "hour": float(i % 24)}
-            b_record, bound = gittins.decide(bound, context, catalog, float(i), "eq")
-            p_record, pure = api.decide(pure, context, catalog, float(i), "eq")
+            b_record = gittins.decide(bound, context, catalog, float(i), "eq")
+            p_record = api.decide(pure, context, catalog, float(i), "eq")
             assert b_record.decision_id == p_record.decision_id
             assert b_record.chosen == p_record.chosen
             assert b_record.propensity == p_record.propensity
             assert list(b_record.features) == list(p_record.features)
             assert b_record.candidate_hash == p_record.candidate_hash
             if i % 4 == 0:
-                _, bound = gittins.learn(bound, b_record.decision_id, 1.0)
-                _, pure = api.learn(pure, p_record.decision_id, 1.0)
+                gittins.learn(bound, b_record.decision_id, 1.0)
+                api.learn(pure, p_record.decision_id, 1.0)
             if i % 7 == 0:
-                _, bound = gittins.expire(bound, float(i))
-                _, pure = api.expire(pure, float(i))
+                gittins.expire(bound, float(i))
+                api.expire(pure, float(i))
         assert gittins.serialize(bound) == api.serialize(pure)
 
 
@@ -112,10 +108,8 @@ class TestSurface:
 
     def test_unknown_resolutions_are_none(self):
         state = gittins.create(4, horizon=10.0)
-        resolution, state = gittins.learn(state, "never-made:0", 1.0)
-        assert resolution is None
-        resolutions, state = gittins.expire(state, 1e9)
-        assert resolutions == ()
+        assert gittins.learn(state, "never-made:0", 1.0) is None
+        assert gittins.expire(state, 1e9) == ()
 
     def test_the_usage_doc_lifecycle(self):
         # docs/usage.md, through the wheel: decide, learn, expire, censor,
@@ -127,13 +121,11 @@ class TestSurface:
             ("banner-new", {"discount": 0.0}),
             ("banner-plain", {}),
         ]
-        record, state = gittins.decide(state, context, candidates, 0.0, "agent-1")
+        record = gittins.decide(state, context, candidates, 0.0, "agent-1")
         assert candidates[record.chosen][0].startswith("banner-")
-        resolution, state = gittins.learn(state, record.decision_id, 1.0)
-        assert resolution.kind == "rewarded"
-        record, state = gittins.decide(state, context, candidates, 1.0, "agent-1")
-        resolution, state = gittins.censor(state, record.decision_id)
-        assert resolution.kind == "censored"
+        assert gittins.learn(state, record.decision_id, 1.0).kind == "rewarded"
+        record = gittins.decide(state, context, candidates, 1.0, "agent-1")
+        assert gittins.censor(state, record.decision_id).kind == "censored"
         assert gittins.model_bits(state) == 8
         restored = gittins.deserialize(gittins.serialize(state))
         assert gittins.serialize(restored) == gittins.serialize(state)

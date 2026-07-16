@@ -43,14 +43,14 @@ def drive(create, decide, learn, contexts, catalog) -> float:
     time-boxed sampling."""
     state = create(bits=BITS, horizon=1e9)
     for i in range(5):  # warm up (fills the reference's hash cache, too)
-        record, state = decide(state, contexts[i % len(contexts)], catalog, float(i), "warm")
-        _, state = learn(state, record.decision_id, 1.0)
+        record = decide(state, contexts[i % len(contexts)], catalog, float(i), "warm")
+        learn(state, record.decision_id, 1.0)
     rounds = 0
     start = time.perf_counter()
     while rounds < MAX_ROUNDS:
         i = rounds
-        record, state = decide(state, contexts[i % len(contexts)], catalog, float(i), "bench")
-        _, state = learn(state, record.decision_id, 1.0 if i % 3 else 0.0)
+        record = decide(state, contexts[i % len(contexts)], catalog, float(i), "bench")
+        learn(state, record.decision_id, 1.0 if i % 3 else 0.0)
         rounds += 1
         if time.perf_counter() - start >= MIN_SECONDS:
             break

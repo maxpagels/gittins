@@ -6,3 +6,5 @@ __pycache__/
 dist/
 core/target/
 bindings/python/target/
+bindings/wasm/target/
+bindings/wasm/pkg/

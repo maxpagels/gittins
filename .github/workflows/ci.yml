@@ -84,3 +84,21 @@ jobs:
         run: .venv/bin/python -m pytest bindings/python/tests -q
       - name: Decision-cycle benchmark
         run: .venv/bin/python bindings/python/bench.py | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The browser/JS binding: golden api + serialization sections replayed
+  # through the wasm module under Node — the binding acceptance gate, and
+  # (because WASM mandates IEEE-754 semantics) the project's first
+  # cross-platform bit-identity check. Then a packaging smoke build.
+  wasm-binding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Golden gate under Node
+        run: wasm-pack test --node bindings/wasm
+      - name: Package smoke build
+        run: wasm-pack build --target web bindings/wasm
