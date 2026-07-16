@@ -131,8 +131,14 @@ class TestCandidateSetHash:
         assert candidate_set_hash([[0.0, 1.0], [1.0, 0.0]]) != h
         assert candidate_set_hash([[1.0, 0.5], [0.0, 1.0]]) != h
         # [[1,0],[0,1]] flattened equals [[1],[0,0],[1]] flattened; the
-        # per-vector length prefixes must keep them distinct.
+        # dimension and count prefixes must keep them distinct.
         assert candidate_set_hash([[1.0], [0.0, 0.0], [1.0]]) != h
+
+    def test_sparse_encoding_ignores_zero_sign(self):
+        # The encoding is sparse: entries equal to zero are absent, so the
+        # two IEEE zeros hash identically — but dimension still matters.
+        assert candidate_set_hash([[1.0, -0.0]]) == candidate_set_hash([[1.0, 0.0]])
+        assert candidate_set_hash([[1.0, 0.0]]) != candidate_set_hash([[1.0]])
 
 
 class TestPinnedVectors:
@@ -151,7 +157,7 @@ class TestPinnedVectors:
         assert record == DecisionRecord(
             decision_id="pepper:7",
             t=1752003600.0,
-            candidate_hash=14029619844508309728,
+            candidate_hash=8340395383735871362,
             chosen=0,
             features=(1.0, 0.0),
             propensity=0.4086828696415729,

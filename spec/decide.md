@@ -48,10 +48,16 @@ same rule that already keeps their random streams distinct. No hashing, no
 collision probability to reason about.
 
 **Candidate-set hash.** FNV-1a (64-bit, `spec/rng.md`) over a canonical
-encoding: the candidate count as 8 little-endian bytes, then each vector as
-its length (8 LE bytes) followed by its values as little-endian IEEE-754
-doubles. Order- and value-sensitive; the per-vector length prefixes keep
-differently-shaped sets with equal flattenings distinct.
+*sparse* encoding: the candidate count as 8 little-endian bytes, then each
+vector as its dimension (8 LE bytes), its nonzero-entry count (8 LE bytes),
+and its nonzero entries in increasing index order, each as the index (8 LE
+bytes) followed by the value (little-endian IEEE-754 double). Entries equal
+to zero — either sign — are absent by definition, so the hash costs
+O(nonzeros), not O(dimension): hash-encoded candidates are nearly all
+zeros, and an implementation that keeps candidates as sparse (index, value)
+pairs never materializes the dense vector to hash it. Order- and
+value-sensitive; the dimension and count prefixes keep differently-shaped
+sets with equal flattenings distinct.
 
 ## The decide pipeline
 
@@ -100,7 +106,7 @@ Model dim 2, half-life 3600 s, created at T0 = 1752000000.0; updates
 with salt `"pepper"`:
 
     decision_id    = "pepper:7"
-    candidate_hash = 14029619844508309728
+    candidate_hash = 8340395383735871362
     chosen         = 0
     features       = (1.0, 0.0)
     propensity     = 0.4086828696415729
