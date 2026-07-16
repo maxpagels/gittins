@@ -39,9 +39,10 @@ considerations with such systems:
 Named after John Gittins, whose index (1974) established that exploration has a
 precise, computable value.
 
-**Status: early development.** The current work is a pure-Python reference
-implementation of the core, built concept by concept. See [PROGRESS.md](PROGRESS.md)
-for the roadmap and current state.
+**Status: early development.** The pure-Python reference implementation and its
+bit-identical Rust core are complete; language bindings are in progress. See
+[PROGRESS.md](PROGRESS.md) for the roadmap and current state, and
+[docs/usage.md](docs/usage.md) for example usage of the reference API.
 
 ## Development
 

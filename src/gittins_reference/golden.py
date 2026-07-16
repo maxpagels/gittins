@@ -30,6 +30,7 @@ Serialization notes for independent implementations:
 import json
 import sys
 
+from gittins_reference import api
 from gittins_reference.decide import candidate_set_hash, decide, new_bandit
 from gittins_reference.encoding import encode, feature_tokens, pair_hash
 from gittins_reference.exploration import epsilon_greedy_probabilities, sample_index
@@ -264,6 +265,56 @@ def serialization_vectors(mid_state, final_state):
     }
 
 
+def api_vectors():
+    """One compact scenario driven purely through the public dict-shaped
+    surface (api.py): create, four decides over the same (arm_id, action)
+    catalog — action features included, which the episode section never
+    exercises — then out-of-order rewards, a censor, an exact-horizon
+    expiry, and the final state's canonical bytes. A binding replays this
+    section calling only its public API; matching it (final hex included)
+    is the binding's acceptance gate."""
+    bits = 4
+    forgetting = 0.9
+    horizon = HOUR
+    salt = "api-golden"
+    catalog = [
+        ("basic", {"price": 3.0}),
+        ("plus", {"price": 9.0, "trial": True}),
+        ("free", {}),
+    ]
+    state = api.create(bits, horizon=horizon, forgetting=forgetting)
+    events = []
+    records = []
+    resolutions = []
+    for i, seg in enumerate(["a", "b", "a", "b"]):
+        context = {"seg": seg, "hour": 9 + i}
+        record, state = api.decide(state, context, catalog, T0 + i * 900.0, salt)
+        events.append({"t": record.t, "context": context, "record": record_json(record)})
+        records.append(record)
+    for decision_id, reward in [(records[1].decision_id, 1.0), (records[0].decision_id, 0.0)]:
+        resolution, state = api.learn(state, decision_id, reward)
+        resolutions.append(resolution_json(resolution))
+    resolution, state = api.censor(state, records[2].decision_id)
+    resolutions.append(resolution_json(resolution))
+    sweep_t = T0 + 3 * 900.0 + horizon  # the one open decision is exactly due
+    expired, state = api.expire(state, sweep_t)
+    resolutions.extend(resolution_json(r) for r in expired)
+    assert not state.ledger, "api scenario must end with nothing open"
+    return {
+        "bits": bits, "forgetting": forgetting, "horizon": horizon,
+        "salt": salt,
+        "catalog": [[arm_id, action] for arm_id, action in catalog],
+        "events": events,
+        "resolutions": resolutions,
+        "expire_sweep_at": sweep_t,
+        "final": {
+            "model_version": state.model_version,
+            "next_seq": state.next_seq,
+            "state_hex": serialize(state).hex(),
+        },
+    }
+
+
 def generate() -> dict:
     episode, mid_state, final_state = run_episode()
     return {
@@ -275,6 +326,7 @@ def generate() -> dict:
             "encoding": encoding_vectors(),
             "episode": episode,
             "serialization": serialization_vectors(mid_state, final_state),
+            "api": api_vectors(),
         },
     }
 

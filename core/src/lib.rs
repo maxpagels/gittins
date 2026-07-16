@@ -9,6 +9,7 @@
 //! tuples were always documented as a reference-only artifact); everything
 //! else — semantics, constants, RNG streams, hash layouts — is unchanged.
 
+pub mod api;
 pub mod decide;
 pub mod encoding;
 pub mod error;
