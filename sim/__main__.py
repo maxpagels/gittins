@@ -1,4 +1,4 @@
-"""`python -m sim`: run the stationary battery and print a markdown table.
+"""`python -m sim`: run the environment battery and print a markdown table.
 
 CI appends the output to the GitHub job summary, so every run of the
 battery is readable directly in the Actions UI. Runs are seeded and paired
@@ -12,7 +12,11 @@ import sys
 import time
 
 from sim.environments import (
+    AbruptShiftEnvironment,
     ActionFeatureEnvironment,
+    ChurnEnvironment,
+    DriftEnvironment,
+    DropoutEnvironment,
     LinearEnvironment,
     NeedleEnvironment,
     XorEnvironment,
@@ -38,6 +42,14 @@ ENVIRONMENTS = [
     XorEnvironment(k=10),
     NeedleEnvironment(k=10),
     ActionFeatureEnvironment(k=16),
+    # PR 12: non-stationary, churn, and missing-feature worlds. The policy
+    # half-life is 1000 rounds: shift period 375 is well inside it (four
+    # epochs per 1500-round run), drift period 500 is seasonal (three full
+    # cycles), churn's events land at rounds 400/800/1100.
+    AbruptShiftEnvironment(k=5, period=375),
+    DriftEnvironment(k=5, period=500),
+    ChurnEnvironment(k=8),
+    DropoutEnvironment(k=5, p_drop=0.3),
 ]
 
 POLICIES = [
@@ -57,7 +69,7 @@ def spread(values: "list[float]") -> str:
 
 def main() -> None:
     start = time.time()
-    print("### Stationary battery")
+    print("### Environment battery")
     print()
     print(
         f"{ROUNDS} rounds, seeds {list(SEEDS)}, bits={BITS}. Normalized regret: "

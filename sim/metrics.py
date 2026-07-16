@@ -34,6 +34,29 @@ def final_window_regret(result: RunResult, window_fraction: float = 0.1) -> floa
     return normalized_regret(result, first=n - window)
 
 
+def recovery_time(
+    result: RunResult, event: int, window: int = 100, fraction: float = 0.9
+) -> "int | None":
+    """Rounds after `event` until the policy's rolling expected reward rate
+    regains `fraction` of the oracle's — the post-shift/birth/return
+    recovery measure. Rates are means over the forward window [r, r+window):
+    the oracle's is `best`, the policy's is `best - regret`. Returns the
+    first r - event that qualifies, or None if the run ends first.
+
+    Meaningful when means are positive (a fraction of a negative oracle
+    rate is not a target); the churn battery draws its means that way.
+    """
+    if window < 1:
+        raise ValueError("window must be at least one round")
+    n = len(result.regret)
+    for r in range(event, n - window + 1):
+        oracle = math.fsum(result.best[r : r + window]) / window
+        policy = oracle - math.fsum(result.regret[r : r + window]) / window
+        if policy >= fraction * oracle:
+            return r - event
+    return None
+
+
 def rmse(result: RunResult, first: int = 0, last: "int | None" = None) -> "float | None":
     """Root-mean-square prediction error vs the oracle means over rounds
     [first, last); None for model-free policies. Separates model quality
