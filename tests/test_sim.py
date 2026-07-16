@@ -131,8 +131,8 @@ def test_model_baselines_learn_the_linear_environment():
 
 def test_gittins_learns_the_linear_environment():
     # On its home turf the engine must be competitive with the baselines
-    # while keeping the floor and propensities they lack (calibrated ~0.15
-    # regret, ~0.23 late-run RMSE at the swept GAMMA_SCALE).
+    # while keeping the exploration mass and propensities they lack
+    # (calibrated ~0.12 regret, ~0.25 late-run RMSE at the default epsilon).
     env = LinearEnvironment(k=5)
     results = [run(env, GittinsPolicy(bits=BITS), s, ROUNDS) for s in SEEDS]
     assert median_iqr([normalized_regret(r) for r in results])[0] < 0.4
@@ -171,8 +171,8 @@ def test_action_features_generalize_across_arms():
     env = ActionFeatureEnvironment(k=16)
     assert median_regret(env, lambda: GreedyPolicy(bits=BITS)) < 0.6
     assert median_regret(env, lambda: EpsilonGreedyPolicy(0.1, bits=BITS)) < 0.7
-    # The engine must generalize too (calibrated ~0.34 regret, ~0.38
-    # late-run RMSE at the swept GAMMA_SCALE).
+    # The engine must generalize too (calibrated ~0.35 regret, ~0.36
+    # late-run RMSE at the default epsilon).
     results = [run(env, GittinsPolicy(bits=BITS), s, ROUNDS) for s in SEEDS]
     assert median_iqr([normalized_regret(r) for r in results])[0] < 0.7
     assert median_iqr([rmse(r, first=ROUNDS // 2) for r in results])[0] < 0.6

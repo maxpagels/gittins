@@ -1,78 +1,70 @@
-"""The exploration rule: inverse-gap weighting with a probability floor (design
-doc section 5).
+"""The exploration rule: epsilon-greedy (design doc section 5, revised).
 
-Given one reward estimate per candidate, inverse-gap weighting (the SquareCB
-algorithm) turns the estimates into a probability distribution: the best
-candidate gets most of the probability, and every other candidate gets
-probability inversely proportional to how far its estimate falls below the
-best,
+Given one reward estimate per candidate, epsilon-greedy turns the estimates
+into a probability distribution: spend `epsilon` of the probability mass
+uniformly over all k candidates, and the remaining `1 - epsilon` on the
+greedy choice,
 
-    p[i]    = 1 / (k + gamma * (best_estimate - estimate[i]))    for i != best
-    p[best] = 1 - sum of the others
+    p[i] = epsilon / k  +  (1 - epsilon) / m    if estimate[i] is maximal
+    p[i] = epsilon / k                          otherwise
 
-where k is the number of candidates and `gamma` is the greediness: gamma = 0
-is a uniform distribution, gamma -> infinity is pure argmax. Each non-best
-probability is at most 1/k, so the best candidate always keeps at least 1/k.
-This rule needs nothing from the model except reward estimates (R7), and it
-comes with the SquareCB regret guarantee.
+where m is the number of candidates tied (exactly, in float equality) for
+the maximal estimate. Splitting the greedy mass across ties instead of
+picking the first maximum matters at cold start: a fresh model estimates
+every candidate at 0.0, so the first distributions are uniform rather than
+hammering index 0. This rule needs nothing from the model except reward
+estimates (R7) — no uncertainties, no schedule, no per-candidate divisions.
 
-The floor then mixes in a fixed sliver of the uniform distribution,
+One constant does three jobs (R2, R3): the system never fully converges,
+importance weights in offline evaluation stay bounded (by k / epsilon), and
+every arm keeps accumulating fresh evidence, so a fallen-then-recovered arm
+is always rediscovered. `DEFAULT_EPSILON` is the engine default; overriding
+it is an expert move (decide.py), not routine tuning.
 
-    p[i] = FLOOR_MASS / k  +  (1 - FLOOR_MASS) * p[i]
-
-so no candidate's probability is ever below FLOOR_MASS / k. One constant does
-three jobs (R2, R3): the system never fully converges, importance weights in
-offline evaluation stay bounded (by k / FLOOR_MASS), and every arm keeps
-accumulating fresh evidence, so a fallen-then-recovered arm is always
-rediscovered. FLOOR_MASS is a fixed engine constant, not a knob.
+Epsilon-greedy replaced inverse-gap weighting (SquareCB) here. SquareCB's
+regret guarantee is forfeited the moment a permanent exploration floor is
+mixed in — and R2 demands that floor — so the two rules differ only in how
+they spend the transient exploration, at very different prices: SquareCB
+needs per-candidate uncertainties (twice the prediction arithmetic plus a
+sqrt), a gamma schedule with a swept constant, and a full distribution
+build; epsilon-greedy needs one max-scan. The battery (sim/) prices the
+regret difference; the sweep driver (sim/sweep.py) settles the epsilon
+default by evidence, exactly as it settled the old gamma scale.
 
 Sampling is inverse-CDF: one uniform draw from the counter-based RNG walks
 the cumulative sum in index order. Every step everywhere in this module is
 IEEE-754 add/multiply/divide in a fixed order, so the distribution and the
 choice are bit-identical across platforms.
-
-`gamma` is supplied by the layer above (the decide layer): scheduling
-or self-tuning it is that layer's concern, keeping this rule a pure function.
 """
 
 from gittins_reference.rng import random_unit
 
-# Total probability mass reserved for uniform exploration; each of k
-# candidates is guaranteed at least FLOOR_MASS / k.
-FLOOR_MASS = 0.05
+# Probability mass spent uniformly over the candidates; every candidate is
+# guaranteed at least DEFAULT_EPSILON / k. The engine default, settled by
+# evidence (sim/sweep.py); an expert override at construction, not a knob
+# to routinely tune.
+DEFAULT_EPSILON = 0.05
 
 
-def inverse_gap_probabilities(estimates: list[float], gamma: float) -> list[float]:
-    """The SquareCB distribution over candidates, before the floor."""
+def epsilon_greedy_probabilities(estimates: list[float], epsilon: float) -> list[float]:
+    """The epsilon-greedy distribution over candidates: `epsilon` uniform,
+    `1 - epsilon` split across the maximal estimates (exact-tie split)."""
     k = len(estimates)
     if k < 1:
         raise ValueError("need at least one candidate")
-    if not (gamma >= 0.0):
-        raise ValueError("gamma must be non-negative")
-    best = 0
+    if not (0.0 <= epsilon <= 1.0):
+        raise ValueError("epsilon must be in [0, 1]")
+    best = estimates[0]
     for i in range(1, k):
-        if estimates[i] > estimates[best]:
-            best = i
-    p = [0.0] * k
-    total = 0.0
+        if estimates[i] > best:
+            best = estimates[i]
+    m = 0
     for i in range(k):
-        if i != best:
-            p[i] = 1.0 / (k + gamma * (estimates[best] - estimates[i]))
-            total += p[i]
-    p[best] = 1.0 - total
-    return p
-
-
-def apply_floor(p: list[float], floor_mass: float = FLOOR_MASS) -> list[float]:
-    """Mix in `floor_mass` worth of the uniform distribution, guaranteeing
-    every candidate probability >= floor_mass / len(p)."""
-    if not (0.0 <= floor_mass <= 1.0):
-        raise ValueError("floor_mass must be in [0, 1]")
-    k = len(p)
-    if k < 1:
-        raise ValueError("need at least one candidate")
-    uniform = floor_mass / k
-    return [uniform + (1.0 - floor_mass) * p[i] for i in range(k)]
+        if estimates[i] == best:
+            m += 1
+    uniform = epsilon / k
+    share = (1.0 - epsilon) / m
+    return [uniform + share if estimates[i] == best else uniform for i in range(k)]
 
 
 def sample_index(p: list[float], key: int, counter: int) -> int:
@@ -87,12 +79,12 @@ def sample_index(p: list[float], key: int, counter: int) -> int:
     return len(p) - 1  # u landed in the rounding gap above the final sum
 
 
-def choose(estimates: list[float], gamma: float, key: int, counter: int) -> tuple[int, float]:
+def choose(estimates: list[float], epsilon: float, key: int, counter: int) -> tuple[int, float]:
     """The full exploration rule: (chosen index, its propensity).
 
-    The propensity is the floored probability the index was chosen with —
-    exactly what the decision record must log (D5).
+    The propensity is the probability the index was chosen with — exactly
+    what the decision record must log (D5).
     """
-    p = apply_floor(inverse_gap_probabilities(estimates, gamma))
+    p = epsilon_greedy_probabilities(estimates, epsilon)
     i = sample_index(p, key, counter)
     return i, p[i]

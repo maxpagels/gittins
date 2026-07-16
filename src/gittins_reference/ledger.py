@@ -83,7 +83,7 @@ def learn(
         return None, state
     new_state = replace(
         state,
-        model=update(state.model, list(record.features), reward),
+        model=update(state.model, record.features, reward),
         model_version=state.model_version + 1,
         ledger=rest,
     )
@@ -108,7 +108,7 @@ def expire(state: BanditState, t: float) -> "tuple[tuple[Resolution, ...], Bandi
     model = state.model
     for record in state.ledger:
         if record.t + state.horizon <= t:
-            model = update(model, list(record.features), state.default_reward)
+            model = update(model, record.features, state.default_reward)
             resolutions.append(Resolution(record.decision_id, EXPIRED, state.default_reward))
         else:
             remaining.append(record)

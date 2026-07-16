@@ -26,7 +26,8 @@ def normalized_regret(result: RunResult, first: int = 0, last: "int | None" = No
 
 def final_window_regret(result: RunResult, window_fraction: float = 0.1) -> float:
     """Normalized regret over just the final window of the run — the
-    steady-state rate, where the floor's cost shows once learning is done."""
+    steady-state rate, where the epsilon mass's cost shows once learning is
+    done."""
     if not (0.0 < window_fraction <= 1.0):
         raise ValueError("window_fraction must be in (0, 1]")
     n = len(result.regret)
@@ -55,20 +56,6 @@ def recovery_time(
         if policy >= fraction * oracle:
             return r - event
     return None
-
-
-def phase_regret(result, phase_of) -> "dict[str, float]":
-    """Normalized regret split by traffic phase (event-time runs): each
-    decision is bucketed by `phase_of(t)` over the result's `times`, and
-    every bucket gets its own regret/normalizer ratio. Phases whose rounds
-    were all indifferent (normalizer 0) report 0, like normalized_regret;
-    phases with no decisions at all are absent from the dict."""
-    sums: "dict[str, list[float]]" = {}
-    for t, r, u in zip(result.times, result.regret, result.normalizer, strict=True):
-        bucket = sums.setdefault(phase_of(t), [0.0, 0.0])
-        bucket[0] += r
-        bucket[1] += u
-    return {p: (r / u if u != 0.0 else 0.0) for p, (r, u) in sums.items()}
 
 
 def rmse(result: RunResult, first: int = 0, last: "int | None" = None) -> "float | None":

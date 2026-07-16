@@ -13,8 +13,7 @@ noise draw is likewise keyed by (name, seed, t) alone — shared across
 candidates (common random numbers), which tightens paired comparisons.
 
 This module holds the stationary environments and the non-stationary,
-churn, and missing-feature ones; traffic and reward delays (the event-time
-battery) live in sim/traffic.py.
+churn, and missing-feature ones.
 """
 
 import math
@@ -92,8 +91,8 @@ class LinearEnvironment(Environment):
     features x drawn fresh each round — exactly the dimensions the hashed
     outer-product encoding produces (identity x bias is the per-arm
     intercept, context x identity the per-arm slopes), so the linear model
-    is correctly specified up to hash collisions. The floor's cost is
-    measured here.
+    is correctly specified up to hash collisions. The epsilon mass's cost
+    is measured here.
     """
 
     def __init__(self, k: int, n_features: int = 3, noise: float = 0.1):

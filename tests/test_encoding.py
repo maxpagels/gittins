@@ -33,7 +33,8 @@ class TestFeatureTokens:
 class TestEncode:
     def test_shape_and_determinism(self):
         v = encode({"hour": 14}, "arm", {"price": 1.0}, 6)
-        assert len(v) == 64
+        assert all(0 <= j < 64 and val != 0.0 for j, val in v)
+        assert [j for j, _ in v] == sorted({j for j, _ in v})  # strictly increasing
         assert v == encode({"hour": 14}, "arm", {"price": 1.0}, 6)
 
     def test_independent_of_dict_insertion_order(self):
@@ -47,15 +48,15 @@ class TestEncode:
         # No schema: never-seen field names, values, and arms all encode
         # without registration; empty dicts still give bias + identity.
         v = encode({}, "brand-new-arm", {}, 10)
-        assert sorted(abs(x) for x in v if x != 0.0) == [1.0, 1.0]
+        assert sorted(abs(val) for _, val in v) == [1.0, 1.0]
         w = encode({"invented-just-now": "novel-value"}, "brand-new-arm", {}, 10)
-        assert sorted(abs(x) for x in w if x != 0.0) == [1.0] * 4
+        assert sorted(abs(val) for _, val in w) == [1.0] * 4
 
     def test_outer_product_structure(self):
         # ({c:2}, arm, {a:3}): left tokens (bias, c|c) x right tokens
         # (bias, a|a, i|z) = 6 contributions: 1*1, 1*3, 1*1, 2*1, 2*3, 2*1.
         v = encode({"c": 2.0}, "z", {"a": 3.0}, 10)
-        assert sorted(abs(x) for x in v if x != 0.0) == [1.0, 1.0, 2.0, 2.0, 3.0, 6.0]
+        assert sorted(abs(val) for _, val in v) == [1.0, 1.0, 2.0, 2.0, 3.0, 6.0]
 
     def test_identity_and_categorical_values_distinguish(self):
         assert encode({}, "arm-1", {"p": 1.0}, 8) != encode({}, "arm-2", {"p": 1.0}, 8)
@@ -63,7 +64,7 @@ class TestEncode:
 
     def test_collisions_add_instead_of_crashing(self):
         # bits=1 forces all six contributions into two slots; they sum.
-        assert encode({"c": 2.0}, "z", {"a": 3.0}, 1) == [-4.0, -5.0]
+        assert encode({"c": 2.0}, "z", {"a": 3.0}, 1) == ((0, -4.0), (1, -5.0))
 
     def test_rejects_bad_bits(self):
         with pytest.raises(ValueError):
@@ -73,15 +74,15 @@ class TestEncode:
 
     def test_pinned_vector(self):
         # Golden vector, bits=4: the design doc's shop example, bit for
-        # bit. The 1.5 cell is a live collision (1.0 + 0.5 sharing a slot)
+        # bit. The 1.5 entry is a live collision (1.0 + 0.5 sharing a slot)
         # — pinned deliberately: collision behavior is part of the spec.
         v = encode(
             {"hour": 0.5, "device": "mobile"}, "banner-sale", {"color": "red", "price": 1}, 4
         )
-        assert v == [
-            1.0, 0.5, 1.5, 0.0, 0.0, 0.0, 0.5, 0.0,
-            1.0, 1.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0,
-        ]
+        assert v == (
+            (0, 1.0), (1, 0.5), (2, 1.5), (6, 0.5),
+            (8, 1.0), (9, 1.0), (13, 0.5),
+        )
 
 
 class TestPersonalization:

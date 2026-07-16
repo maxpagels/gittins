@@ -1,49 +1,66 @@
 """The built-in reward model: per-coordinate ridge regression with
-per-update exponential forgetting (design doc D3, revised).
+per-update exponential forgetting (design doc D3, revised), stored as
+pre-scaled sums so one update is O(nonzeros), not O(dim).
 
 The model's entire memory is two blocks of recency-weighted sums over the
-observed (features, reward) pairs:
+observed (features, reward) pairs, plus one scalar:
 
-    xx  —  dim vector:  sum of  x_j^2        (per-feature evidence)
-    xy  —  dim vector:  sum of  reward * x_j
+    scale —  the movable origin: the true sums are scale * xx_j, scale * xy_j
+    xx    —  dim entries: pre-scaled sums of  x_j^2      (per-feature evidence)
+    xy    —  dim entries: pre-scaled sums of  reward * x_j
 
-Updating on one observation first multiplies every entry by the forgetting
-factor, then adds the observation's contribution:
+Conceptually, updating on one observation multiplies every true sum by the
+forgetting factor and adds the observation's contribution:
 
-    xx_j  <-  forgetting * xx_j  +  x_j^2
-    xy_j  <-  forgetting * xy_j  +  reward * x_j
+    true_xx_j  <-  forgetting * true_xx_j  +  x_j^2
 
-so each observation's influence fades geometrically with the number of
-*updates* since it arrived — constant time, no refit, no clock. The system
-is diagonal, so prediction needs no matrix solve anywhere:
+Multiplying every entry per update would make training O(dim). Instead the
+forgetting multiply is folded into the scalar and the contribution is
+pre-divided out of it (the decay-on-read formulation the design already
+chose for the earlier wall-clock decay):
 
-    theta_j     = xy_j / (xx_j + ridge)
+    scale  <-  forgetting * scale
+    xx_j   <-  xx_j  +  x_j^2      * (1 / scale)     for the nonzero x_j only
+    xy_j   <-  xy_j  +  reward*x_j * (1 / scale)
+
+so an update is one multiply, one divide, and O(nonzeros) multiply-adds;
+untouched coordinates are untouched. `1 / scale` grows as evidence
+accumulates, so when `scale` falls to RENORM_THRESHOLD (2^-512, chosen so
+pre-scaled entries stay far from the 2^1024 overflow ceiling) every entry
+is multiplied by `scale` once and the scalar resets to 1.0 — O(dim), but
+only once every ~355k updates at the default forgetting; amortized O(1).
+Features are sparse (index, value) pairs everywhere in this module — the
+encoder's output format (encoding.py).
+
+The system is diagonal, so prediction needs no matrix solve anywhere:
+
+    a_j         = scale * xx_j + ridge
+    theta_j     = scale * xy_j / a_j
     estimate    = theta . x
-    uncertainty = sqrt( sum_j  x_j^2 / (xx_j + ridge) )
+    uncertainty = sqrt( sum_j  x_j^2 / a_j )
 
 Each weight is that feature's own recency-weighted, shrunk running
-average, fully independent of every other feature. Because the sums
-forget, the effective sample size is bounded at ~1/(1 - forgetting), so
-uncertainty has a floor and the model can never become absolutely certain
-(R2); evidence on features that stop appearing fades out of the sums with
-every subsequent update, recycling their dimensions under feature churn
-(R1). This is the classic tracking estimator (recursive least squares with
-a forgetting factor), which is what makes the model non-stationary-capable:
-after the world changes, old evidence is outweighed within ~one effective
-window regardless of how much history preceded it.
+average, fully independent of every other feature — so `factorize` solves
+lazily: a coordinate's (1/a_j, theta_j) is computed the first time a
+candidate touches it and memoized for the rest of the decision, making a
+decision's solve cost O(coordinates touched), never O(dim). Because the
+sums forget, the effective sample size is bounded at ~1/(1 - forgetting),
+so uncertainty has a floor and the model can never become absolutely
+certain (R2); evidence on features that stop appearing fades out of the
+true sums with every subsequent update, recycling their dimensions under
+feature churn (R1). This is the classic tracking estimator (recursive
+least squares with a forgetting factor): after the world changes, old
+evidence is outweighed within ~one effective window regardless of how much
+history preceded it.
 
 Forgetting is clocked by updates, not by wall-clock time — a deliberate
 simplification. The model has no notion of timestamps: training applies
 observations in arrival order with arrival weight, so a late reward counts
 slightly differently than an on-time one, and replaying a model requires
-the ordered update sequence (which the decision log provides). The former
-design (timestamp-weighted decay) bought order-independence and exact
-cross-agent state merging at the price of wall-clock machinery everywhere;
-this design trades those properties away for a smaller engine, and fleet
-aggregation is done offline from concatenated decision logs instead.
+the ordered update sequence (which the decision log provides).
 
 The state is deliberately the outer-product matrix's *diagonal*, not the
-full matrix: memory is O(dim), scoring k candidates is O(k * dim)
+full matrix: memory is O(dim), scoring k candidates is O(k * nonzeros)
 arithmetic with no factorization step, and the same code is practical from
 a two-arm toy to hashed spaces of millions of dimensions and thousands of
 candidates (R5, R6) — the operating point proven at scale by hashed linear
@@ -57,31 +74,48 @@ lets a linear model personalize at all.
 Every operation is IEEE-754 add/multiply/divide/sqrt in a fixed order
 (sqrt is correctly rounded and therefore bit-identical across platforms),
 so given the same update sequence the model is bit-identical everywhere.
-Every variance term is nonnegative (x_j^2 >= 0, denominators >= ridge > 0),
-so no rounding clamp is needed anywhere.
+The pre-scaled bookkeeping rounds differently than the former
+multiply-every-entry bookkeeping — the same weights up to rounding, not
+the same bits — a deliberate semantics change, pinned by the golden
+corpus. Every variance term is nonnegative (x_j^2 >= 0, scale > 0,
+denominators >= ridge > 0), so no rounding clamp is needed anywhere.
 
 The two fixed constants, neither an exposed tuning knob in the default
 API: `ridge` (1.0) is the prior precision — the fresh model's belief that
 weights are zero; features are expected to be roughly unit-scale.
 `forgetting` (0.999, an effective window of ~1000 observations) is the
-tracking rate; `forgetting = 1.0` means never forget. An expert override
-exists at construction for both, and the right forgetting rate for a
-deployment is selected offline from the decision log, not tuned online.
+tracking rate; `forgetting = 1.0` means never forget (the scale stays at
+exactly 1.0 and the sums are plain sums). An expert override exists at
+construction for both, and the right forgetting rate for a deployment is
+selected offline from the decision log, not tuned online.
 """
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 DEFAULT_FORGETTING = 0.999
+
+# Renormalize the pre-scaled sums when the scale falls this low: 1/scale
+# stays <= 2^512, keeping every pre-scaled entry far from double overflow
+# (2^1024) for roughly-unit-scale features. A power of two, but the renorm
+# multiply still rounds — determinism comes from the fixed schedule, not
+# from exactness.
+RENORM_THRESHOLD = 2.0**-512
+
+# Features everywhere in this module are sparse (index, value) pairs in
+# strictly increasing index order with nonzero values — encoding.py's
+# output format.
+Features = tuple[tuple[int, float], ...] | list[tuple[int, float]]
 
 
 @dataclass(frozen=True)
 class LinearModel:
     dim: int
     ridge: float
-    forgetting: float  # per-update geometric discount on both sums
-    xx: tuple[float, ...]  # dim entries: sums of x_j^2 (the outer product's diagonal)
-    xy: tuple[float, ...]  # dim entries: sums of reward * x_j
+    forgetting: float  # per-update geometric discount on the true sums
+    scale: float  # movable origin: true sums are scale * xx, scale * xy
+    xx: tuple[float, ...]  # dim pre-scaled sums of x_j^2 (the diagonal)
+    xy: tuple[float, ...]  # dim pre-scaled sums of reward * x_j
 
 
 def new_model(
@@ -97,68 +131,84 @@ def new_model(
         dim=dim,
         ridge=ridge,
         forgetting=forgetting,
+        scale=1.0,
         xx=(0.0,) * dim,
         xy=(0.0,) * dim,
     )
 
 
-def update(model: LinearModel, x: list[float], reward: float) -> LinearModel:
-    """Absorb one observation: discount everything remembered, add this."""
-    f = model.forgetting
-    return replace(
-        model,
-        xx=tuple([f * v + xi * xi for v, xi in zip(model.xx, x, strict=True)]),
-        xy=tuple([f * v + reward * xi for v, xi in zip(model.xy, x, strict=True)]),
-    )
+def update(model: LinearModel, x: Features, reward: float) -> LinearModel:
+    """Absorb one observation: fold the forgetting discount into the scale,
+    add the observation's pre-scaled contribution to its touched
+    coordinates only. O(nonzeros) arithmetic. (The reference's immutable
+    tuples still copy O(dim) pointers per update — memcpy-speed, no
+    arithmetic; a compiled core mutates in place.)"""
+    scale = model.forgetting * model.scale
+    inv = 1.0 / scale
+    xx = list(model.xx)
+    xy = list(model.xy)
+    for j, v in x:
+        xx[j] += (v * v) * inv
+        xy[j] += (reward * v) * inv
+    if scale <= RENORM_THRESHOLD:
+        xx = [scale * u for u in xx]
+        xy = [scale * u for u in xy]
+        scale = 1.0
+    return replace(model, scale=scale, xx=tuple(xx), xy=tuple(xy))
 
 
-@dataclass(frozen=True)
+@dataclass
 class Factorization:
-    """The candidate-independent part of prediction: the solved weights and
-    per-coordinate precisions, functions of the model only. Scoring one
-    decision's k candidates computes this once and reuses it (decide.py).
-    A diagonal system is already solved — "factorizing" is dim reciprocals —
-    the name is kept for the once-per-decision shape it gives the layer
-    above. Valid until the next update."""
+    """The candidate-independent part of prediction, solved lazily: a
+    coordinate's precision and weight are computed the first time any
+    candidate touches it and memoized for the rest of the decision
+    (decide.py scores every candidate against one factorization). A
+    diagonal system needs one reciprocal per *touched* coordinate — never
+    O(dim) — the name is kept for the once-per-decision shape it gives the
+    layer above. Valid until the next update."""
 
-    inv_a: list[float]  # 1 / (xx_j + ridge)
-    theta: list[float]
+    scale: float
+    ridge: float
+    xx: tuple[float, ...]
+    xy: tuple[float, ...]
+    cache: "dict[int, tuple[float, float]]" = field(default_factory=dict)
+
+    def coordinate(self, j: int) -> "tuple[float, float]":
+        """(1 / a_j, theta_j) for one coordinate, memoized."""
+        got = self.cache.get(j)
+        if got is None:
+            inv_a = 1.0 / (self.scale * self.xx[j] + self.ridge)
+            got = (inv_a, (self.scale * self.xy[j]) * inv_a)
+            self.cache[j] = got
+        return got
 
 
 def factorize(model: LinearModel) -> Factorization:
-    """Solve for the weights."""
-    inv_a = [1.0 / (v + model.ridge) for v in model.xx]
-    theta = [model.xy[j] * inv_a[j] for j in range(model.dim)]
-    return Factorization(inv_a=inv_a, theta=theta)
+    """The lazy solve: O(1) now, one reciprocal per touched coordinate later."""
+    return Factorization(scale=model.scale, ridge=model.ridge, xx=model.xx, xy=model.xy)
 
 
-def predict_factored(f: Factorization, x: list[float]) -> tuple[float, float]:
+def estimate_factored(f: Factorization, x: Features) -> float:
+    """Estimated reward only, for callers that need no uncertainty (the
+    decide layer): one multiply-add per nonzero and no sqrt."""
+    estimate = 0.0
+    for j, v in x:
+        estimate += v * f.coordinate(j)[1]
+    return estimate
+
+
+def predict_factored(f: Factorization, x: Features) -> tuple[float, float]:
     """(estimated reward, uncertainty) for features x, given a factorization
-    built from the same model state.
-
-    Zero entries are skipped: hash-encoded candidates are nearly all zeros,
-    and the ±0.0 terms they contribute never change a finite sum, so the
-    result is bit-identical to the dense loops."""
-    theta = f.theta
-    inv_a = f.inv_a
+    built from the same model state. O(nonzeros)."""
     estimate = 0.0
     variance = 0.0
-    for j in range(len(x)):
-        v = x[j]
-        if v == 0.0:
-            continue
-        estimate += v * theta[j]
-        variance += v * v * inv_a[j]
+    for j, v in x:
+        inv_a, theta = f.coordinate(j)
+        estimate += v * theta
+        variance += (v * v) * inv_a
     return estimate, math.sqrt(variance)
 
 
-def predict(model: LinearModel, x: list[float]) -> tuple[float, float]:
+def predict(model: LinearModel, x: Features) -> tuple[float, float]:
     """(estimated reward, uncertainty) for features x."""
     return predict_factored(factorize(model), x)
-
-
-def dot(a: "list[float] | tuple[float, ...]", b: list[float]) -> float:
-    total = 0.0
-    for i in range(len(a)):
-        total += a[i] * b[i]
-    return total

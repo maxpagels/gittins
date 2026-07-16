@@ -4,10 +4,9 @@ from collections import Counter
 import pytest
 
 from gittins_reference.exploration import (
-    FLOOR_MASS,
-    apply_floor,
+    DEFAULT_EPSILON,
     choose,
-    inverse_gap_probabilities,
+    epsilon_greedy_probabilities,
     sample_index,
 )
 from gittins_reference.rng import derive_key
@@ -15,74 +14,51 @@ from gittins_reference.rng import derive_key
 KEY = derive_key("decision-0001", "pepper")
 
 
-class TestInverseGap:
-    def test_sums_to_exactly_one(self):
-        # The best candidate's probability is defined as 1 minus the others,
-        # so the sum is 1.0 in exact float arithmetic, not just approximately.
-        p = inverse_gap_probabilities([0.3, -1.0, 0.9, 0.0], gamma=7.0)
-        assert sum(p) == 1.0
+class TestEpsilonGreedy:
+    def test_greedy_mass_on_the_best(self):
+        p = epsilon_greedy_probabilities([0.3, -1.0, 0.9, 0.0], epsilon=0.05)
+        assert p[2] == 0.05 / 4 + 0.95
+        assert p[0] == p[1] == p[3] == 0.05 / 4
 
-    def test_best_gets_most_and_gaps_order_the_rest(self):
-        p = inverse_gap_probabilities([0.9, 0.5, 0.1], gamma=5.0)
-        assert p[0] > p[1] > p[2]
-
-    def test_gamma_zero_is_uniform(self):
-        # With no greediness every non-best candidate gets exactly 1/k,
-        # and the best keeps the identical remainder.
-        assert inverse_gap_probabilities([0.9, 0.5, 0.1, 0.0], gamma=0.0) == [0.25] * 4
-
-    def test_large_gamma_approaches_argmax(self):
-        p = inverse_gap_probabilities([1.0, 0.0], gamma=1e9)
-        assert p[0] > 1.0 - 1e-8
-
-    def test_non_best_probability_never_exceeds_one_over_k(self):
-        # Structural guarantee: gaps are >= 0, so 1/(k + gamma*gap) <= 1/k,
-        # which is what keeps the best candidate's remainder non-negative.
-        p = inverse_gap_probabilities([0.5, 0.5 - 1e-12, 0.499], gamma=0.001)
-        assert all(v <= 1.0 / 3.0 for i, v in enumerate(p) if i != 0)
-        assert p[0] >= 1.0 / 3.0
-
-    def test_first_max_wins_ties(self):
-        # A candidate tied with the best has gap 0 and gets exactly 1/k;
-        # the *first* max holds the remainder. Deterministic, order-fixed.
-        p = inverse_gap_probabilities([0.5, -0.25, 0.0, 0.5], gamma=10.0)
-        assert p[3] == 0.25
-        assert p[0] == 1.0 - (p[1] + p[2] + p[3])
-
-    def test_rejects_bad_inputs(self):
-        with pytest.raises(ValueError):
-            inverse_gap_probabilities([], gamma=1.0)
-        with pytest.raises(ValueError):
-            inverse_gap_probabilities([0.5], gamma=-1.0)
-        with pytest.raises(ValueError):
-            inverse_gap_probabilities([0.5], gamma=float("nan"))
-
-
-class TestFloor:
-    def test_every_probability_at_least_floor(self):
-        # Even a candidate driven to ~zero probability by a huge gamma
-        # keeps at least FLOOR_MASS / k after the floor.
-        p = apply_floor(inverse_gap_probabilities([1.0, 0.0], gamma=1e9))
-        assert min(p) >= FLOOR_MASS / 2
-
-    def test_preserves_total_mass(self):
-        p = apply_floor([0.7, 0.2, 0.1])
+    def test_sums_to_about_one(self):
+        p = epsilon_greedy_probabilities([0.3, -1.0, 0.9, 0.0], epsilon=0.05)
         assert math.isclose(sum(p), 1.0, rel_tol=1e-15)
 
-    def test_preserves_order(self):
-        # The floor is a positive-slope affine map: it never reorders
-        # candidates, so the greedy choice is unchanged.
-        p = apply_floor([0.7, 0.2, 0.1])
-        assert p[0] > p[1] > p[2]
+    def test_epsilon_one_is_uniform(self):
+        assert epsilon_greedy_probabilities([0.9, 0.5, 0.1, 0.0], epsilon=1.0) == [0.25] * 4
 
-    def test_zero_floor_is_identity(self):
-        assert apply_floor([0.7, 0.2, 0.1], floor_mass=0.0) == [0.7, 0.2, 0.1]
+    def test_epsilon_zero_is_argmax(self):
+        assert epsilon_greedy_probabilities([0.0, 1.0], epsilon=0.0) == [0.0, 1.0]
+
+    def test_every_probability_at_least_epsilon_over_k(self):
+        # Even the worst candidate keeps epsilon / k: importance weights in
+        # offline evaluation are bounded by k / epsilon (R3), and every arm
+        # keeps accumulating evidence (R2).
+        p = epsilon_greedy_probabilities([1.0, -100.0], epsilon=DEFAULT_EPSILON)
+        assert min(p) == DEFAULT_EPSILON / 2
+
+    def test_ties_split_the_greedy_mass(self):
+        # Exact ties share (1 - epsilon) equally — no first-index favoritism.
+        p = epsilon_greedy_probabilities([0.5, -0.25, 0.0, 0.5], epsilon=0.05)
+        assert p[0] == p[3] == 0.05 / 4 + 0.95 / 2
+        assert p[1] == p[2] == 0.05 / 4
+
+    def test_all_tied_is_uniform(self):
+        # A fresh model estimates every candidate at 0.0: the distribution
+        # must be uniform, not a point mass on index 0 (cold start).
+        p = epsilon_greedy_probabilities([0.0, 0.0, 0.0, 0.0], epsilon=0.05)
+        assert p == [0.05 / 4 + 0.95 / 4] * 4
+        assert math.isclose(sum(p), 1.0, rel_tol=1e-15)
 
     def test_rejects_bad_inputs(self):
         with pytest.raises(ValueError):
-            apply_floor([])
+            epsilon_greedy_probabilities([], epsilon=0.05)
         with pytest.raises(ValueError):
-            apply_floor([1.0], floor_mass=1.5)
+            epsilon_greedy_probabilities([0.5], epsilon=-0.1)
+        with pytest.raises(ValueError):
+            epsilon_greedy_probabilities([0.5], epsilon=1.5)
+        with pytest.raises(ValueError):
+            epsilon_greedy_probabilities([0.5], epsilon=float("nan"))
 
 
 class TestSample:
@@ -104,31 +80,32 @@ class TestSample:
 
 
 class TestChoose:
-    def test_propensity_is_the_floored_probability_of_the_choice(self):
+    def test_propensity_is_the_probability_of_the_choice(self):
         est = [0.5, -0.25, 0.0, 0.5]
-        p = apply_floor(inverse_gap_probabilities(est, gamma=10.0))
-        i, prop = choose(est, gamma=10.0, key=KEY, counter=0)
+        p = epsilon_greedy_probabilities(est, epsilon=0.05)
+        i, prop = choose(est, epsilon=0.05, key=KEY, counter=0)
         assert prop == p[i]
 
     def test_single_candidate_is_certain(self):
-        assert choose([0.42], gamma=3.0, key=KEY, counter=0) == (0, 1.0)
+        assert choose([0.42], epsilon=0.05, key=KEY, counter=0) == (0, 1.0)
+
+    def test_mostly_greedy(self):
+        est = [0.0, 1.0, 0.5]
+        n = 10_000
+        counts = Counter(choose(est, DEFAULT_EPSILON, KEY, c)[0] for c in range(n))
+        assert math.isclose(counts[1] / n, 1.0 - DEFAULT_EPSILON * 2 / 3, abs_tol=0.01)
 
 
 class TestPinnedVectors:
     # Golden vectors: bit-exact distribution and choices for a fixed input.
-    # estimates [0.5, -0.25, 0.0, 0.5], gamma 10, key from
-    # ("decision-0001", "pepper"), FLOOR_MASS 0.05.
+    # estimates [0.5, -0.25, 0.0, 0.5] (a tie for the maximum), epsilon 0.05,
+    # key from ("decision-0001", "pepper").
     def test_distribution_bits(self):
-        p = apply_floor(inverse_gap_probabilities([0.5, -0.25, 0.0, 0.5], gamma=10.0))
-        assert p == [
-            0.5368357487922705,
-            0.0951086956521739,
-            0.11805555555555554,
-            0.25,
-        ]
+        p = epsilon_greedy_probabilities([0.5, -0.25, 0.0, 0.5], epsilon=0.05)
+        assert p == [0.4875, 0.0125, 0.0125, 0.4875]
 
     def test_choice_bits(self):
         est = [0.5, -0.25, 0.0, 0.5]
-        assert choose(est, 10.0, KEY, 0) == (0, 0.5368357487922705)
-        assert choose(est, 10.0, KEY, 1) == (1, 0.0951086956521739)
-        assert choose(est, 10.0, KEY, 2) == (0, 0.5368357487922705)
+        assert choose(est, 0.05, KEY, 0) == (0, 0.4875)
+        assert choose(est, 0.05, KEY, 1) == (3, 0.4875)
+        assert choose(est, 0.05, KEY, 2) == (0, 0.4875)

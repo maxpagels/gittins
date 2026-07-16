@@ -15,9 +15,10 @@ of records *is* the offline-evaluation dataset (R3). The record carries:
     candidate_hash — 64-bit hash of the full candidate set, so replay and
                      offline evaluation can verify they see what was scored
     chosen         — index into the candidate list
-    features       — the chosen candidate's feature vector (what `learn`
-                     will train on; the record is self-contained)
-    propensity     — the floored probability the choice was made with
+    features       — the chosen candidate's sparse (index, value) pairs
+                     (what `learn` will train on; the record is
+                     self-contained, and O(nonzeros) on disk)
+    propensity     — the probability the choice was made with
     model_version  — how many observations the model had absorbed
                      (bumped by the ledger's trained resolutions)
     salt           — the RNG salt, so the draw is exactly replayable
@@ -28,32 +29,22 @@ counter never repeats, and across a fleet each agent must be given its own
 salt (the same rule that keeps their random streams distinct). No hashing,
 no collision math.
 
-At this layer a candidate *is* its feature vector in the model's space;
-folding a context and an action description into that vector is the feature
-encoder's job (encoding.py), and the dict-shaped public API arrives with it.
+At this layer a candidate *is* its sparse feature pairs in the model's
+space — (index, value) tuples in strictly increasing index order, values
+nonzero; folding a context and an action description into those pairs is
+the feature encoder's job (encoding.py), and the dict-shaped public API
+arrives with it.
 
-**Where gamma comes from.** The exploration rule (exploration.py) left its greediness
-`gamma` to this layer. It is derived from the model's own uncertainty:
-
-    gamma = GAMMA_SCALE / mean(uncertainty over the candidates)
-
-Uncertainty shrinks like 1/sqrt(n) as evidence accumulates, so gamma grows
-like sqrt(n) — the schedule SquareCB's guarantee wants — with no clock or
-knob. A fresh model estimates every candidate at 0, so the first
-distributions are uniform whatever gamma is; the probability floor
-(exploration.py) guarantees exploration ever after. Because the model's
-forgetting bounds the effective sample size at ~1/(1 - forgetting), gamma
-is bounded too: the system never becomes fully greedy (R2). After a world
-shift, re-exploration comes from the rule itself — stale estimates make
-the gaps shrink or flip, and inverse-gap weighting spreads probability
-over close candidates — plus the floor's guaranteed minimum. GAMMA_SCALE
-is a fixed engine constant, never a user knob; its value was settled by
-the battery sweep (sim/sweep.py): 300 was near-best almost everywhere,
-never far from the per-environment best, and ahead of epsilon-greedy
-overall, where the original 1.0 kept gamma so low the engine spent over
-half its traffic on non-best arms forever. Whether the mean is the right
-uncertainty aggregate is still open; the *interface* — gamma is computed
-here, never asked of the user — is settled.
+**Where epsilon comes from.** The exploration rule (exploration.py) takes
+its uniform-exploration mass `epsilon` from the state: declared once at
+construction, defaulting to `DEFAULT_EPSILON` — an expert override like
+`forgetting`, not a routine knob (R2). The rule needs only the reward
+estimates, so scoring is one dot product per candidate — no uncertainties,
+no sqrt, no schedule. A fresh model estimates every candidate at 0.0 and
+the exact-tie split makes the first distributions uniform; the epsilon
+mass guarantees exploration (and re-exploration after a world shift) ever
+after. Epsilon-greedy replaced the SquareCB rule and its uncertainty-driven
+gamma schedule here — see exploration.py for the reasoning and the price.
 
 RNG counter allocation: counter 0 of the decision's stream is the sampling
 draw. Later counters are reserved for future per-decision randomness.
@@ -63,22 +54,19 @@ import struct
 from dataclasses import dataclass
 
 from gittins_reference.exploration import (
-    apply_floor,
-    inverse_gap_probabilities,
+    DEFAULT_EPSILON,
+    epsilon_greedy_probabilities,
     sample_index,
 )
 from gittins_reference.model import (
     DEFAULT_FORGETTING,
+    Features,
     LinearModel,
+    estimate_factored,
     factorize,
     new_model,
-    predict_factored,
 )
 from gittins_reference.rng import derive_key, fnv1a_64
-
-# Fixed scale of the uncertainty-driven gamma schedule; not a user knob.
-# Settled by the battery sweep (sim/sweep.py) — see the module docstring.
-GAMMA_SCALE = 300.0
 
 
 @dataclass(frozen=True)
@@ -88,6 +76,7 @@ class BanditState:
     model_version: int  # observations absorbed so far (bumped by the ledger)
     horizon: float  # seconds an unresolved decision waits before expiring
     default_reward: float  # the reward an expired decision trains with
+    epsilon: float  # probability mass spent uniformly per decision
     ledger: "tuple[DecisionRecord, ...]"  # open decisions awaiting resolution
 
 
@@ -97,7 +86,7 @@ class DecisionRecord:
     t: float
     candidate_hash: int
     chosen: int
-    features: tuple[float, ...]
+    features: tuple[tuple[int, float], ...]  # the chosen candidate's sparse pairs
     propensity: float
     model_version: int
     salt: str
@@ -107,62 +96,57 @@ def new_bandit(
     dim: int,
     horizon: float,
     default_reward: float = 0.0,
+    epsilon: float = DEFAULT_EPSILON,
     forgetting: float = DEFAULT_FORGETTING,
 ) -> BanditState:
     """`horizon` and `default_reward` are the application's reward-handling
     declaration (design doc section 6), made once, up front: a decision with
     no reward after `horizon` seconds resolves as expired(`default_reward`).
-    `forgetting` is the model's per-update tracking rate — an expert
-    override, not a default-API knob; the right value for a deployment is
-    selected offline from the decision log (see model.py)."""
+    `epsilon` (uniform-exploration mass) and `forgetting` (the model's
+    per-update tracking rate) are expert overrides, not default-API knobs;
+    the right values for a deployment are selected offline from the decision
+    log (see exploration.py, model.py)."""
     if not (horizon > 0.0):
         raise ValueError("horizon must be positive")
+    if not (0.0 <= epsilon <= 1.0):
+        raise ValueError("epsilon must be in [0, 1]")
     return BanditState(
         model=new_model(dim, forgetting),
         next_seq=0,
         model_version=0,
         horizon=horizon,
         default_reward=default_reward,
+        epsilon=epsilon,
         ledger=(),
     )
 
 
-def candidate_set_hash(candidates: list[list[float]]) -> int:
-    """64-bit FNV-1a over a canonical *sparse* encoding of the candidate
-    set: the count, then each vector as its dimension, its nonzero-entry
-    count, and its nonzero entries in index order as (index, value) —
+def candidate_set_hash(candidates: "list[Features]", dim: int) -> int:
+    """64-bit FNV-1a over the canonical sparse encoding of the candidate
+    set: the count, then each candidate as the model dimension, its
+    nonzero-entry count, and its (index, value) pairs in index order —
     integers as 8 little-endian bytes, values as little-endian IEEE-754
-    doubles. Entries equal to zero (either sign) are absent, so hashing
-    costs O(nonzeros), not O(dimension): hash-encoded candidates are almost
-    all zeros, and a sparse compiled core need never materialize the dense
-    vector just to hash it. Order-, value-, and shape-sensitive, identical
-    on every platform."""
+    doubles. Candidates already *are* that canonical form (sorted nonzero
+    pairs), so hashing is O(nonzeros) with no conversion; the byte layout
+    is unchanged from the dense-input formulation, so the same logical
+    candidate set hashes to the same value it always did. Order-, value-,
+    and shape-sensitive, identical on every platform."""
     data = bytearray(len(candidates).to_bytes(8, "little"))
     for x in candidates:
+        data += dim.to_bytes(8, "little")
         data += len(x).to_bytes(8, "little")
-        entries = [(i, v) for i, v in enumerate(x) if v != 0.0]
-        data += len(entries).to_bytes(8, "little")
-        for i, v in entries:
+        for i, v in x:
             data += i.to_bytes(8, "little")
             data += struct.pack("<d", v)
     return fnv1a_64(bytes(data))
 
 
-def choose_gamma(uncertainties: list[float]) -> float:
-    """The uncertainty-driven greediness schedule (see module docstring)."""
-    total = 0.0
-    for u in uncertainties:
-        total += u
-    mean = total / len(uncertainties)
-    if mean <= 0.0:  # every candidate a zero vector; nothing to be greedy about
-        return 0.0
-    return GAMMA_SCALE / mean
-
-
 def decide(
-    state: BanditState, candidates: list[list[float]], t: float, salt: str
+    state: BanditState, candidates: "list[Features]", t: float, salt: str
 ) -> tuple[DecisionRecord, BanditState]:
-    """Score, explore, choose, and record one decision.
+    """Score, explore, choose, and record one decision. Each candidate is
+    sparse (index, value) pairs in strictly increasing index order, values
+    nonzero, indices inside the model dimension (encoding.py's output).
 
     The model is untouched (learning happens only through the ledger's
     resolutions, see ledger.py); the state changes are the decision counter
@@ -170,22 +154,24 @@ def decide(
     """
     if len(candidates) < 1:
         raise ValueError("need at least one candidate")
+    dim = state.model.dim
     for x in candidates:
-        if len(x) != state.model.dim:
-            raise ValueError("candidate feature length does not match model dim")
+        prev = -1
+        for j, v in x:
+            if not (prev < j < dim):
+                raise ValueError(
+                    "candidate features must be (index, value) pairs in strictly "
+                    "increasing index order within the model dimension"
+                )
+            if v == 0.0:
+                raise ValueError("candidate feature values must be nonzero")
+            prev = j
 
     # The weights depend on the model only, so they are solved once and
     # shared by every candidate.
     factored = factorize(state.model)
-    estimates = []
-    uncertainties = []
-    for x in candidates:
-        est, unc = predict_factored(factored, x)
-        estimates.append(est)
-        uncertainties.append(unc)
-
-    gamma = choose_gamma(uncertainties)
-    p = apply_floor(inverse_gap_probabilities(estimates, gamma))
+    estimates = [estimate_factored(factored, x) for x in candidates]
+    p = epsilon_greedy_probabilities(estimates, state.epsilon)
 
     decision_id = f"{salt}:{state.next_seq}"
     key = derive_key(decision_id, salt)
@@ -194,9 +180,9 @@ def decide(
     record = DecisionRecord(
         decision_id=decision_id,
         t=t,
-        candidate_hash=candidate_set_hash(candidates),
+        candidate_hash=candidate_set_hash(candidates, dim),
         chosen=chosen,
-        features=tuple(candidates[chosen]),
+        features=tuple((j, v) for j, v in candidates[chosen]),
         propensity=p[chosen],
         model_version=state.model_version,
         salt=salt,
@@ -207,6 +193,7 @@ def decide(
         model_version=state.model_version,
         horizon=state.horizon,
         default_reward=state.default_reward,
+        epsilon=state.epsilon,
         ledger=state.ledger + (record,),
     )
     return record, new_state
