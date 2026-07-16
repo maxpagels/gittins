@@ -13,8 +13,7 @@ noise draw is likewise keyed by (name, seed, t) alone — shared across
 candidates (common random numbers), which tightens paired comparisons.
 
 This module holds the stationary environments and the non-stationary,
-churn, and missing-feature ones; traffic and reward delays (the event-time
-battery) live in sim/traffic.py.
+churn, and missing-feature ones.
 """
 
 import math

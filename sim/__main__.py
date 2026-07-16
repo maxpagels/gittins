@@ -6,9 +6,7 @@ Runs are seeded and paired (see sim.rand): the numbers are exactly
 reproducible for a given harness version, but they are statistics, not
 golden vectors — nothing here is bit-pinned, and the table is a
 diagnostic, not a gate. The sweep driver that settles the engine's
-constants is sim/sweep.py; the event-time runner (event_runner.py,
-traffic.py) remains available for by-hand studies and is exercised by
-tests/test_event_sim.py.
+constants is sim/sweep.py.
 """
 
 import sys

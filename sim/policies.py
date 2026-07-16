@@ -12,8 +12,8 @@ challenge it:
     greedy          — gittins with epsilon = 0 and first-max ties: same
                       model, same encoding, pure argmax of the estimates
     epsilon-greedy  — same model again, exploration as an epsilon coin
-                      outside the engine: no ledger, no horizon, first-max
-                      ties — what the engine's plumbing is priced against
+                      outside the engine: no ledger, first-max ties — what
+                      the engine's plumbing is priced against
 
 A policy is reset per run with `begin(seed)`; `choose` returns the chosen
 candidate index plus its per-candidate reward estimates (None for the
@@ -38,11 +38,7 @@ from sim.rand import randint, stream, uniform
 
 
 class Policy:
-    """The round-based interface is choose/observe (reward immediately after
-    each decision). The event-time runner instead drives the
-    primitives sweep/decide_at/resolve, where a decision's reward may arrive
-    any amount of time later, out of order, or never; choose/observe are the
-    same primitives composed for the immediate-reward special case."""
+    """One decision per round via `choose`, its reward via `observe`."""
 
     name: str
 
@@ -51,37 +47,11 @@ class Policy:
 
     def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
         """(chosen candidate index, per-candidate reward estimates or None)."""
-        chosen, estimates, self._ref = self.decide_at(rd, seed)
-        return chosen, estimates
-
-    def observe(self, reward: float) -> None:
-        """The reward for the most recent `choose`."""
-        self.resolve(self._ref, reward)
-
-    def sweep(self, t: float) -> None:
-        """Advance wall-clock time: the expiry sweep for ledgered policies,
-        a no-op for everything else. The event runner calls this with every
-        event's time, exactly as a production event loop would."""
-
-    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
-        """One decision at rd.t whose reward may arrive later: returns
-        (chosen, estimates, ref) where `ref` is whatever resolve() needs to
-        train on that reward whenever it lands."""
         raise NotImplementedError
 
-    def resolve(self, ref: object, reward: float) -> None:
-        """Deliver the reward for the decision `ref`, possibly long after
-        other decisions have been made. No-op for model-free policies."""
-
-    def open_count(self) -> int:
-        """Decisions currently awaiting a reward (ledger occupancy); 0 for
-        policies that don't track them."""
-        return 0
-
-    def expired_count(self) -> int:
-        """Decisions resolved by expiry so far; 0 for policies without a
-        horizon."""
-        return 0
+    def observe(self, reward: float) -> None:
+        """The reward for the most recent `choose`; no-op for model-free
+        policies."""
 
 
 def argmax(values: "list[float] | tuple[float, ...]") -> int:
@@ -98,8 +68,8 @@ class OraclePolicy(Policy):
 
     name = "oracle"
 
-    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
-        return argmax(rd.means), None, None
+    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
+        return argmax(rd.means), None
 
 
 class UniformPolicy(Policy):
@@ -107,19 +77,17 @@ class UniformPolicy(Policy):
 
     name = "uniform"
 
-    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
+    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
         key = stream(self.name, seed, f"choose:{rd.t}")
-        return randint(key, 0, len(rd.arm_ids)), None, None
+        return randint(key, 0, len(rd.arm_ids)), None
 
 
 class GittinsPolicy(Policy):
-    """The engine, on the real public path. Rewards are handed to the
-    ledger's `learn` by decision id; the `expire` sweep runs with every
-    event's time, as a real event loop would. In round-based runs rewards
-    are immediate and nothing expires; in event-time runs rewards arrive
-    late and out of order, expiry does real work, and a reward landing
-    after its decision expired is structurally a no-op (the ledger has
-    already spent the record)."""
+    """The engine, on the real public path: rewards are handed to the
+    ledger's `learn` by decision id, and the `expire` sweep runs with every
+    round's time, as a real event loop would. Rewards are immediate in the
+    round runner, so nothing actually expires — the sweep is kept because
+    it is part of the path a production loop drives."""
 
     def __init__(
         self,
@@ -142,46 +110,31 @@ class GittinsPolicy(Policy):
             forgetting=self.forgetting,
         )
         self.salt = f"{self.name}:{seed}"
-        self.expired = 0
 
-    def sweep(self, t: float) -> None:
-        resolutions, self.state = expire(self.state, t)
-        self.expired += len(resolutions)
-
-    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
+    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
+        _, self.state = expire(self.state, rd.t)
         candidates = [
             encode(rd.context, rd.arm_ids[i], rd.actions[i], self.bits)
             for i in range(len(rd.arm_ids))
         ]
         record, self.state = decide(self.state, candidates, rd.t, self.salt)
+        self._decision_id = record.decision_id
         # Metric-only read: the same estimates decide just scored with
         # (the model can't have changed between), recomputed because decide
         # deliberately logs only the chosen candidate.
         f = factorize(self.state.model)
         estimates = [predict_factored(f, x)[0] for x in candidates]
-        return record.chosen, estimates, record.decision_id
+        return record.chosen, estimates
 
-    def resolve(self, ref: object, reward: float) -> None:
-        _, self.state = learn(self.state, ref, reward)
-
-    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
-        self.sweep(rd.t)
-        return super().choose(rd, seed)
-
-    def open_count(self) -> int:
-        return len(self.state.ledger)
-
-    def expired_count(self) -> int:
-        return self.expired
+    def observe(self, reward: float) -> None:
+        _, self.state = learn(self.state, self._decision_id, reward)
 
 
 class ModelPolicy(Policy):
     """Shared machinery for the model-based baselines: the same
     per-coordinate forgetting ridge on the same hashed encoding as the
-    engine, trained on every reward in arrival order exactly as the engine
-    trains — only the exploration rule differs. Unlike the engine, there
-    is no horizon: the baselines train on every reward however late,
-    which is exactly the comparison that prices the engine's expiry rule."""
+    engine, trained on every reward exactly as the engine trains — only the
+    exploration rule differs, and there is no ledger anywhere."""
 
     def __init__(self, bits: int = 8, forgetting: float = DEFAULT_FORGETTING):
         self.bits = bits
@@ -199,8 +152,8 @@ class ModelPolicy(Policy):
         f = factorize(self.model)
         return candidates, [predict_factored(f, x)[0] for x in candidates]
 
-    def resolve(self, ref: object, reward: float) -> None:
-        self.model = update(self.model, ref, reward)
+    def observe(self, reward: float) -> None:
+        self.model = update(self.model, self._chosen_x, reward)
 
 
 class GreedyPolicy(ModelPolicy):
@@ -210,10 +163,11 @@ class GreedyPolicy(ModelPolicy):
         super().__init__(bits, forgetting)
         self.name = "greedy"
 
-    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
+    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
         candidates, estimates = self.estimates(rd)
         chosen = argmax(estimates)
-        return chosen, estimates, candidates[chosen]
+        self._chosen_x = candidates[chosen]
+        return chosen, estimates
 
 
 class EpsilonGreedyPolicy(ModelPolicy):
@@ -226,11 +180,12 @@ class EpsilonGreedyPolicy(ModelPolicy):
         self.eps = eps
         self.name = f"epsilon-{eps}"
 
-    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
+    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
         candidates, estimates = self.estimates(rd)
         key = stream(self.name, seed, f"choose:{rd.t}")
         if uniform(key, 0) < self.eps:
             chosen = randint(key, 1, len(candidates))
         else:
             chosen = argmax(estimates)
-        return chosen, estimates, candidates[chosen]
+        self._chosen_x = candidates[chosen]
+        return chosen, estimates
