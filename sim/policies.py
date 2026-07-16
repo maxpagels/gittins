@@ -30,6 +30,12 @@ from sim.rand import randint, stream, uniform
 
 
 class Policy:
+    """The round-based interface is choose/observe (reward immediately after
+    each decision). The event-time runner (PR 13) instead drives the
+    primitives sweep/decide_at/resolve, where a decision's reward may arrive
+    any amount of time later, out of order, or never; choose/observe are the
+    same primitives composed for the immediate-reward special case."""
+
     name: str
 
     def begin(self, seed: int) -> None:
@@ -37,10 +43,37 @@ class Policy:
 
     def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
         """(chosen candidate index, per-candidate reward estimates or None)."""
-        raise NotImplementedError
+        chosen, estimates, self._ref = self.decide_at(rd, seed)
+        return chosen, estimates
 
     def observe(self, reward: float) -> None:
         """The reward for the most recent `choose`."""
+        self.resolve(self._ref, reward)
+
+    def sweep(self, t: float) -> None:
+        """Advance wall-clock time: the expiry sweep for ledgered policies,
+        a no-op for everything else. The event runner calls this with every
+        event's time, exactly as a production event loop would."""
+
+    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
+        """One decision at rd.t whose reward may arrive later: returns
+        (chosen, estimates, ref) where `ref` is whatever resolve() needs to
+        train on that reward whenever it lands."""
+        raise NotImplementedError
+
+    def resolve(self, ref: object, reward: float) -> None:
+        """Deliver the reward for the decision `ref`, possibly long after
+        other decisions have been made. No-op for model-free policies."""
+
+    def open_count(self) -> int:
+        """Decisions currently awaiting a reward (ledger occupancy); 0 for
+        policies that don't track them."""
+        return 0
+
+    def expired_count(self) -> int:
+        """Decisions resolved by expiry so far; 0 for policies without a
+        horizon."""
+        return 0
 
 
 def argmax(values: "list[float] | tuple[float, ...]") -> int:
@@ -57,8 +90,8 @@ class OraclePolicy(Policy):
 
     name = "oracle"
 
-    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
-        return argmax(rd.means), None
+    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
+        return argmax(rd.means), None, None
 
 
 class UniformPolicy(Policy):
@@ -66,16 +99,19 @@ class UniformPolicy(Policy):
 
     name = "uniform"
 
-    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
+    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
         key = stream(self.name, seed, f"choose:{rd.t}")
-        return randint(key, 0, len(rd.arm_ids)), None
+        return randint(key, 0, len(rd.arm_ids)), None, None
 
 
 class GittinsPolicy(Policy):
     """The engine, on the real public path. Rewards are handed to the
     ledger's `learn` by decision id; the `expire` sweep runs with every
-    round's time, as a real event loop would (nothing expires here — sim
-    rewards are immediate — but the sweep stays in the loop)."""
+    event's time, as a real event loop would. In round-based runs rewards
+    are immediate and nothing expires; in event-time runs rewards arrive
+    late and out of order, expiry does real work, and a reward landing
+    after its decision expired is structurally a no-op (the ledger has
+    already spent the record)."""
 
     def __init__(self, bits: int = 8, half_life: float = 1000.0, horizon: float = 10.0):
         self.name = "gittins"
@@ -86,31 +122,47 @@ class GittinsPolicy(Policy):
     def begin(self, seed: int) -> None:
         self.state = new_bandit(2**self.bits, self.half_life, t=0.0, horizon=self.horizon)
         self.salt = f"{self.name}:{seed}"
-        self._open = ""
+        self.expired = 0
 
-    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
-        _, self.state = expire(self.state, rd.t)
+    def sweep(self, t: float) -> None:
+        resolutions, self.state = expire(self.state, t)
+        self.expired += len(resolutions)
+
+    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
         candidates = [
             encode(rd.context, rd.arm_ids[i], rd.actions[i], self.bits)
             for i in range(len(rd.arm_ids))
         ]
         record, self.state = decide(self.state, candidates, rd.t, self.salt)
-        self._open = record.decision_id
         # Metric-only read: the same estimates decide just scored with
         # (the model can't have changed between), recomputed because decide
         # deliberately logs only the chosen candidate.
         f = factorize(self.state.model, rd.t)
         estimates = [predict_factored(f, x)[0] for x in candidates]
-        return record.chosen, estimates
+        return record.chosen, estimates, record.decision_id
 
-    def observe(self, reward: float) -> None:
-        _, self.state = learn(self.state, self._open, reward)
+    def resolve(self, ref: object, reward: float) -> None:
+        _, self.state = learn(self.state, ref, reward)
+
+    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
+        self.sweep(rd.t)
+        return super().choose(rd, seed)
+
+    def open_count(self) -> int:
+        return len(self.state.ledger)
+
+    def expired_count(self) -> int:
+        return self.expired
 
 
 class ModelPolicy(Policy):
     """Shared machinery for the model-based baselines: the same
     per-coordinate ridge on the same hashed encoding as the engine, trained
-    on every reward immediately — only the exploration rule differs."""
+    on every reward as it arrives — only the exploration rule differs.
+    Like the engine, training happens at the *decision's* timestamp, so a
+    late reward counts exactly as an on-time one; unlike the engine, there
+    is no horizon — the baselines train on every reward however late,
+    which is exactly the comparison that prices the engine's expiry rule."""
 
     def __init__(self, bits: int = 8, half_life: float = 1000.0):
         self.bits = bits
@@ -118,8 +170,6 @@ class ModelPolicy(Policy):
 
     def begin(self, seed: int) -> None:
         self.model = new_model(2**self.bits, self.half_life, t=0.0)
-        self._x: list[float] = []
-        self._t = 0.0
 
     def estimates(self, rd: Round) -> "tuple[list[list[float]], list[float]]":
         candidates = [
@@ -129,12 +179,9 @@ class ModelPolicy(Policy):
         f = factorize(self.model, rd.t)
         return candidates, [predict_factored(f, x)[0] for x in candidates]
 
-    def picked(self, rd: Round, candidates: "list[list[float]]", chosen: int) -> None:
-        self._x = candidates[chosen]
-        self._t = rd.t
-
-    def observe(self, reward: float) -> None:
-        self.model = update(self.model, self._x, reward, self._t)
+    def resolve(self, ref: object, reward: float) -> None:
+        x, t = ref
+        self.model = update(self.model, x, reward, t)
 
 
 class GreedyPolicy(ModelPolicy):
@@ -144,11 +191,10 @@ class GreedyPolicy(ModelPolicy):
         super().__init__(bits, half_life)
         self.name = "greedy"
 
-    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
+    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
         candidates, estimates = self.estimates(rd)
         chosen = argmax(estimates)
-        self.picked(rd, candidates, chosen)
-        return chosen, estimates
+        return chosen, estimates, (candidates[chosen], rd.t)
 
 
 class EpsilonGreedyPolicy(ModelPolicy):
@@ -161,12 +207,11 @@ class EpsilonGreedyPolicy(ModelPolicy):
         self.eps = eps
         self.name = f"epsilon-{eps}"
 
-    def choose(self, rd: Round, seed: int) -> "tuple[int, list[float] | None]":
+    def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
         candidates, estimates = self.estimates(rd)
         key = stream(self.name, seed, f"choose:{rd.t}")
         if uniform(key, 0) < self.eps:
             chosen = randint(key, 1, len(candidates))
         else:
             chosen = argmax(estimates)
-        self.picked(rd, candidates, chosen)
-        return chosen, estimates
+        return chosen, estimates, (candidates[chosen], rd.t)

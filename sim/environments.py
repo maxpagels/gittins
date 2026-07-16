@@ -43,10 +43,10 @@ class Environment:
     name: str
     noise: float
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         raise NotImplementedError
 
-    def reward(self, seed: int, t: int, rd: Round, chosen: int) -> float:
+    def reward(self, seed: int, t: float, rd: Round, chosen: int) -> float:
         key = stream(self.name, seed, f"reward:{t}")
         return rd.means[chosen] + self.noise * gaussian(key, 0)
 
@@ -111,7 +111,7 @@ class LinearEnvironment(Environment):
             self._params[seed] = linear_params(self.name, seed, "params", self.k, self.n_features)
         return self._params[seed]
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         bases, weights = self.params(seed)
         key = stream(self.name, seed, f"context:{t}")
         x = [uniform(key, j, -1.0, 1.0) for j in range(self.n_features)]
@@ -146,7 +146,7 @@ class XorEnvironment(Environment):
         self.k = k
         self.noise = noise
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         key = stream(self.name, seed, f"context:{t}")
         s1 = randint(key, 0, 2)
         s2 = randint(key, 1, 2)
@@ -188,7 +188,7 @@ class NeedleEnvironment(Environment):
         """The needle arm's index for one seed."""
         return randint(stream(self.name, seed, "needle"), 0, self.k)
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         needle = self.needle(seed)
         means = tuple(
             self.BASE + self.gap if a == needle else self.BASE for a in range(self.k)
@@ -247,7 +247,7 @@ class ActionFeatureEnvironment(Environment):
             self._params[seed] = (arms, weights)
         return self._params[seed]
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         arms, weights = self.params(seed)
         n = self.n_features
         key = stream(self.name, seed, f"context:{t}")
@@ -296,8 +296,8 @@ class AbruptShiftEnvironment(Environment):
             )
         return self._params[(seed, epoch)]
 
-    def round(self, seed: int, t: int) -> Round:
-        bases, weights = self.params(seed, t // self.period)
+    def round(self, seed: int, t: float) -> Round:
+        bases, weights = self.params(seed, int(t // self.period))
         key = stream(self.name, seed, f"context:{t}")
         x = [uniform(key, j, -1.0, 1.0) for j in range(self.n_features)]
         return Round(
@@ -342,7 +342,7 @@ class DriftEnvironment(Environment):
             )
         return self._params[seed]
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         (b0, w0), (b1, w1) = self.params(seed)
         theta = 2.0 * math.pi * t / self.period
         c, s = math.cos(theta), math.sin(theta)
@@ -408,7 +408,7 @@ class ChurnEnvironment(Environment):
             self._means[seed] = [uniform(key, a, 0.25, 0.75) for a in range(self.k)]
         return self._means[seed]
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         means = self.arm_means(seed)
         best = max(range(self.k), key=means.__getitem__)
         alive = [
@@ -469,7 +469,7 @@ class DropoutEnvironment(Environment):
             self._params[seed] = linear_params(self.name, seed, "params", self.k, self.n_features)
         return self._params[seed]
 
-    def round(self, seed: int, t: int) -> Round:
+    def round(self, seed: int, t: float) -> Round:
         bases, weights = self.params(seed)
         key = stream(self.name, seed, f"context:{t}")
         x = [uniform(key, j, -1.0, 1.0) for j in range(self.n_features)]
