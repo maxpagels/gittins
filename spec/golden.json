@@ -1,6 +1,217 @@
 {
  "format_version": 2,
  "sections": {
+  "api": {
+   "bits": 4,
+   "catalog": [
+    [
+     "basic",
+     {
+      "price": 3.0
+     }
+    ],
+    [
+     "plus",
+     {
+      "price": 9.0,
+      "trial": true
+     }
+    ],
+    [
+     "free",
+     {}
+    ]
+   ],
+   "events": [
+    {
+     "context": {
+      "hour": 9,
+      "seg": "a"
+     },
+     "record": {
+      "candidate_hash": 12332765641868678599,
+      "chosen": 0,
+      "decision_id": "api-golden:0",
+      "features": [
+       [
+        2,
+        9.0
+       ],
+       [
+        6,
+        27.0
+       ],
+       [
+        8,
+        -2.0
+       ],
+       [
+        9,
+        -6.0
+       ],
+       [
+        11,
+        3.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.3333333333333333,
+      "salt": "api-golden",
+      "t": 1752000000.0
+     },
+     "t": 1752000000.0
+    },
+    {
+     "context": {
+      "hour": 10,
+      "seg": "b"
+     },
+     "record": {
+      "candidate_hash": 4515090391548892811,
+      "chosen": 0,
+      "decision_id": "api-golden:1",
+      "features": [
+       [
+        2,
+        10.0
+       ],
+       [
+        4,
+        1.0
+       ],
+       [
+        6,
+        30.0
+       ],
+       [
+        9,
+        -7.0
+       ],
+       [
+        11,
+        2.0
+       ],
+       [
+        12,
+        1.0
+       ],
+       [
+        13,
+        3.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.3333333333333333,
+      "salt": "api-golden",
+      "t": 1752000900.0
+     },
+     "t": 1752000900.0
+    },
+    {
+     "context": {
+      "hour": 11,
+      "seg": "a"
+     },
+     "record": {
+      "candidate_hash": 7913521736207961054,
+      "chosen": 1,
+      "decision_id": "api-golden:2",
+      "features": [
+       [
+        2,
+        22.0
+       ],
+       [
+        6,
+        99.0
+       ],
+       [
+        8,
+        -8.0
+       ],
+       [
+        9,
+        -2.0
+       ],
+       [
+        11,
+        1.0
+       ],
+       [
+        13,
+        2.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.3333333333333333,
+      "salt": "api-golden",
+      "t": 1752001800.0
+     },
+     "t": 1752001800.0
+    },
+    {
+     "context": {
+      "hour": 12,
+      "seg": "b"
+     },
+     "record": {
+      "candidate_hash": 16521718223845176345,
+      "chosen": 2,
+      "decision_id": "api-golden:3",
+      "features": [
+       [
+        2,
+        24.0
+       ],
+       [
+        4,
+        1.0
+       ],
+       [
+        9,
+        1.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.3333333333333333,
+      "salt": "api-golden",
+      "t": 1752002700.0
+     },
+     "t": 1752002700.0
+    }
+   ],
+   "expire_sweep_at": 1752006300.0,
+   "final": {
+    "model_version": 3,
+    "next_seq": 4,
+    "state_hex": "67697474696e730001000000000000001000000000000000000000000000f03fcdccccccccccec3f8816d9cef753e73f00000000000000000000000000000000f2c32265e0498f40000000000000000082d5a026e2dc034000000000000000000000000000b09d400000000000000000b7e68745cac01340c8cda62dae1059400000000000000000c7711cc7711c2f40721cc7711cc7f13f000000000000244000000000000000000000000000000000000000000000000000000000000000008ee3388ee33826400000000000000000721cc7711cc7f13f0000000000000000abaaaaaaaaaa404000000000000000000000000000000000c8711cc7711c1fc00000000000000000721cc7711cc70140721cc7711cc7f13fabaaaaaaaaaa0a400000000000000000000000000000000004000000000000000300000000000000000000000020ac4000000000000000009a9999999999a93f000000000000000026ffbfeebcad1a46"
+   },
+   "forgetting": 0.9,
+   "horizon": 3600.0,
+   "resolutions": [
+    {
+     "decision_id": "api-golden:1",
+     "kind": "rewarded",
+     "reward": 1.0
+    },
+    {
+     "decision_id": "api-golden:0",
+     "kind": "rewarded",
+     "reward": 0.0
+    },
+    {
+     "decision_id": "api-golden:2",
+     "kind": "censored",
+     "reward": null
+    },
+    {
+     "decision_id": "api-golden:3",
+     "kind": "expired",
+     "reward": 0.0
+    }
+   ],
+   "salt": "api-golden"
+  },
   "encoding": {
    "encode": [
     {

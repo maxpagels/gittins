@@ -84,6 +84,8 @@ core/                    Rust core (Phase 1): the engine, the golden
                          (cargo run --release --bin sim)
 tests/                   pytest suite for reference + sim
 spec/                    written spec sections + golden.json
+docs/                    user-facing documentation (usage.md: the public API
+                         by example)
 PROGRESS.md              this file
 ```
 
@@ -95,14 +97,6 @@ The rule that governs the phase: the dict-shaped public API is specified
 once, in the reference, and every binding mirrors it exactly; each binding's
 CI gate is the golden episode replayed through the binding, bit for bit.
 
-- **PR 19 — the public dict-shaped API, in the reference.** The layer the
-  bindings will mirror does not exist yet: today callers `encode` and then
-  `decide` over sparse pairs. Add the facade to the reference — construction
-  declares `bits`; `decide` takes the context dict plus (arm_id, action
-  dict) candidates and encodes inside; `learn`/`censor`/`expire` unchanged —
-  with a spec section and a golden section exercising the episode through
-  it. In Rust it is the same thin layer over `encode` + `decide`, and it is
-  the *only* surface PR 20/21 expose.
 - **PR 20 — Python binding (`bindings/python`: PyO3 + maturin, abi3).** The
   design rule that decides whether it is fast: one boundary crossing per
   decision — `decide()` takes the context dict and the whole candidate list,
@@ -242,30 +236,34 @@ decisions log above, and this file's git history has the full entries.
   battery: all 60 table rows identical locally, 22s → 2.7s (~8x, untuned).
   Also: README requirements gained R0 (incremental/online).
 
+- **PR 18** (2026-07-16) — canonical state serialization + the core's error
+  surface, the prerequisite for both bindings. `serialize`/`deserialize`
+  (`state.py`, `state.rs`; spec: `serialization.md`) are exact inverses over
+  one canonical little-endian layout — magic, format version 1, model,
+  bandit scalars, open ledger records, trailing FNV-1a checksum.
+  Deserialization is all-or-nothing and re-checks every constructor
+  invariant, so a loaded state is as trustworthy as a constructed one. The
+  corpus gained a `serialization` section (fresh state, episode mid
+  snapshot with open records, episode final state, as hex) — the Rust core
+  produced the reference's bytes exactly. Every ValueError-shaped rejection
+  in the core became a returned `Error` with the same message (`error.rs`);
+  nothing on the public path panics, so bindings sit directly on it.
+
 ## Currently in flight
 
-- **PR 18** (`pr-18`) — canonical state serialization + the core's error
-  surface, the prerequisite for both bindings.
-
-  **Serialization** (`state.py` in the reference, `state.rs` in the core;
-  spec: `serialization.md`): `serialize`/`deserialize` are exact inverses
-  over one canonical little-endian layout — magic, format version 1, model,
-  bandit scalars, open ledger records, trailing FNV-1a checksum — in the
-  `candidate_set_hash` byte style. Deserialization is all-or-nothing: the
-  checksum rejects truncation/corruption up front, every constructor
-  invariant and the record-features invariant are re-checked, the payload
-  must be exactly consumed; a loaded state is as trustworthy as a
-  constructed one (model sums deliberately not range-policed — the engine
-  places no bounds on them). The golden corpus gained a `serialization`
-  section (additive diff): the bytes of a fresh state, the episode's mid
-  snapshot (two open records, covering the DecisionRecord encoding), and
-  the episode's final state, as hex — the Rust core produces the
-  reference's bytes exactly, checked in `cargo test`.
-
-  **Error surface** (`error.rs`): every rejection the reference expresses
-  as ValueError is now a returned `Error` in the core with the same message
-  text — `new_model`, `new_bandit`, `decide`, `encode`,
-  `epsilon_greedy_probabilities`, `deserialize` return `Result`; nothing on
-  the public path panics, so bindings can sit directly on these functions.
-  Battery output is byte-identical before/after (the change is
-  behavior-neutral on the happy path).
+- **PR 19** (`pr-19`) — the public dict-shaped API (`api.py` in the
+  reference, `api.rs` in the core; spec: `api.md`): the complete binding
+  surface, specified once. Eight names — `create` (declares `bits` in place
+  of a raw dimension; the model spans the 2^bits hashed space), `decide`
+  (context dict plus (arm_id, action dict) candidates, encoded inside in
+  candidate order), `learn`/`censor`/`expire`/`serialize`/`deserialize`
+  passed through unchanged, and `model_bits` (the declaration recovered
+  from the dimension — no new state type, no serialization change; states
+  whose dimension is not 2^bits in [1, 24] are rejected). The facade adds
+  no randomness, reordering, or arithmetic: both test suites pin
+  facade-vs-layered bit identity. The corpus gained an `api` section
+  (additive): one compact scenario through the public surface only —
+  action-feature candidates (numeric + boolean, which the episode never
+  exercised), out-of-order rewards, censor, exact-horizon expiry, final
+  state hex — the acceptance gate PR 20/21 bindings replay through their
+  own public API. The Rust facade reproduced it on the first run.

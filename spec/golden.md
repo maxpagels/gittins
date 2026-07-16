@@ -30,6 +30,7 @@ diff like code.
 | `encoding` | tokenization, pair hashes, sparse (index, value) encodings at bits 4 and 6 |
 | `episode` | the end-to-end acceptance scenario (below) |
 | `serialization` | canonical state bytes (hex): a fresh state, the episode's mid snapshot (two open records), and its final state — see `serialization.md` |
+| `api` | the public dict-shaped surface end to end: create/decide over an (arm_id, action) catalog, out-of-order learn, censor, exact-horizon expire, final state hex — a binding's acceptance gate; see `api.md` |
 
 The `episode` section is one agent making hash-encoded decisions with
 out-of-order (deferred) rewards, one censored decision, and one

@@ -9,6 +9,7 @@ mod json;
 
 use json::Json;
 
+use gittins_core::api;
 use gittins_core::decide::{candidate_set_hash, decide, new_bandit, BanditState, DecisionRecord};
 use gittins_core::encoding::{encode, feature_tokens, pair_hash, Features, Value};
 use gittins_core::exploration::{epsilon_greedy_probabilities, sample_index, DEFAULT_EPSILON};
@@ -366,6 +367,57 @@ fn serialization_section() {
         assert!(&loaded == state, "{what}: deserialized state differs");
         assert!(serialize(&loaded) == expected, "{what}: round-trip bytes differ");
     }
+}
+
+/// The public dict-shaped API: replay the corpus's api scenario calling
+/// only the facade (`gittins_core::api`) — exactly what a binding's
+/// acceptance test will do through its own public surface.
+#[test]
+fn api_section() {
+    let s = section("api");
+    let bits = s.get("bits").u64_() as u32;
+    let horizon = s.get("horizon").f64_();
+    let forgetting = s.get("forgetting").f64_();
+    let salt = s.get("salt").str_();
+    let catalog: Vec<(String, Vec<(String, Value)>)> = s
+        .get("catalog")
+        .arr()
+        .iter()
+        .map(|pair| (pair.arr()[0].str_().to_string(), values(&pair.arr()[1])))
+        .collect();
+
+    let mut state = api::create(bits, horizon, 0.0, DEFAULT_EPSILON, forgetting).unwrap();
+    let mut records = Vec::new();
+    for event in s.get("events").arr() {
+        let context = values(event.get("context"));
+        let record = api::decide(
+            &mut state,
+            &context,
+            &catalog,
+            event.get("t").f64_(),
+            salt,
+        )
+        .unwrap();
+        assert_record(&record, event.get("record"), &record.decision_id.clone());
+        records.push(record);
+    }
+
+    let mut resolutions = Vec::new();
+    resolutions.push(api::learn(&mut state, &records[1].decision_id, 1.0).unwrap());
+    resolutions.push(api::learn(&mut state, &records[0].decision_id, 0.0).unwrap());
+    resolutions.push(api::censor(&mut state, &records[2].decision_id).unwrap());
+    resolutions.extend(api::expire(&mut state, s.get("expire_sweep_at").f64_()));
+    assert_resolutions(&resolutions, s.get("resolutions"));
+
+    let fin = s.get("final");
+    assert!(state.model_version == fin.get("model_version").u64_(), "final model_version");
+    assert!(state.next_seq == fin.get("next_seq").u64_(), "final next_seq");
+    let expected = unhex(fin.get("state_hex").str_());
+    assert!(
+        api::serialize(&state) == expected,
+        "final state bytes differ from corpus"
+    );
+    assert!(api::deserialize(&expected).unwrap() == state);
 }
 
 fn unhex(text: &str) -> Vec<u8> {
