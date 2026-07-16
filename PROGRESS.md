@@ -114,9 +114,9 @@ Also outstanding, order flexible:
 - the `DEFAULT_EPSILON` sweep (`python -m sim.sweep`) — the 0.05 default is
   provisional until it is run and recorded here (from PR 16);
 - the encoding hot spot (per-decision token formatting + pair hashing), now
-  priced by the binding benchmark: 145 µs against the roadmap's 10–50 µs
-  target (bits=8 × 100 arms) — the next perf PR; the hash contract itself
-  stays frozen;
+  priced by the binding benchmark: 210 µs against the roadmap's 10–50 µs
+  target (bits=8, 100 arms × 5 context features) — the next perf PR; the
+  hash contract itself stays frozen;
 - further out: multislot/ranking (R5) and OPE tooling over the decision
   log (R3).
 
@@ -277,9 +277,13 @@ decisions log above, and this file's git history has the full entries.
   wheel alone — records, resolutions, final state hex — plus a scripted
   40-decision equivalence run against the pure reference ending in
   identical serialized bytes. CI gained a `python-binding` job: build,
-  gate, and a decision-cycle benchmark into the job summary. First
-  measurement (bits=8, 100 arms, decide+learn): 1,645 µs pure Python →
-  145 µs through the wheel (~11x) — short of the 10–50 µs roadmap target;
-  the gap is the known encoding hot spot (per-decision token formatting +
-  pair hashing), deliberately deferred until this benchmark existed to
-  price it, and now first on the perf list.
+  gate, and a decision-cycle benchmark into the job summary: a grid of
+  arms × context features (5/10/100 each way, bits=8, two action features
+  per arm, full decide+learn cycles, time-boxed sampling). First
+  measurements: the wheel is a steady ~8–11x over the pure reference on
+  every shape — 13 µs at 5×5, 210 µs at 100 arms × 5 features, 3.0 ms at
+  100×100 (reference: 131 µs / 2.3 ms / 23 ms) — short of the roadmap's
+  10–50 µs target at the 100-arm shape; the gap is the known encoding hot
+  spot (per-decision token formatting + pair hashing), deliberately
+  deferred until this benchmark existed to price it, and now first on the
+  perf list.
