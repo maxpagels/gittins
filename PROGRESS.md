@@ -14,11 +14,11 @@ non-stationarity is handled by built-in forgetting with fixed defaults — tunin
 lives offline, in replay and off-policy evaluation over the decision log, never
 in knobs. "The SQLite of bandits."
 
-**Current phase: Phase 0 — specification & pure-Python reference.** Every core
-concept is small, readable, dependency-free Python with tests; the later Rust
-core must match it bit-for-bit against the golden vector corpus
-(`spec/golden.json`). Phase 0.5 (the pre-Rust benchmarking battery, `sim/`) is
-complete; its findings live in the decisions log and PR entries below.
+**Current phase: Phase 1 — the Rust core.** Phase 0 (specification &
+pure-Python reference) and Phase 0.5 (the benchmarking battery, `sim/`) are
+complete; the reference remains the specification, and the Rust core in
+`core/` must match it bit-for-bit against the golden vector corpus
+(`spec/golden.json`) — which it does, `cargo test` being the proof.
 
 ## Working process
 
@@ -74,12 +74,15 @@ FNV). Battery: 450k decisions in ~22s (~20k decisions/s).
 ```
 src/gittins_reference/   pure-Python reference implementation (Phase 0)
 sim/                     simulation harness (Phase 0.5)
-tests/                   pytest suite for both
+core/                    Rust core (Phase 1): the engine, the golden
+                         verifier (cargo test), and the battery rerun
+                         (cargo run --release --bin sim)
+tests/                   pytest suite for reference + sim
 spec/                    written spec sections + golden.json
 PROGRESS.md              this file
 ```
 
-Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
+Planned later: `bindings/` (Python native, JS/WASM).
 
 ## Decisions log
 
@@ -197,7 +200,38 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
 
 ## Currently in flight
 
-- **PR 16** (`pr-16`) — epsilon-greedy exploration + the sparse reference.
+- **PR 17** (`pr-17`) — the Rust core (`core/`), Phase 1's opening move: the
+  engine ported module for module from the reference (rng, encoding, model,
+  exploration, decide, ledger), zero dependencies, state mutated in place —
+  every float expression keeps the reference's exact order, so the two are
+  bit-identical by construction and checked by it.
+
+  **Golden verification**: `cargo test` includes `spec/golden.json` at
+  compile time (a ~200-line hand-rolled JSON parser lives in the test tree,
+  keeping the crate itself dependency-free; floats parse correctly-rounded
+  from the corpus's shortest reprs and compare via `to_bits`), verifies every
+  section, and replays the end-to-end episode generator — schedule, reward
+  rule, out-of-order resolutions and all. All sections passed on the first
+  run: the Phase 0 exit criterion is met.
+
+  **Battery rerun** (`cargo run --release --bin sim`): `sim/` ported as a
+  binary in the crate — environments, policies, runner, metrics (including a
+  faithful port of CPython's `math.fsum`, exact Shewchuk summation with the
+  round-half-even correction), and stream labels formatted exactly as
+  Python's f-strings format them. CI appends its table to the same job
+  summary as the Python battery, so the two are comparable line by line. On
+  one platform they are *identical* — all 60 table rows matched locally
+  (macOS), every median/IQR/RMSE digit — because both harnesses call the
+  same libm for the Box–Muller log/cos, the one non-bit-pinned piece
+  PROGRESS already flags; cross-platform the tables may drift in the last
+  digits. Runtime: 22s Python → 2.7s Rust locally (~21k → ~169k decisions/s,
+  the same 450k decisions), with no perf work done on the core yet
+  (encoding's per-decision token formatting and hashing, the known hot spot,
+  is ported straight).
+
+## Done
+
+- **PR 16** (2026-07-16) — epsilon-greedy exploration + the sparse reference.
 
   **Exploration** (see the 2026-07-16 decision): `p[i] = epsilon/k +
   (1-epsilon)/m` for the `m` exact-tie best candidates, `epsilon/k` otherwise —

@@ -1,0 +1,9 @@
+# The compiled core (Phase 1). Zero dependencies, like the reference: every
+# byte of behavior is either std or written here, so the golden corpus is the
+# only contract that matters.
+[package]
+name = "gittins-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
