@@ -93,7 +93,7 @@ class TestPersonalization:
         # bits=5 (dim 32) keeps the reference solve fast; collisions and
         # all, the preference is learned.
         bits = 5
-        state = new_bandit(1 << bits, DAY, T0, horizon=DAY)
+        state = new_bandit(1 << bits, horizon=DAY)
         per_seg = {"a": [], "b": []}
         for i in range(300):
             seg = "a" if i % 2 == 0 else "b"

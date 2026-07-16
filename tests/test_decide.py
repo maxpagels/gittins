@@ -24,10 +24,10 @@ CANDS = [[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]
 
 def trained_state(n: int = 200) -> BanditState:
     # Arm [1,0] pays 1, arm [0,1] pays 0, observed n times each.
-    m = new_bandit(2, HOUR, T0, horizon=DAY).model
-    for i in range(n):
-        m = update(m, [1.0, 0.0], 1.0, T0 + i)
-        m = update(m, [0.0, 1.0], 0.0, T0 + i + 0.5)
+    m = new_bandit(2, horizon=DAY).model
+    for _ in range(n):
+        m = update(m, [1.0, 0.0], 1.0)
+        m = update(m, [0.0, 1.0], 0.0)
     return BanditState(
         model=m, next_seq=0, model_version=2 * n, horizon=DAY, default_reward=0.0, ledger=()
     )
@@ -35,14 +35,14 @@ def trained_state(n: int = 200) -> BanditState:
 
 class TestDecide:
     def test_is_deterministic(self):
-        s = new_bandit(2, HOUR, T0, horizon=DAY)
+        s = new_bandit(2, horizon=DAY)
         assert decide(s, CANDS, T0, "pepper") == decide(s, CANDS, T0, "pepper")
 
     def test_decide_never_learns(self):
         # decide never trains (D5: training happens only through the ledger)
         # and never mutates its input; the state changes are the sequence
         # advancing and the record joining the ledger.
-        s = new_bandit(2, HOUR, T0, horizon=DAY)
+        s = new_bandit(2, horizon=DAY)
         record, s2 = decide(s, CANDS, T0, "pepper")
         assert s2.model == s.model
         assert s2.model_version == s.model_version
@@ -51,14 +51,14 @@ class TestDecide:
         assert s.next_seq == 0 and s.ledger == ()  # input untouched
 
     def test_ids_are_unique_and_sequential(self):
-        s = new_bandit(2, HOUR, T0, horizon=DAY)
+        s = new_bandit(2, horizon=DAY)
         r1, s = decide(s, CANDS, T0, "pepper")
         r2, s = decide(s, CANDS, T0 + 1, "pepper")
         assert r1.decision_id == "pepper:0"
         assert r2.decision_id == "pepper:1"
 
     def test_record_is_self_contained(self):
-        s = new_bandit(2, HOUR, T0, horizon=DAY)
+        s = new_bandit(2, horizon=DAY)
         record, _ = decide(s, CANDS, T0, "pepper")
         assert record.features == tuple(CANDS[record.chosen])
         assert record.t == T0
@@ -72,7 +72,7 @@ class TestDecide:
         record, _ = decide(s, CANDS, t, "pepper")
         ests, uncs = [], []
         for x in CANDS:
-            est, unc = predict(s.model, x, t)
+            est, unc = predict(s.model, x)
             ests.append(est)
             uncs.append(unc)
         p = apply_floor(inverse_gap_probabilities(ests, choose_gamma(uncs)))
@@ -81,7 +81,7 @@ class TestDecide:
     def test_fresh_state_explores_uniformly(self):
         # A fresh model estimates 0 with equal uncertainty everywhere, so
         # the choice frequencies over many salts are ~uniform.
-        s = new_bandit(2, HOUR, T0, horizon=DAY)
+        s = new_bandit(2, horizon=DAY)
         n = 3000
         counts = Counter(decide(s, CANDS, T0, f"salt-{i}")[0].chosen for i in range(n))
         for i in range(3):
@@ -103,14 +103,14 @@ class TestDecide:
         # Same candidates, fresh vs. trained state: the trained state is
         # greedier — the losing arm's propensity has dropped.
         cands = [[1.0, 0.0], [0.0, 1.0]]
-        fresh, _ = decide(new_bandit(2, HOUR, T0, horizon=DAY), cands, T0, "z")
+        fresh, _ = decide(new_bandit(2, horizon=DAY), cands, T0, "z")
         greedy, _ = decide(trained_state(), cands, T0 + 500, "z")
         p_fresh = 1.0 - fresh.propensity if fresh.chosen == 0 else fresh.propensity
         p_greedy = 1.0 - greedy.propensity if greedy.chosen == 0 else greedy.propensity
         assert p_greedy < p_fresh / 3
 
     def test_rejects_bad_candidates(self):
-        s = new_bandit(2, HOUR, T0, horizon=DAY)
+        s = new_bandit(2, horizon=DAY)
         with pytest.raises(ValueError):
             decide(s, [], T0, "pepper")
         with pytest.raises(ValueError):
@@ -144,13 +144,13 @@ class TestCandidateSetHash:
 
 class TestPinnedVectors:
     # Golden vector: bit-exact decision record for a fixed little history.
-    # Model dim 2, half-life 3600 s, created at T0; updates ([1,0], 1.0, T0)
-    # and ([0,1], -0.5, T0+1800); state at seq 7, version 2; candidates
-    # CANDS; decide at T0+3600 with salt "pepper".
+    # Model dim 2, default forgetting; updates ([1,0], 1.0) then
+    # ([0,1], -0.5); state at seq 7, version 2; candidates CANDS; decide at
+    # T0+3600 with salt "pepper".
     def test_record_bits(self):
-        m = new_bandit(2, HOUR, T0, horizon=DAY).model
-        m = update(m, [1.0, 0.0], 1.0, T0)
-        m = update(m, [0.0, 1.0], -0.5, T0 + 1800.0)
+        m = new_bandit(2, horizon=DAY).model
+        m = update(m, [1.0, 0.0], 1.0)
+        m = update(m, [0.0, 1.0], -0.5)
         s = BanditState(
             model=m, next_seq=7, model_version=2, horizon=DAY, default_reward=0.0, ledger=()
         )
@@ -161,7 +161,7 @@ class TestPinnedVectors:
             candidate_hash=8340395383735871362,
             chosen=0,
             features=(1.0, 0.0),
-            propensity=0.9482851123609886,
+            propensity=0.953426773277985,
             model_version=2,
             salt="pepper",
         )

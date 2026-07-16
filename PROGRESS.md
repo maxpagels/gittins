@@ -9,8 +9,9 @@ point into it for readers who have it locally.
 
 `gittins` is a set-and-forget contextual bandit engine: a zero-dependency, deterministic
 core (eventually Rust, with Python/JS bindings) where all state is an explicit value,
-decisions are first-class logged records, and non-stationarity is handled by a
-self-tuning pool of models instead of tunable knobs. "The SQLite of bandits."
+decisions are first-class logged records, and non-stationarity is handled by built-in
+forgetting with fixed defaults — tuning lives offline, in replay and off-policy
+evaluation over the decision log, never in knobs. "The SQLite of bandits."
 
 **Current phase: Phase 0 — Specification & pure-Python reference implementation.**
 Every core concept is first written as small, readable, dependency-free Python with
@@ -23,8 +24,8 @@ bit-for-bit against golden test vectors.
 - Each PR description states: the concept, the design-doc section it implements, and
   what the tests prove.
 - If a PR is too big to explain, it gets split — that's a feature of the process.
-- PRs that introduce semantics (decay, ledger, merge) also add a written spec section
-  under `spec/`.
+- PRs that introduce semantics (the model, the ledger, the encoding) also add a written
+  spec section under `spec/`.
 - The reference implementation stays pure Python with zero runtime dependencies
   (pytest is dev-only).
 
@@ -46,6 +47,11 @@ bit-for-bit against golden test vectors.
 Phase 0 exit criterion: the spec plus reference is complete enough that an independent
 implementation of `decide`/`learn` can match the golden vectors.
 
+(The table is history, not current truth: the wall-clock decay machinery of PRs 3–4 and
+the state merge of PR 9 were removed again in PR 15 — per-update forgetting replaced
+decay, and fleet pooling moved offline to merged decision logs. See the 2026-07-16
+decision below.)
+
 ## Benchmarking the reference (Phase 0.5 — before the Rust core)
 
 Before freezing semantics into Rust, measure whether the three provisional pieces of the
@@ -54,7 +60,7 @@ README promises (R1, R2): stationary problems, difficult non-stationarity, arms 
 and disappearing, and features going missing. The pieces under test, with the constants
 currently marked provisional in the source:
 
-1. **Model** — per-coordinate ridge on decaying sums (`model.py`): `ridge = 1.0`, the
+1. **Model** — per-coordinate forgetting ridge (`model.py`): `ridge = 1.0`, the
    assumption that a linear model on hashed outer-product features degrades gracefully
    when the true reward is nonlinear in them, and the cost of never splitting credit
    (co-firing/redundant features double-count), which makes the misspecified and
@@ -63,10 +69,11 @@ currently marked provisional in the source:
    the *mean* as the uncertainty aggregate in `choose_gamma`, and `FLOOR_MASS = 0.05`
    (is 5% forced exploration too costly on stationary problems with many arms, and is it
    enough to rediscover a recovered arm quickly?).
-3. **Forgetting** — the single fixed half-life chosen at `new_bandit`: how large is the
-   regret gap between one default half-life and the best per-environment half-life? That
-   gap is precisely the case for (or against) prioritizing the D4 self-tuning pool
-   before the Rust core.
+3. **Forgetting** — the single fixed forgetting rate baked into the model: how large is
+   the regret gap between one default rate and the best per-environment rate? That gap is
+   precisely the case for (or against) more forgetting machinery than one fixed default —
+   answered in PR 15: no single rate is right everywhere, and the remedy chosen is offline
+   selection from the decision log, not an in-engine pool.
 
 This pulls the synthetic half of the Phase 2 battery (design doc §10) forward. Out of
 scope here: OPE estimators, public logged datasets (Open Bandit, Criteo), the public
@@ -83,7 +90,7 @@ benchmark page, and any CI regret gate — those stay in Phases 2/4.
   driven through the future Rust core — the engine side is the bit-pinned path and all
   environment uniforms are counter-RNG — except for one piece: the reward-noise
   gaussian (Box–Muller over libm `log`/`cos`, which have no cross-platform rounding
-  guarantee; the same reason the reference vendored `exp2`). If Phase 2 wants the
+  guarantee; the same reason the reference once vendored `exp2`). If Phase 2 wants the
   battery as a cross-language differential test (diff whole decision streams
   Rust-vs-reference, thousands of seeds, far beyond the golden corpus), the fix is
   contained: vendor deterministic `log`/`cos` in `sim/rand.py`, or switch environment
@@ -94,7 +101,7 @@ benchmark page, and any CI regret gate — those stay in Phases 2/4.
   not estimated.
 - **Runner** drives the real public path — encode (PR 8) → `decide` (PR 6) → ledger
   `learn`/`expire` (PR 7) — never the layers in isolation, so hashing, the gamma
-  schedule, the floor, and decay are all in the loop together.
+  schedule, the floor, and forgetting are all in the loop together.
 - **Event-time runner** (PR 13): the PR 11 runner ticks one decision per second and
   resolves each reward immediately; the event-time runs replace that with a single
   time-ordered event queue — decision arrivals and reward arrivals interleaved,
@@ -108,8 +115,8 @@ benchmark page, and any CI regret gate — those stay in Phases 2/4.
   - greedy (gamma → ∞, no floor) and epsilon-greedy (ε ∈ {0.05, 0.1}), the "would
     something dumber beat us" check;
   - gittins itself under swept constants: `GAMMA_SCALE` ∈ {0.25, 1, 4, 16},
-    aggregate ∈ {mean, min, max}, `ridge` ∈ {0.1, 1, 10}, half-life ∈ geometric grid
-    (plus ∞ = no forgetting). The zero-knob default vs. the best swept point *per
+    aggregate ∈ {mean, min, max}, `ridge` ∈ {0.1, 1, 10}, forgetting rate ∈ geometric
+    grid (plus 1.0 = never forget). The zero-knob default vs. the best swept point *per
     environment* is the headline comparison.
   - a full-covariance ridge comparator implemented inside `sim/` (a baseline, not part
     of the engine): at small `bits` it prices what credit-splitting would buy over the
@@ -125,10 +132,10 @@ and ~20 seeds; runs of 10k–50k decisions.
 - **Stationary, misspecified**: nonlinear reward (e.g. XOR-style interactions beyond
   the outer product, thresholds) — graceful-degradation check for the linear model.
 - **Abrupt shifts**: the best arm swaps at intervals both long and short relative to
-  the half-life; measures recovery (does uncertainty regrow and gamma fall back as
-  `decide.py` claims?).
+  the model's effective window; measures recovery (how fast stale evidence is outweighed
+  and traffic reallocated after a shift).
 - **Slow drift and seasonal**: reward weights rotate slowly / oscillate with a period;
-  the regime where any fixed half-life is a compromise.
+  the regime where any fixed forgetting rate is a compromise.
 - **Arm churn (missing arms)**: arms are born and die mid-run; the best arm disappears
   and later returns (rediscovery time via the floor); cold-start regret of a new
   strong arm; identity-collision stress at small `bits`.
@@ -138,12 +145,12 @@ and ~20 seeds; runs of 10k–50k decisions.
 - **Variable event rate (traffic cycles)**: decision arrivals follow a daily
   sinusoid — morning and evening peaks, an overnight trough, rate swinging
   ~10–100× — plus bursty periods, on top of a stationary or shifting reward world.
-  The half-life is wall-clock seconds, not events (R4: decisions come at different
-  frequencies at different times of day), so quiet stretches decay evidence with
-  little replenishment: measures the overnight-forgetting cost (does every morning
-  start with regrown uncertainty and a re-exploration tax?), whether gamma's fallback
-  during troughs is proportionate, and how the fixed half-life trades off against the
-  event rate — direct evidence for the one-default-half-life question. Crossed with
+  Forgetting is clocked by updates, not wall-clock time (R4: decisions come at
+  different frequencies at different times of day), so the traffic shape sets how fast
+  the model forgets in wall time — memory carries cheaply across a quiet night but
+  churns fast at peak: measures whether that trade behaves (no morning re-exploration
+  tax after the trough, no peak-hour amnesia), and how reward delays race the
+  wall-clock expiry horizon across the daily cycle. Crossed with
   reward delays (including delays correlated with time of day, e.g. conversions that
   arrive next morning) and run on a representative subset of the reward worlds above
   rather than the full cross.
@@ -170,8 +177,9 @@ and ~20 seeds; runs of 10k–50k decisions.
   any cell — the Phase 0.5 version of the Phase 2 exit criterion.
 - The default beats epsilon-greedy overall and is never far behind it on any cell.
 - Fallout is recorded as decisions in this file: the settled `GAMMA_SCALE` value and
-  aggregate; whether `ridge = 1.0` survives; and whether one default half-life is
-  defensible or the D4 pool must be built before (or alongside) the Rust core.
+  aggregate; whether `ridge = 1.0` survives; and whether one default forgetting rate is
+  defensible on its own or needs more machinery (resolved in PR 15: one fixed default in
+  the engine, with per-deployment selection done offline over the decision log).
 
 ### Runtime budget
 
@@ -244,6 +252,19 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   The Phase 0.5 battery carries a full-covariance comparator in `sim/` to price that
   trade; if credit-splitting proves decisive at small `bits`, reintroducing it will be a
   recorded, evidence-backed change. Golden corpus regenerated. Spec: `spec/model.md`.
+- **2026-07-16** — Wall-clock decay and state merging are removed from the engine
+  (superseding the 2026-07-14 decay-on-read decision and PR 9's merge). The model
+  forgets per *update* — recursive least squares with a forgetting factor, default
+  0.999 — so there is no clock, no vendored exp2, no renormalization, and no
+  timestamp-weighted order-independence: late rewards train in arrival order at
+  slightly less weight (the ledger's exactly-once/idempotent/no-open-learning
+  properties are unchanged, and the expiry horizon stays wall-clock). Cross-agent
+  pooling is no longer a state merge: agents collect decision logs, logs are merged
+  into one experience log, and models and configurations (the forgetting rate
+  first) are produced offline by replay + off-policy evaluation over it. Chosen
+  after the PR 15 experiments showed no single forgetting rate is right everywhere
+  while every online self-tuning rule tested had an unresolved scoring problem —
+  the tuning question moves offline instead of into the engine's semantics.
 - **2026-07-14** — `implementation-plan.md` is git-ignored; PROGRESS.md is the in-repo
   source of truth for the roadmap.
 - **2026-07-14** — Reference implementation lives at `src/gittins_reference/`, managed
@@ -416,3 +437,64 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   learns a day late), epsilon holds 0.75, the engine 0.93 with a whole day open in
   the ledger (high-water ~1875, bounded by the 26h horizon as claimed). The sweep
   driver, full report generator, and battery findings are PR 14.
+
+- **PR 14** (2026-07-16) — `sim/sweep.py` (`python -m sim.sweep`, run by hand, not CI):
+  sweeps `GAMMA_SCALE` over every battery cell plus both event-time configurations,
+  with per-cell bests, epsilon-0.1 alongside, and a pass-criteria summary. Decision:
+  **`GAMMA_SCALE = 300.0`** — near-best on 9/12 cells, never worse than 1.34x the
+  per-cell best, ahead of epsilon-0.1 on 9/12 cells and on mean regret (0.353 vs
+  0.408); the curve turns at 1000. Golden vectors regenerated (the diff is chosen
+  indices, propensities, and their downstream episode effects — exactly gamma's blast
+  radius); `spec/decide.md` updated; sim-test bounds recalibrated. Still open:
+  the uncertainty aggregate, `ridge`, and the default half-life. PR-number
+  references scrubbed from code comments (this file keeps the history).
+
+## Currently in flight
+
+- **PR 15** (`pr-15`) — forgetting evidence, and the simplification it forced:
+  per-update forgetting replaces wall-clock decay; state merging is removed; model
+  updating becomes an offline loop over pooled decision logs.
+
+  Experiments first. Half-life 1000 vs infinity is a wash on 11/12 cells, but the
+  contrast was between two wrong values — no-forgetting's inertia compounds
+  (6000-round shift run: final-window regret 0.94 and still climbing, vs 0.75 with
+  decay), and a per-cell half-life sweep shows hl=50 halves shift regret
+  (0.58 -> 0.24) and breaks drift open (0.92 -> 0.44) while costing the stationary
+  cells only 0.099 -> 0.135: no single forgetting rate is right everywhere. A D4
+  pool prototype (model copies at four half-lives, each scored by its recent
+  chosen-candidate squared error, blended by inverse MSE) confirmed real
+  non-stationary gains (shift 0.58 -> 0.39, drift 0.92 -> 0.60, dropout
+  0.30 -> 0.24, stationary tax <= 0.01) — but chosen-candidate-only scoring is
+  biased toward the exploited arm (hard winner-take-all selection collapses on
+  churn, 0.63; an Occam margin rule fixes churn but loses drift), and weight
+  differentiation is weak everywhere (reward noise dominates copy MSE
+  differences). Shipping an online self-tuning rule would freeze unresolved
+  research into the engine's semantics right before the Rust port.
+
+  Decision: simplify instead. Wall-clock decay, the vendored exp2, and state
+  merging are removed (`decay.py`, `detmath.py`, `merge.py`, their specs and
+  tests). The model is now the classic tracking estimator — per-coordinate ridge
+  with a per-update forgetting factor (`forgetting = 0.999`, an effective window
+  of ~1000 observations; 1.0 = never forget; an expert override at construction,
+  not a default-API knob). The model has no notion of time: training applies
+  resolutions in arrival order, a late reward counts slightly less than an
+  on-time one would have, and replaying a model requires the ordered resolution
+  sequence — which the decision log provides. Model updating and fleet
+  aggregation become an offline loop over that log: agents collect
+  decision/resolution records, the records are merged into one experience log,
+  and forgetting rates, engine variants, and fleet-level models are selected by
+  replay and off-policy evaluation over it (every decision record already
+  carries the propensity OPE needs; the estimators themselves stay Phase 2
+  scope). The ledger's safety properties — exactly-once, idempotent, no learning
+  from open decisions, the wall-clock expiry horizon — are unchanged. Golden
+  corpus regenerated at format_version 2: rng/exploration/encoding sections
+  byte-identical, exp2/decay sections gone, model and episode reflect the new
+  update rule (the episode is one agent, no merge, and the resolution order is
+  now part of the contract). Specs rewritten to match (`spec/model.md`,
+  `ledger.md`, `decide.md`, `encoding.md`, `golden.md`).
+
+  Methodology finding kept from the experiments: the xor cells are chaotic — the
+  world is identical across seeds (only draws differ) and the engine's regret
+  spans 0.11-1.03 across RNG salts alone, so xor comparisons at 5 seeds are
+  noise; xor rows need many seeds or per-seed worlds before they can decide
+  anything.

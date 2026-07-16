@@ -272,9 +272,10 @@ class AbruptShiftEnvironment(Environment):
     rounds — epoch `t // period` has its own hidden bases and slopes, all
     pure functions of (name, seed, epoch). At each boundary everything the
     model believes is stale at once. Run with `period` both long and short
-    relative to the policy's half-life: this is where decide.py's claim —
-    uncertainty regrows after a shift and gamma falls back on its own — is
-    measured, as post-shift recovery.
+    relative to the model's effective window (~1/(1 - forgetting) updates):
+    this is where the engine's recovery claim — stale evidence is
+    outweighed within about one window — is measured, as post-shift
+    recovery.
     """
 
     def __init__(self, k: int, period: int, n_features: int = 3, noise: float = 0.1):
@@ -310,15 +311,15 @@ class AbruptShiftEnvironment(Environment):
 
 
 class DriftEnvironment(Environment):
-    """Non-stationary, smooth: the regime where any fixed half-life is a
-    compromise.
+    """Non-stationary, smooth: the regime where any fixed forgetting rate
+    is a compromise.
 
     The hidden parameters rotate continuously between two independently
     drawn linear worlds:  p(t) = cos(theta) * p0 + sin(theta) * p1  with
     theta = 2*pi*t / period. A `period` much longer than the run is slow
     drift (the world creeps away from everything learned); a period inside
-    the run is seasonal (old evidence becomes right again — decay that has
-    forgotten it pays a re-learning tax every cycle).
+    the run is seasonal (old evidence becomes right again — a model that
+    has forgotten it pays a re-learning tax every cycle).
     """
 
     def __init__(self, k: int, period: int, n_features: int = 3, noise: float = 0.1):
@@ -372,7 +373,7 @@ class ChurnEnvironment(Environment):
 
     - the best arm disappears at `absent[0]` (the policy must fall back to
       the runner-up),
-    - it returns at `absent[1]` (rediscovery: its decayed evidence must win
+    - it returns at `absent[1]` (rediscovery: its faded evidence must win
       back traffic via whatever exploration remains),
     - a brand-new arm strictly better than everything (best + newcomer_gap)
       is born at `newcomer_at` (cold-start regret of a strong stranger).

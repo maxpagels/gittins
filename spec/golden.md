@@ -25,20 +25,19 @@ diff like code.
 | section | covers |
 |---|---|
 | `rng` | key derivation (incl. the length-prefix boundary cases and non-ASCII), u64/unit streams, a 2^32 counter |
-| `exp2` | the vendored deterministic exp2 over positive/negative/fractional/large arguments |
-| `decay` | accumulator add/read across a renormalization, scalar and vector merge |
-| `model` | update history → raw sums, prediction, and post-gap prediction |
+| `model` | update history → the sums after every update, and a prediction |
 | `exploration` | inverse-gap distribution, floored distribution, sampled indices |
 | `encoding` | tokenization, pair hashes, full hashed vectors at bits 4 and 6 |
 | `episode` | the end-to-end acceptance scenario (below) |
 
-The `episode` section is two agents making hash-encoded decisions with
-out-of-order (deferred) rewards, one censored decision, one never-resolved
-decision expired by a sweep at its exact horizon, then a state merge — the
-full event stream (every decision record, every resolution, in order),
-final per-agent and merged state, and merged predictions per
-(segment, arm). All three resolution kinds occur; no decision is left
-open.
+The `episode` section is one agent making hash-encoded decisions with
+out-of-order (deferred) rewards, one censored decision, and one
+never-resolved decision expired by a sweep at its exact horizon — the full
+event stream (every decision record, every resolution, in order), the
+final state, and predictions per (segment, arm). Training is
+order-dependent (per-update forgetting), so the resolution sequence *is*
+part of the contract. All three resolution kinds occur; no decision is
+left open.
 
 ## Serialization contract
 
@@ -46,7 +45,7 @@ open.
   IEEE-754 doubles and compare **bitwise**, not with tolerances.
 - Hashes and RNG outputs are unsigned 64-bit integers as JSON numbers.
 - The corpus contains no NaN or Infinity (standard JSON only); scenarios
-  needing `half_life = inf` live in the pytest property suites instead.
+  needing `forgetting = 1.0` (never forget) live in the pytest suites.
 - The file is ASCII (JSON `\uXXXX` escapes), LF line endings, enforced by
   `.gitattributes` — it is compared as exact text on every platform.
 

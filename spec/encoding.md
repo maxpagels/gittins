@@ -12,7 +12,8 @@ intercept, every interaction term — hashes into one space of `2**bits`
 dimensions (`1 <= bits <= 24`; the model dimension for `new_bandit` is
 `2**bits`). There is no schema, no field registration, and nothing to
 migrate. New field names, new categorical values, and new arms are usable
-the moment they first appear; anything that stops appearing decays out of
+the moment they first appear; anything that stops appearing is forgotten
+out of
 the sums and its dimensions are recycled. State memory is fixed under
 unbounded feature and arm churn (R1).
 
@@ -59,7 +60,7 @@ context x bias the context main effects, and the rest the context-action
 interactions.
 
 Hashes depend only on the tokens — no salt, no per-agent state — so every
-agent encodes identically and merged sums stay aligned (D3). Tokens are
+agent encodes identically and logged experience pools offline (D3). Tokens are
 processed in sorted order, so accumulation order and every output bit are
 independent of dict insertion order and identical across platforms.
 

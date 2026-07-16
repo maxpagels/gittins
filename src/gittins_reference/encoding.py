@@ -7,9 +7,9 @@ the intercept, and every interaction term hashes into one fixed space of
 2**bits dimensions. The single up-front declaration is `bits`. There is no
 schema, no field registration, and nothing to migrate: new field names, new
 categorical values, and new arms are all usable the moment they first
-appear, and evidence on anything that stops appearing decays out of the
-sums, recycling its dimensions (R1). Fixed state memory under unbounded
-feature and arm churn, by construction.
+appear, and evidence on anything that stops appearing is forgotten out of
+the sums by later updates, recycling its dimensions (R1). Fixed state
+memory under unbounded feature and arm churn, by construction.
 
 **Tokens.** Each supplied (name, value) becomes one token in its namespace
 ("c|" context, "a|" action):
@@ -43,7 +43,8 @@ in the same slot and their contributions add; the sign makes colliding
 features as often opposed as conflated, so collisions blur rather than
 bias. The cost is bounded by `bits` — size the space generously; linear
 state is cheap. Hashes depend only on the tokens, never on a salt or an
-agent, so every agent encodes identically and merged sums stay aligned (D3).
+agent, so every agent encodes identically and their logged experience can
+be pooled offline (D3).
 
 **Determinism.** Features are processed in sorted token order, so the
 accumulation order — and therefore every output bit — is independent of

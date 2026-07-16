@@ -29,7 +29,8 @@ considerations with such systems:
   everything else (exploration, forgetting, logging, OPE) unchanged.
 - **R8 — Choose your own complexity.** The same engine needs to be able to runs (a)
   ephemerally in memory, (b) persisted to a flat file, (c) as a shared service, or
-  (d) as many bandits whose weights are periodically pooled into a shared weights file.
+  (d) as many bandits whose decision logs are periodically merged into one shared
+  experience log, from which a pooled model is rebuilt offline and redeployed.
   There should be no need for databases; indeed, the model weights should be possible to
   check in to version control and deploy as part of normal deployment workflows.
 
