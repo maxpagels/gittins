@@ -416,3 +416,33 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   learns a day late), epsilon holds 0.75, the engine 0.93 with a whole day open in
   the ledger (high-water ~1875, bounded by the 26h horizon as claimed). The sweep
   driver, full report generator, and battery findings are PR 14.
+
+## Currently in flight
+
+- **PR 14** (`pr-14`) — the sweep driver and the first settled constant.
+  `sim/sweep.py` (`python -m sim.sweep`, run by hand, not CI): re-runs every battery
+  environment plus both event-time configurations with the engine patched to each
+  candidate `GAMMA_SCALE`, and prints the per-cell regret table with per-environment
+  bests marked, epsilon-0.1 alongside, and a pass-criteria summary per candidate
+  (near-best cells, worst ratio to best, cells lost to epsilon, mean regret).
+
+  **Decision: `GAMMA_SCALE = 300.0`** (was the provisional 1.0). Swept
+  {0.25, 1, 3, 10, 30, 100, 300, 1000} over 12 cells: 300 is within 1.1x of the
+  per-cell best on 9/12, never worse than 1.34x (criterion: never >2x), beats
+  epsilon-0.1 on 9/12 cells and on mean regret (0.353 vs 0.408); the curve turns at
+  1000 (needle 0.13 -> 0.31, xor-k4 0.35 -> 0.52). The strict "near-best on >=90% of
+  cells" target reads 75% here — recorded honestly; the remaining gap is the drift /
+  dropout / shift cells where epsilon stays slightly ahead, and closing it belongs to
+  the still-open sweeps (uncertainty aggregate mean vs min/max, `ridge`, the default
+  half-life). At 1.0 the engine spent over half its traffic on non-best arms forever
+  (gamma plateaued ~6 because decay bounds uncertainty); at 300 it goes from
+  worst-in-class to best-in-class on most cells, including both event-time configs
+  (fast rewards 0.107 vs epsilon 0.143; next-morning 0.628 vs 0.747, keeping its
+  overnight-phase advantage). Golden vectors regenerated for the new constant (the
+  diff is propensities and sampled choices — exactly what gamma touches);
+  `spec/decide.md`'s schedule section updated; the pinned decision record and
+  `choose_gamma` unit tests updated; the sim tests' engine bounds recalibrated (less
+  exploration means competitive regret but a coarser late-run model: linear RMSE
+  ~0.15 -> ~0.23). Also in this PR: PR-number references scrubbed from code comments
+  and docstrings across `sim/`, `src/`, and `tests/` (this file keeps the history) —
+  the sim battery work is wrapped for now.
