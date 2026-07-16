@@ -1,8 +1,8 @@
 """Traffic: when decisions arrive, and how late their rewards are.
 
-The half-life is wall-clock seconds, not events (R4): decision arrival
-*times* are part of the world, so the event-time battery needs an arrival
-process. `DailyTraffic` is a non-homogeneous Poisson process with a daily
+Decision arrival *times* are part of the world (R4): reward delays race
+the engine's wall-clock horizon, so the event-time battery needs an
+arrival process. `DailyTraffic` is a non-homogeneous Poisson process with a daily
 intensity curve — morning and evening peaks (Gaussian bumps), an overnight
 trough, the rate swinging peak/trough-fold — plus optional burst windows
 that multiply the rate for a stretch. Delay models say how long each

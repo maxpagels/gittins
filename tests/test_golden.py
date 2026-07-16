@@ -26,10 +26,9 @@ class TestGoldenCorpus:
         episode = generate()["sections"]["episode"]
         kinds = {r["kind"] for r in episode["resolutions"]}
         assert kinds == {"rewarded", "expired", "censored"}
-        assert len(episode["events"]) == 16
+        assert len(episode["events"]) == 11
         # Nothing left open: the episode is a complete, replayable history.
-        assert episode["final"]["a"]["open_ids"] == []
-        assert episode["final"]["b"]["open_ids"] == []
+        assert episode["final"]["open_ids"] == []
 
     def test_corpus_is_json_clean(self):
         # No NaN/Infinity anywhere: independent parsers must not need

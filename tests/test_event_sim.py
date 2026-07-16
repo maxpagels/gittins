@@ -30,7 +30,6 @@ from sim.traffic import (
 )
 
 BITS = 6
-HALF_LIFE = 6 * HOUR
 HORIZON = 2 * HOUR
 
 
@@ -39,7 +38,7 @@ def traffic():
 
 
 def engine(horizon=HORIZON):
-    return GittinsPolicy(bits=BITS, half_life=HALF_LIFE, horizon=horizon)
+    return GittinsPolicy(bits=BITS, horizon=horizon)
 
 
 class TestTraffic:
@@ -150,8 +149,8 @@ class TestEventRunner:
         # and the baselines end well inside uniform on the linear world.
         env = LinearEnvironment(k=5)
         for make in [
-            lambda: GreedyPolicy(bits=BITS, half_life=HALF_LIFE),
-            lambda: EpsilonGreedyPolicy(0.1, bits=BITS, half_life=HALF_LIFE),
+            lambda: GreedyPolicy(bits=BITS),
+            lambda: EpsilonGreedyPolicy(0.1, bits=BITS),
             engine,
         ]:
             regrets = [

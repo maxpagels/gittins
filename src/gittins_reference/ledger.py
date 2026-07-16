@@ -17,10 +17,15 @@ Three properties, by construction rather than by discipline:
 - **Idempotent** — resolving removes the record from the ledger, so a
   duplicate (or conflicting, or bogus) report finds nothing and is a no-op.
   There is one record per decision and it can be spent once.
-- **Order-tolerant** — a resolution trains at the *decision's* timestamp
-  (`record.t`), never the arrival time, and the decay layer makes a late
-  update bit-identical to an on-time one. Rewards may arrive late, out of
-  order, more than once, or never; none of it needs special handling here.
+- **Late rewards are safe, in arrival order** — rewards may arrive late,
+  out of order, or never, and every case resolves through the same three
+  paths with nothing lost or double-counted. Training applies at the
+  *resolution's* position in the update sequence with the model's current
+  forgetting weight (model.py has no notion of time), so a late reward
+  counts slightly less than an on-time one would have — the model is
+  simply trained in the order the world reported outcomes. Replaying a
+  model therefore requires the ordered resolution sequence, which the
+  decision log provides.
 - **The classic silent bug is unrepresentable** — "reward hasn't arrived
   yet" cannot be read as "reward was zero", because an open decision is not
   training data and no code path learns from one. Absence becomes a zero (or
@@ -78,7 +83,7 @@ def learn(
         return None, state
     new_state = replace(
         state,
-        model=update(state.model, list(record.features), reward, record.t),
+        model=update(state.model, list(record.features), reward),
         model_version=state.model_version + 1,
         ledger=rest,
     )
@@ -103,7 +108,7 @@ def expire(state: BanditState, t: float) -> "tuple[tuple[Resolution, ...], Bandi
     model = state.model
     for record in state.ledger:
         if record.t + state.horizon <= t:
-            model = update(model, list(record.features), state.default_reward, record.t)
+            model = update(model, list(record.features), state.default_reward)
             resolutions.append(Resolution(record.decision_id, EXPIRED, state.default_reward))
         else:
             remaining.append(record)

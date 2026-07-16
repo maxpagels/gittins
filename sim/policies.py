@@ -2,8 +2,8 @@
 
 `gittins` is the engine under test, run on the real public path — encode
 -> decide -> ledger learn/expire — never the layers in
-isolation, so hashing, the gamma schedule, the floor, and decay are all in
-the loop together. The baselines bracket and challenge it:
+isolation, so hashing, the gamma schedule, the floor, and forgetting are
+all in the loop together. The baselines bracket and challenge it:
 
     oracle          — argmax of the true means: the regret upper bound
     uniform         — uniform random: the regret lower bound; together these
@@ -24,7 +24,13 @@ streams keyed by (policy name, seed, t), so runs replay exactly.
 from gittins_reference.decide import decide, new_bandit
 from gittins_reference.encoding import encode
 from gittins_reference.ledger import expire, learn
-from gittins_reference.model import factorize, new_model, predict_factored, update
+from gittins_reference.model import (
+    DEFAULT_FORGETTING,
+    factorize,
+    new_model,
+    predict_factored,
+    update,
+)
 from sim.environments import Round
 from sim.rand import randint, stream, uniform
 
@@ -113,14 +119,14 @@ class GittinsPolicy(Policy):
     after its decision expired is structurally a no-op (the ledger has
     already spent the record)."""
 
-    def __init__(self, bits: int = 8, half_life: float = 1000.0, horizon: float = 10.0):
+    def __init__(self, bits: int = 8, forgetting: float = DEFAULT_FORGETTING, horizon: float = 10.0):
         self.name = "gittins"
         self.bits = bits
-        self.half_life = half_life
+        self.forgetting = forgetting
         self.horizon = horizon
 
     def begin(self, seed: int) -> None:
-        self.state = new_bandit(2**self.bits, self.half_life, t=0.0, horizon=self.horizon)
+        self.state = new_bandit(2**self.bits, horizon=self.horizon, forgetting=self.forgetting)
         self.salt = f"{self.name}:{seed}"
         self.expired = 0
 
@@ -137,7 +143,7 @@ class GittinsPolicy(Policy):
         # Metric-only read: the same estimates decide just scored with
         # (the model can't have changed between), recomputed because decide
         # deliberately logs only the chosen candidate.
-        f = factorize(self.state.model, rd.t)
+        f = factorize(self.state.model)
         estimates = [predict_factored(f, x)[0] for x in candidates]
         return record.chosen, estimates, record.decision_id
 
@@ -157,51 +163,49 @@ class GittinsPolicy(Policy):
 
 class ModelPolicy(Policy):
     """Shared machinery for the model-based baselines: the same
-    per-coordinate ridge on the same hashed encoding as the engine, trained
-    on every reward as it arrives — only the exploration rule differs.
-    Like the engine, training happens at the *decision's* timestamp, so a
-    late reward counts exactly as an on-time one; unlike the engine, there
-    is no horizon — the baselines train on every reward however late,
+    per-coordinate forgetting ridge on the same hashed encoding as the
+    engine, trained on every reward in arrival order exactly as the engine
+    trains — only the exploration rule differs. Unlike the engine, there
+    is no horizon: the baselines train on every reward however late,
     which is exactly the comparison that prices the engine's expiry rule."""
 
-    def __init__(self, bits: int = 8, half_life: float = 1000.0):
+    def __init__(self, bits: int = 8, forgetting: float = DEFAULT_FORGETTING):
         self.bits = bits
-        self.half_life = half_life
+        self.forgetting = forgetting
 
     def begin(self, seed: int) -> None:
-        self.model = new_model(2**self.bits, self.half_life, t=0.0)
+        self.model = new_model(2**self.bits, self.forgetting)
 
     def estimates(self, rd: Round) -> "tuple[list[list[float]], list[float]]":
         candidates = [
             encode(rd.context, rd.arm_ids[i], rd.actions[i], self.bits)
             for i in range(len(rd.arm_ids))
         ]
-        f = factorize(self.model, rd.t)
+        f = factorize(self.model)
         return candidates, [predict_factored(f, x)[0] for x in candidates]
 
     def resolve(self, ref: object, reward: float) -> None:
-        x, t = ref
-        self.model = update(self.model, x, reward, t)
+        self.model = update(self.model, ref, reward)
 
 
 class GreedyPolicy(ModelPolicy):
     """gamma -> inf, no floor: always the argmax estimate."""
 
-    def __init__(self, bits: int = 8, half_life: float = 1000.0):
-        super().__init__(bits, half_life)
+    def __init__(self, bits: int = 8, forgetting: float = DEFAULT_FORGETTING):
+        super().__init__(bits, forgetting)
         self.name = "greedy"
 
     def decide_at(self, rd: Round, seed: int) -> "tuple[int, list[float] | None, object]":
         candidates, estimates = self.estimates(rd)
         chosen = argmax(estimates)
-        return chosen, estimates, (candidates[chosen], rd.t)
+        return chosen, estimates, candidates[chosen]
 
 
 class EpsilonGreedyPolicy(ModelPolicy):
     """Argmax estimate, except a uniform candidate with probability eps."""
 
-    def __init__(self, eps: float, bits: int = 8, half_life: float = 1000.0):
-        super().__init__(bits, half_life)
+    def __init__(self, eps: float, bits: int = 8, forgetting: float = DEFAULT_FORGETTING):
+        super().__init__(bits, forgetting)
         if not (0.0 <= eps <= 1.0):
             raise ValueError("eps must be in [0, 1]")
         self.eps = eps
@@ -214,4 +218,4 @@ class EpsilonGreedyPolicy(ModelPolicy):
             chosen = randint(key, 1, len(candidates))
         else:
             chosen = argmax(estimates)
-        return chosen, estimates, (candidates[chosen], rd.t)
+        return chosen, estimates, candidates[chosen]

@@ -48,10 +48,10 @@ ENVIRONMENTS = [
     XorEnvironment(k=10),
     NeedleEnvironment(k=10),
     ActionFeatureEnvironment(k=16),
-    # Non-stationary, churn, and missing-feature worlds. The policy
-    # half-life is 1000 rounds: shift period 375 is well inside it (four
-    # epochs per 1500-round run), drift period 500 is seasonal (three full
-    # cycles), churn's events land at rounds 400/800/1100.
+    # Non-stationary, churn, and missing-feature worlds. The model's
+    # effective window is ~1000 updates: shift period 375 is well inside it
+    # (four epochs per 1500-round run), drift period 500 is seasonal (three
+    # full cycles), churn's events land at rounds 400/800/1100.
     AbruptShiftEnvironment(k=5, period=375),
     DriftEnvironment(k=5, period=500),
     ChurnEnvironment(k=8),
@@ -68,14 +68,14 @@ POLICIES = [
 ]
 
 # The event-time battery: linear-k5 under daily traffic (two peaks,
-# overnight trough, one burst window a day) with wall-clock half-life and
-# horizon. Config A: fast rewards with a tail past the 2h horizon (~7%
+# overnight trough, one burst window a day). Forgetting is clocked by
+# updates, so the traffic shape sets how fast the model forgets in wall
+# time. Config A: fast rewards with a tail past the 2h horizon (~7%
 # expire). Config B: every reward lands the next morning — the horizon must
 # span the night, so the ledger holds a whole day of open decisions.
 EVENT_ENV = LinearEnvironment(k=5)
 EVENT_TRAFFIC = DailyTraffic(peak_rate=0.04, trough_rate=0.002, bursts=1)
 EVENT_DURATION = 2 * DAY
-EVENT_HALF_LIFE = 6 * HOUR
 EVENT_CONFIGS = [
     ("exp 45m, horizon 2h", ExponentialDelay(45 * 60.0), 2 * HOUR),
     ("next morning, horizon 26h", NextMorningDelay(), 26 * HOUR),
@@ -86,10 +86,10 @@ def event_policies(horizon: float) -> list:
     return [
         OraclePolicy,
         UniformPolicy,
-        lambda: GreedyPolicy(bits=BITS, half_life=EVENT_HALF_LIFE),
-        lambda: EpsilonGreedyPolicy(0.05, bits=BITS, half_life=EVENT_HALF_LIFE),
-        lambda: EpsilonGreedyPolicy(0.1, bits=BITS, half_life=EVENT_HALF_LIFE),
-        lambda: GittinsPolicy(bits=BITS, half_life=EVENT_HALF_LIFE, horizon=horizon),
+        lambda: GreedyPolicy(bits=BITS),
+        lambda: EpsilonGreedyPolicy(0.05, bits=BITS),
+        lambda: EpsilonGreedyPolicy(0.1, bits=BITS),
+        lambda: GittinsPolicy(bits=BITS, horizon=horizon),
     ]
 
 
@@ -134,8 +134,7 @@ def main() -> None:
     print(
         f"{EVENT_ENV.name}, {EVENT_DURATION / DAY:g} days of daily traffic "
         f"(peak {EVENT_TRAFFIC.peak_rate:g}/s, trough {EVENT_TRAFFIC.trough_rate:g}/s, "
-        f"{EVENT_TRAFFIC.bursts} burst/day), half-life {EVENT_HALF_LIFE / HOUR:g}h, "
-        f"seeds {list(SEEDS)}. Regret is normalized (median [IQR]); phase columns are "
+        f"{EVENT_TRAFFIC.bursts} burst/day), seeds {list(SEEDS)}. Regret is normalized (median [IQR]); phase columns are "
         "medians; expired is the fraction of decisions the engine's horizon expired; "
         "open is the ledger high-water mark."
     )

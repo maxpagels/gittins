@@ -21,7 +21,7 @@ CANDS = [[1.0, 0.0], [0.0, 1.0]]
 
 
 def fresh(default_reward: float = 0.0):
-    return new_bandit(2, HOUR, T0, horizon=DAY, default_reward=default_reward)
+    return new_bandit(2, horizon=DAY, default_reward=default_reward)
 
 
 class TestTake:
@@ -42,21 +42,23 @@ class TestTake:
 
 
 class TestLearn:
-    def test_resolves_and_trains_at_the_decision_time(self):
+    def test_resolves_and_trains_on_the_recorded_features(self):
         s0 = fresh()
         record, s1 = decide(s0, CANDS, T0, "pepper")
         resolution, s2 = learn(s1, record.decision_id, 1.0)
         assert resolution == Resolution(record.decision_id, REWARDED, 1.0)
         assert s2.ledger == ()
         assert s2.model_version == s1.model_version + 1
-        # The training update is exactly the model update at the decision's
-        # own timestamp — this is the whole late-reward story.
-        assert s2.model == update(s1.model, list(record.features), 1.0, record.t)
+        # The training update is exactly one model update on the record's
+        # features — the record is self-contained.
+        assert s2.model == update(s1.model, list(record.features), 1.0)
 
-    def test_out_of_order_rewards_give_identical_bits(self):
-        # Two open decisions; resolving them late and in reverse order must
-        # produce the same state, bit for bit, as resolving them promptly in
-        # order (order-tolerance, design doc section 6).
+    def test_out_of_order_rewards_resolve_safely(self):
+        # Two open decisions resolved in either order: both orders fully
+        # resolve the ledger with nothing lost or double-counted. The
+        # *models* differ (training is order-dependent under per-update
+        # forgetting — a late reward counts slightly less), which is the
+        # documented trade for dropping wall-clock decay.
         s = fresh()
         r1, s = decide(s, CANDS, T0, "pepper")
         r2, s = decide(s, CANDS, T0 + 9 * HOUR, "pepper")
@@ -64,7 +66,9 @@ class TestLearn:
         _, a = learn(a, r2.decision_id, -0.5)
         _, b = learn(s, r2.decision_id, -0.5)
         _, b = learn(b, r1.decision_id, 1.0)
-        assert a == b
+        assert a.ledger == () and b.ledger == ()
+        assert a.model_version == b.model_version == 2
+        assert a.model != b.model
 
     def test_duplicate_report_is_ignored(self):
         s = fresh()
@@ -125,8 +129,8 @@ class TestExpire:
         assert resolutions == (Resolution(record.decision_id, EXPIRED, 0.25),)
         assert s2.ledger == ()
         assert s2.model_version == s1.model_version + 1
-        # Trains with the declared default at the *decision's* time.
-        assert s2.model == update(s1.model, list(record.features), 0.25, record.t)
+        # Trains with the declared default reward.
+        assert s2.model == update(s1.model, list(record.features), 0.25)
 
     def test_expires_only_the_due_in_ledger_order(self):
         s = fresh()
@@ -178,13 +182,13 @@ class TestFullLoop:
 
 
 class TestPinnedVectors:
-    # Golden vector: dim 2, half-life 3600 s, horizon one day, default
-    # reward 0.25, created at T0 = 1752000000.0. Decisions at T0, T0+600,
-    # T0+1200 (salt "pepper") over CANDS; the second rewarded 1.0; expiry
-    # swept at T0+600+DAY. Chosen arms are pinned along the way, so the
-    # trained (features, t) pairs are fully determined.
+    # Golden vector: dim 2, default forgetting, horizon one day, default
+    # reward 0.25. Decisions at T0, T0+600, T0+1200 (salt "pepper") over
+    # CANDS; the second rewarded 1.0; expiry swept at T0+600+DAY. Chosen
+    # arms are pinned along the way, so the trained feature sequence is
+    # fully determined.
     def test_resolution_and_prediction_bits(self):
-        s = new_bandit(2, HOUR, T0, horizon=DAY, default_reward=0.25)
+        s = new_bandit(2, horizon=DAY, default_reward=0.25)
         r1, s = decide(s, CANDS, T0, "pepper")
         r2, s = decide(s, CANDS, T0 + 600.0, "pepper")
         r3, s = decide(s, CANDS, T0 + 1200.0, "pepper")
@@ -195,6 +199,6 @@ class TestPinnedVectors:
         assert resolutions == (Resolution("pepper:0", EXPIRED, 0.25),)
         assert [r.decision_id for r in s.ledger] == ["pepper:2"]
         assert s.model_version == 2
-        est, unc = predict(s.model, [1.0, -1.0], T0 + 2000.0)
-        assert est == 0.38206763822724304
-        assert unc == 1.187074748425507
+        est, unc = predict(s.model, [1.0, -1.0])
+        assert est == 0.4164721573857953
+        assert unc == 1.1547486659415682

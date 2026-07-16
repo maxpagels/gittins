@@ -18,8 +18,8 @@ code.
 
 This is a decision-making tool, run by hand — it is not part of CI, and
 patching the engine's constant is exactly what it exists to do. The
-schedule's aggregate (mean vs min/max), `ridge`, and the default half-life
-still await sweeps of their own.
+schedule's aggregate (mean vs min/max), `ridge`, and the default
+forgetting rate still await sweeps of their own.
 """
 
 import math
@@ -33,7 +33,6 @@ from sim.__main__ import (
     EVENT_CONFIGS,
     EVENT_DURATION,
     EVENT_ENV,
-    EVENT_HALF_LIFE,
     EVENT_TRAFFIC,
     ROUNDS,
     SEEDS,
@@ -73,9 +72,9 @@ def cells() -> "list[tuple[str, callable, callable]]":
             regrets = []
             for seed in SEEDS:
                 policy = (
-                    EpsilonGreedyPolicy(0.1, bits=BITS, half_life=EVENT_HALF_LIFE)
+                    EpsilonGreedyPolicy(0.1, bits=BITS)
                     if eps
-                    else GittinsPolicy(bits=BITS, half_life=EVENT_HALF_LIFE, horizon=horizon)
+                    else GittinsPolicy(bits=BITS, horizon=horizon)
                 )
                 regrets.append(
                     normalized_regret(

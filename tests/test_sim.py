@@ -188,8 +188,8 @@ def test_xor_degrades_gracefully():
 
 def test_shift_is_survivable():
     # Four fresh worlds per run (period 150): the learners must keep
-    # clearly beating uniform across the shifts — stale evidence decays and
-    # gets relearned rather than poisoning the rest of the run.
+    # clearly beating uniform across the shifts — stale evidence is
+    # forgotten and relearned rather than poisoning the rest of the run.
     env = shift_env()
     assert median_regret(env, lambda: GreedyPolicy(bits=BITS)) < 0.7
     assert median_regret(env, lambda: EpsilonGreedyPolicy(0.1, bits=BITS)) < 0.75
@@ -197,8 +197,8 @@ def test_shift_is_survivable():
 
 
 def test_drift_is_never_catastrophic():
-    # Three full rotations in 600 rounds against a 1000-round half-life:
-    # the compromise regime by construction. Nobody is expected to do well;
+    # Three full rotations in 600 rounds against the model's ~1000-update
+    # effective window: the compromise regime by construction. Nobody is expected to do well;
     # everybody is required to stay near uniform, never far below it.
     env = drift_env()
     for make in [

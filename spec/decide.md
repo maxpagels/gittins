@@ -91,10 +91,12 @@ shrinks like 1/sqrt(n), so gamma grows like sqrt(n), which is the schedule
 SquareCB's regret guarantee wants — obtained from the model's own
 posterior instead of a clock or a knob. A fresh model estimates every
 candidate at 0, so the first distributions are uniform whatever gamma is,
-and the probability floor guarantees exploration ever after. Because
-decaying sums bound the effective sample size, gamma is bounded (never
-fully greedy, R2), and after a world shift uncertainty regrows and gamma
-falls back automatically. The constant's value was settled by the battery
+and the probability floor guarantees exploration ever after. Because the
+model's forgetting bounds the effective sample size at ~1/(1 - forgetting),
+gamma is bounded (never fully greedy, R2); after a world shift,
+re-exploration comes from the rule itself — stale estimates make the gaps
+shrink or flip and inverse-gap weighting spreads probability over close
+candidates — plus the floor's guaranteed minimum. The constant's value was settled by the battery
 sweep (`sim/sweep.py`): 300 was within 1.1x of the best swept value on 9
 of 12 environments, never worse than 1.34x, and ahead of epsilon-greedy
 overall; the original provisional 1.0 kept gamma so low the engine spent
@@ -104,13 +106,13 @@ computed inside the engine, never asked of the user — is settled.
 
 ## Golden vectors
 
-Model dim 2, half-life 3600 s, created at T0 = 1752000000.0; updates
-`([1,0], 1.0, T0)` and `([0,1], -0.5, T0+1800)`. State at `next_seq` 7,
-`model_version` 2. Candidates `[[1,0], [0,1], [1,1]]`, decided at T0+3600
-with salt `"pepper"`:
+Model dim 2, default forgetting (0.999); updates `([1,0], 1.0)` then
+`([0,1], -0.5)`. State at `next_seq` 7, `model_version` 2. Candidates
+`[[1,0], [0,1], [1,1]]`, decided at T0+3600 = 1752003600.0 with salt
+`"pepper"`:
 
     decision_id    = "pepper:7"
     candidate_hash = 8340395383735871362
     chosen         = 0
     features       = (1.0, 0.0)
-    propensity     = 0.9482851123609886
+    propensity     = 0.953426773277985

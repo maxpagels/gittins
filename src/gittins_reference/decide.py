@@ -41,17 +41,19 @@ Uncertainty shrinks like 1/sqrt(n) as evidence accumulates, so gamma grows
 like sqrt(n) — the schedule SquareCB's guarantee wants — with no clock or
 knob. A fresh model estimates every candidate at 0, so the first
 distributions are uniform whatever gamma is; the probability floor
-(exploration.py) guarantees exploration ever after. Because decayed sums
-bound the effective sample size, gamma is bounded too: the system never
-becomes fully greedy (R2), and after a world shift uncertainty regrows and
-gamma falls back on its own. GAMMA_SCALE is a fixed engine constant, never
-a user knob; its value was settled by the battery sweep (sim/sweep.py):
-300 was near-best almost everywhere, never far from the per-environment
-best, and ahead of epsilon-greedy overall, where the original 1.0 kept
-gamma so low the engine spent over half its traffic on non-best arms
-forever. Whether the mean is the right uncertainty aggregate is still
-open; the *interface* — gamma is computed here, never asked of the user —
-is settled.
+(exploration.py) guarantees exploration ever after. Because the model's
+forgetting bounds the effective sample size at ~1/(1 - forgetting), gamma
+is bounded too: the system never becomes fully greedy (R2). After a world
+shift, re-exploration comes from the rule itself — stale estimates make
+the gaps shrink or flip, and inverse-gap weighting spreads probability
+over close candidates — plus the floor's guaranteed minimum. GAMMA_SCALE
+is a fixed engine constant, never a user knob; its value was settled by
+the battery sweep (sim/sweep.py): 300 was near-best almost everywhere,
+never far from the per-environment best, and ahead of epsilon-greedy
+overall, where the original 1.0 kept gamma so low the engine spent over
+half its traffic on non-best arms forever. Whether the mean is the right
+uncertainty aggregate is still open; the *interface* — gamma is computed
+here, never asked of the user — is settled.
 
 RNG counter allocation: counter 0 of the decision's stream is the sampling
 draw. Later counters are reserved for future per-decision randomness.
@@ -65,7 +67,13 @@ from gittins_reference.exploration import (
     inverse_gap_probabilities,
     sample_index,
 )
-from gittins_reference.model import LinearModel, factorize, new_model, predict_factored
+from gittins_reference.model import (
+    DEFAULT_FORGETTING,
+    LinearModel,
+    factorize,
+    new_model,
+    predict_factored,
+)
 from gittins_reference.rng import derive_key, fnv1a_64
 
 # Fixed scale of the uncertainty-driven gamma schedule; not a user knob.
@@ -96,15 +104,21 @@ class DecisionRecord:
 
 
 def new_bandit(
-    dim: int, half_life: float, t: float, horizon: float, default_reward: float = 0.0
+    dim: int,
+    horizon: float,
+    default_reward: float = 0.0,
+    forgetting: float = DEFAULT_FORGETTING,
 ) -> BanditState:
     """`horizon` and `default_reward` are the application's reward-handling
     declaration (design doc section 6), made once, up front: a decision with
-    no reward after `horizon` seconds resolves as expired(`default_reward`)."""
+    no reward after `horizon` seconds resolves as expired(`default_reward`).
+    `forgetting` is the model's per-update tracking rate — an expert
+    override, not a default-API knob; the right value for a deployment is
+    selected offline from the decision log (see model.py)."""
     if not (horizon > 0.0):
         raise ValueError("horizon must be positive")
     return BanditState(
-        model=new_model(dim, half_life, t),
+        model=new_model(dim, forgetting),
         next_seq=0,
         model_version=0,
         horizon=horizon,
@@ -160,9 +174,9 @@ def decide(
         if len(x) != state.model.dim:
             raise ValueError("candidate feature length does not match model dim")
 
-    # The weights depend on (model, t) only, so they are solved once and
+    # The weights depend on the model only, so they are solved once and
     # shared by every candidate.
-    factored = factorize(state.model, t)
+    factored = factorize(state.model)
     estimates = []
     uncertainties = []
     for x in candidates:
