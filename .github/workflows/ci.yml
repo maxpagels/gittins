@@ -63,3 +63,24 @@ jobs:
         run: cargo test --manifest-path core/Cargo.toml
       - name: Run environment battery on the Rust core
         run: cargo run --release --manifest-path core/Cargo.toml --bin sim | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The Python binding: build the wheel (maturin via the PEP 517 backend),
+  # replay the golden api section through it — the binding acceptance gate
+  # (spec/api.md) — and append the decision-cycle benchmark to the summary
+  # so boundary-crossing regressions are visible next to the battery tables.
+  python-binding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.13"
+      - name: Build and install the binding + the reference
+        run: |
+          uv venv
+          uv pip install . ./bindings/python pytest
+      - name: Golden gate + binding tests
+        run: .venv/bin/python -m pytest bindings/python/tests -q
+      - name: Decision-cycle benchmark
+        run: .venv/bin/python bindings/python/bench.py | tee -a "$GITHUB_STEP_SUMMARY"

@@ -86,10 +86,12 @@ tests/                   pytest suite for reference + sim
 spec/                    written spec sections + golden.json
 docs/                    user-facing documentation (usage.md: the public API
                          by example)
+bindings/python/         Python binding (Phase 2): the public API as a
+                         PyO3/maturin wheel, gated on the golden api section
 PROGRESS.md              this file
 ```
 
-Planned: `bindings/python` (PyO3), `bindings/wasm` (wasm-bindgen).
+Planned: `bindings/wasm` (wasm-bindgen).
 
 ## Roadmap (Phase 2 — bindings)
 
@@ -97,14 +99,6 @@ The rule that governs the phase: the dict-shaped public API is specified
 once, in the reference, and every binding mirrors it exactly; each binding's
 CI gate is the golden episode replayed through the binding, bit for bit.
 
-- **PR 20 — Python binding (`bindings/python`: PyO3 + maturin, abi3).** The
-  design rule that decides whether it is fast: one boundary crossing per
-  decision — `decide()` takes the context dict and the whole candidate list,
-  and encode → score → sample all happen inside Rust; no per-candidate or
-  per-feature calls. Golden episode through the binding in pytest; a
-  decisions/s benchmark in the CI summary next to the battery tables so
-  boundary regressions are visible. Target: dim 256 × 100 arms from 0.85 ms
-  (pure Python) to the 10–50 µs range.
 - **PR 21 — browser (`bindings/wasm`: wasm-bindgen → npm).** The engine core
   uses only IEEE-exact operations (add/mul/div/sqrt — no libm transcendentals),
   and WASM mandates IEEE-754 semantics, so the corpus should pass in wasm by
@@ -119,9 +113,10 @@ Also outstanding, order flexible:
 
 - the `DEFAULT_EPSILON` sweep (`python -m sim.sweep`) — the 0.05 default is
   provisional until it is run and recorded here (from PR 16);
-- the encoding hot spot (per-decision token formatting + pair hashing), worth
-  taking only once the binding benchmark exists to price it — the hash
-  contract itself stays frozen;
+- the encoding hot spot (per-decision token formatting + pair hashing), now
+  priced by the binding benchmark: 145 µs against the roadmap's 10–50 µs
+  target (bits=8 × 100 arms) — the next perf PR; the hash contract itself
+  stays frozen;
 - further out: multislot/ranking (R5) and OPE tooling over the decision
   log (R3).
 
@@ -249,9 +244,7 @@ decisions log above, and this file's git history has the full entries.
   in the core became a returned `Error` with the same message (`error.rs`);
   nothing on the public path panics, so bindings sit directly on it.
 
-## Currently in flight
-
-- **PR 19** (`pr-19`) — the public dict-shaped API (`api.py` in the
+- **PR 19** (2026-07-16) — the public dict-shaped API (`api.py` in the
   reference, `api.rs` in the core; spec: `api.md`): the complete binding
   surface, specified once. Eight names — `create` (declares `bits` in place
   of a raw dimension; the model spans the 2^bits hashed space), `decide`
@@ -267,3 +260,26 @@ decisions log above, and this file's git history has the full entries.
   exercised), out-of-order rewards, censor, exact-horizon expiry, final
   state hex — the acceptance gate PR 20/21 bindings replay through their
   own public API. The Rust facade reproduced it on the first run.
+  Follow-up in the same PR: `docs/usage.md`, the public API by example.
+
+## Currently in flight
+
+- **PR 20** (`pr-20`) — the Python binding (`bindings/python`): PyO3 +
+  maturin, abi3 (one wheel per platform covers CPython ≥ 3.10). The module
+  mirrors `gittins_reference.api` name for name; the reference's functional
+  shapes are kept, with the returned state being the same handle mutated in
+  place (rebind it, as the usage docs already show) so nothing is copied.
+  One boundary crossing per decision: the context dict and the whole
+  candidate list go in, encode → score → sample happen in Rust. Errors map
+  to ValueError with the reference's messages; the core crate stays
+  zero-dependency (PyO3 lives in the binding crate). Acceptance
+  (`bindings/python/tests`): the golden `api` section replayed through the
+  wheel alone — records, resolutions, final state hex — plus a scripted
+  40-decision equivalence run against the pure reference ending in
+  identical serialized bytes. CI gained a `python-binding` job: build,
+  gate, and a decision-cycle benchmark into the job summary. First
+  measurement (bits=8, 100 arms, decide+learn): 1,645 µs pure Python →
+  145 µs through the wheel (~11x) — short of the 10–50 µs roadmap target;
+  the gap is the known encoding hot spot (per-decision token formatting +
+  pair hashing), deliberately deferred until this benchmark existed to
+  price it, and now first on the perf list.
