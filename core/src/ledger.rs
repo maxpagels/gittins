@@ -88,3 +88,41 @@ pub fn expire(state: &mut BanditState, t: f64) -> Vec<Resolution> {
     state.model_version += resolutions.len() as u64;
     resolutions
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::decide::{decide, new_bandit};
+    use crate::exploration::DEFAULT_EPSILON;
+    use crate::model::DEFAULT_FORGETTING;
+
+    /// The golden episode resolves each decision exactly once (its
+    /// `rejected` attempts cover the no-op paths through the final-state
+    /// comparison); this pins the same exactly-once property directly, the
+    /// way the reference's pytest suite does: every second resolution —
+    /// duplicate, conflicting, post-expiry, post-censor, unknown — returns
+    /// None and leaves every bit of the state alone.
+    #[test]
+    fn resolutions_are_exactly_once() {
+        let mut state = new_bandit(4, 10.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING);
+        let candidates = vec![vec![(0, 1.0)], vec![(1, 1.0)]];
+        let a = decide(&mut state, &candidates, 0.0, "test");
+        let b = decide(&mut state, &candidates, 1.0, "test");
+        let c = decide(&mut state, &candidates, 2.0, "test");
+
+        assert!(learn(&mut state, &a.decision_id, 1.0).is_some());
+        assert!(censor(&mut state, &b.decision_id).is_some());
+        let expired = expire(&mut state, 12.0); // c is due at exactly 12.0
+        assert!(expired.len() == 1 && expired[0].decision_id == c.decision_id);
+        assert!(state.ledger.is_empty() && state.model_version == 2);
+
+        let before = state.clone();
+        assert!(learn(&mut state, &a.decision_id, 0.0).is_none()); // conflicting duplicate
+        assert!(learn(&mut state, &b.decision_id, 1.0).is_none()); // reward after censor
+        assert!(learn(&mut state, &c.decision_id, 1.0).is_none()); // reward after expiry
+        assert!(censor(&mut state, &a.decision_id).is_none()); // censor after reward
+        assert!(learn(&mut state, "never-made:0", 1.0).is_none()); // unknown id
+        assert!(expire(&mut state, 100.0).is_empty()); // nothing due
+        assert!(state == before, "a rejected resolution moved the state");
+    }
+}

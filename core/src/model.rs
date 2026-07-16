@@ -16,7 +16,7 @@ pub const DEFAULT_FORGETTING: f64 = 0.999;
 /// overflow for roughly-unit-scale features.
 const RENORM_THRESHOLD: f64 = f64::from_bits(511 << 52); // 2.0^-512 exactly
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LinearModel {
     pub dim: usize,
     pub ridge: f64,
@@ -152,5 +152,22 @@ mod tests {
             (stored - true_xx).abs() <= 1e-12 * true_xx,
             "true sums moved across renormalization: {stored} vs {true_xx}"
         );
+    }
+
+    /// forgetting = 1.0 (never forget) is excluded from the golden corpus
+    /// by design (spec/golden.md), so it gets pinned here as the reference's
+    /// pytest suite pins it: the scale stays exactly 1.0, the sums are plain
+    /// sums, and the weight is the shrunk running average n / (n + ridge).
+    #[test]
+    fn never_forget_keeps_plain_sums() {
+        let x: Features = vec![(0, 1.0)];
+        let mut m = new_model(2, 1.0, 1.0);
+        for _ in 0..9 {
+            update(&mut m, &x, 1.0);
+        }
+        assert!(m.scale == 1.0, "never-forget scale moved");
+        assert!(m.xx[0] == 9.0 && m.xy[0] == 9.0, "sums are not plain sums");
+        let (estimate, _) = predict(&m, &x);
+        assert!(estimate == 9.0 * (1.0 / 10.0), "weight is not 9/(9+1)");
     }
 }

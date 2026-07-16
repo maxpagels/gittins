@@ -29,6 +29,13 @@ class TestGoldenCorpus:
         assert len(episode["events"]) == 11
         # Nothing left open: the episode is a complete, replayable history.
         assert episode["final"]["open_ids"] == []
+        # The rejected attempts cover both resolution entry points, and each
+        # names either an already-resolved decision or one never made — the
+        # no-op paths an independent implementation must reproduce.
+        assert {r["action"] for r in episode["rejected"]} == {"learn", "censor"}
+        resolved = {r["decision_id"] for r in episode["resolutions"]}
+        for attempt in episode["rejected"]:
+            assert attempt["decision_id"] in resolved or attempt["decision_id"] == "fleet-a:99"
 
     def test_corpus_is_json_clean(self):
         # No NaN/Infinity anywhere: independent parsers must not need

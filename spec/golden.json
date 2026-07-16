@@ -612,6 +612,32 @@
      "uncertainty": 1.1927312532830683
     }
    ],
+   "rejected": [
+    {
+     "action": "learn",
+     "decision_id": "fleet-a:0",
+     "reward": 0.0
+    },
+    {
+     "action": "learn",
+     "decision_id": "fleet-a:7",
+     "reward": 1.0
+    },
+    {
+     "action": "learn",
+     "decision_id": "fleet-a:10",
+     "reward": 1.0
+    },
+    {
+     "action": "censor",
+     "decision_id": "fleet-a:0"
+    },
+    {
+     "action": "learn",
+     "decision_id": "fleet-a:99",
+     "reward": 1.0
+    }
+   ],
    "resolutions": [
     {
      "decision_id": "fleet-a:0",

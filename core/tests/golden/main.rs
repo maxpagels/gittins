@@ -260,6 +260,18 @@ fn episode_section() {
     resolutions.extend(expire(&mut state, sweep_t));
     assert_resolutions(&resolutions, s.get("resolutions"));
 
+    // The corpus's rejected attempts: every one must be a structural no-op,
+    // enforced by the final-state comparison below coming *after* them.
+    for attempt in s.get("rejected").arr() {
+        let id = attempt.get("decision_id").str_();
+        let resolved = match attempt.get("action").str_() {
+            "learn" => learn(&mut state, id, attempt.get("reward").f64_()).is_some(),
+            "censor" => censor(&mut state, id).is_some(),
+            other => panic!("unknown rejected action {other:?}"),
+        };
+        assert!(!resolved, "rejected attempt on {id} unexpectedly resolved");
+    }
+
     let fin = s.get("final");
     assert!(state.model_version == fin.get("model_version").u64_(), "final model_version");
     assert!(state.next_seq == fin.get("next_seq").u64_(), "final next_seq");

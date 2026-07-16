@@ -258,6 +258,20 @@ Planned later: `bindings/` (Python native, JS/WASM).
   rule, out-of-order resolutions and all. All sections passed on the first
   run: the Phase 0 exit criterion is met.
 
+  The corpus gained an episode field in this PR (additive diff, zero
+  existing vectors moved): `rejected`, resolution attempts that must be
+  structural no-ops (conflicting duplicate, post-expiry, post-censor,
+  censor-after-reward, unknown id), performed before the pinned final
+  state so every implementation must reject them to match it. What the
+  corpus deliberately excludes is unit-tested in the crate instead:
+  `forgetting = 1.0` (plain sums, scale exactly 1.0), exactly-once ledger
+  resolution with bitwise state comparison, and the scale-renormalization
+  path (which needs 500+ updates to trigger). The crate's test count is
+  small because the reference carries the semantic/property suite once and
+  the core's contract is only bit-identity — each golden test is hundreds
+  of bitwise assertions, and the battery diff is a 450k-decision
+  differential test on top.
+
   **Battery rerun** (`cargo run --release --bin sim`): `sim/` ported as a
   binary in the crate — environments, policies, runner, metrics (including a
   faithful port of CPython's `math.fsum`, exact Shewchuk summation with the

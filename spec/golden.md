@@ -39,6 +39,13 @@ order-dependent (per-update forgetting), so the resolution sequence *is*
 part of the contract. All three resolution kinds occur; no decision is
 left open.
 
+After the expire sweep, `rejected` lists resolution attempts that must be
+structural no-ops — a conflicting duplicate reward, a post-expiry reward,
+a reward after censor, a censor after reward, and an unknown id. They are
+performed *before* the `final` state is captured, so an implementation
+that lets any of them touch the model or the ledger cannot match `final`:
+replaying them is part of matching the episode.
+
 ## Serialization contract
 
 - Floats are JSON numbers in Python's shortest round-trip repr: parse to

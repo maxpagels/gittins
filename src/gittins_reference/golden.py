@@ -196,6 +196,24 @@ def episode_vector():
     sweep_t = T0 + 7 * 600.0 + horizon  # decision 7 is exactly due
     expired, a = expire(a, sweep_t)
     resolutions.extend(resolution_json(r) for r in expired)
+    # Rejected resolutions: every way an attempt can find no open record —
+    # conflicting duplicate reward, post-expiry reward, reward after censor,
+    # censor after reward, unknown id. Each must be a structural no-op. The
+    # final state below is captured *after* these attempts, so an
+    # independent implementation must reject them all to match it.
+    rejected = [
+        {"action": "learn", "decision_id": "fleet-a:0", "reward": 0.0},
+        {"action": "learn", "decision_id": "fleet-a:7", "reward": 1.0},
+        {"action": "learn", "decision_id": "fleet-a:10", "reward": 1.0},
+        {"action": "censor", "decision_id": "fleet-a:0"},
+        {"action": "learn", "decision_id": "fleet-a:99", "reward": 1.0},
+    ]
+    for attempt in rejected:
+        if attempt["action"] == "learn":
+            resolution, a = learn(a, attempt["decision_id"], attempt["reward"])
+        else:
+            resolution, a = censor(a, attempt["decision_id"])
+        assert resolution is None, f"rejected attempt resolved: {attempt}"
     predictions = []
     for seg in ["a", "b"]:
         for arm in arms:
@@ -209,6 +227,7 @@ def episode_vector():
         "expire_sweep_at": sweep_t,
         "events": events,
         "resolutions": resolutions,
+        "rejected": rejected,
         "final": {
             "model_version": a.model_version,
             "next_seq": a.next_seq,

@@ -13,7 +13,7 @@ use crate::exploration::{epsilon_greedy_probabilities, sample_index};
 use crate::model::{estimate_factored, factorize, new_model, LinearModel};
 use crate::rng::{derive_key, fnv1a_64};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BanditState {
     pub model: LinearModel,
     pub next_seq: u64,       // sequence number of the next decision
