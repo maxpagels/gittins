@@ -44,7 +44,7 @@ jobs:
       - name: Run test suite
         run: uv run pytest -q
 
-  sim:
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

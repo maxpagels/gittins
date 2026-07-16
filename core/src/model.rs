@@ -55,10 +55,10 @@ pub fn update(model: &mut LinearModel, x: &Features, reward: f64) {
     }
     if scale <= RENORM_THRESHOLD {
         for u in model.xx.iter_mut() {
-            *u = scale * *u;
+            *u *= scale;
         }
         for u in model.xy.iter_mut() {
-            *u = scale * *u;
+            *u *= scale;
         }
         model.scale = 1.0;
     } else {
@@ -123,4 +123,34 @@ pub fn predict_factored(f: &mut Factorization, x: &Features) -> (f64, f64) {
 /// (estimated reward, uncertainty) for features x.
 pub fn predict(model: &LinearModel, x: &Features) -> (f64, f64) {
     predict_factored(&mut factorize(model), x)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The golden corpus never drives the scale down to RENORM_THRESHOLD
+    /// (that takes hundreds of updates), so the renormalization path gets
+    /// its own check: crossing the threshold must reset the scale without
+    /// moving the true sums (up to the one rounding multiply per entry).
+    #[test]
+    fn renormalization_preserves_true_sums() {
+        // forgetting = 0.5 halves the scale per update: exactly 2^-512
+        // after 512 updates, so update 512 renormalizes.
+        let x: Features = vec![(0, 1.0)];
+        let mut m = new_model(1, 0.5, 1.0);
+        let mut true_xx = 0.0;
+        for i in 0..600 {
+            update(&mut m, &x, 1.0);
+            true_xx = 0.5 * true_xx + 1.0;
+            if i == 511 {
+                assert!(m.scale == 1.0, "renorm did not trigger at 2^-512");
+            }
+        }
+        let stored = m.scale * m.xx[0];
+        assert!(
+            (stored - true_xx).abs() <= 1e-12 * true_xx,
+            "true sums moved across renormalization: {stored} vs {true_xx}"
+        );
+    }
 }
