@@ -15,8 +15,9 @@ of records *is* the offline-evaluation dataset (R3). The record carries:
     candidate_hash — 64-bit hash of the full candidate set, so replay and
                      offline evaluation can verify they see what was scored
     chosen         — index into the candidate list
-    features       — the chosen candidate's feature vector (what `learn`
-                     will train on; the record is self-contained)
+    features       — the chosen candidate's sparse (index, value) pairs
+                     (what `learn` will train on; the record is
+                     self-contained, and O(nonzeros) on disk)
     propensity     — the probability the choice was made with
     model_version  — how many observations the model had absorbed
                      (bumped by the ledger's trained resolutions)
@@ -28,9 +29,11 @@ counter never repeats, and across a fleet each agent must be given its own
 salt (the same rule that keeps their random streams distinct). No hashing,
 no collision math.
 
-At this layer a candidate *is* its feature vector in the model's space;
-folding a context and an action description into that vector is the feature
-encoder's job (encoding.py), and the dict-shaped public API arrives with it.
+At this layer a candidate *is* its sparse feature pairs in the model's
+space — (index, value) tuples in strictly increasing index order, values
+nonzero; folding a context and an action description into those pairs is
+the feature encoder's job (encoding.py), and the dict-shaped public API
+arrives with it.
 
 **Where epsilon comes from.** The exploration rule (exploration.py) takes
 its uniform-exploration mass `epsilon` from the state: declared once at
@@ -57,6 +60,7 @@ from gittins_reference.exploration import (
 )
 from gittins_reference.model import (
     DEFAULT_FORGETTING,
+    Features,
     LinearModel,
     estimate_factored,
     factorize,
@@ -82,7 +86,7 @@ class DecisionRecord:
     t: float
     candidate_hash: int
     chosen: int
-    features: tuple[float, ...]
+    features: tuple[tuple[int, float], ...]  # the chosen candidate's sparse pairs
     propensity: float
     model_version: int
     salt: str
@@ -117,31 +121,32 @@ def new_bandit(
     )
 
 
-def candidate_set_hash(candidates: list[list[float]]) -> int:
-    """64-bit FNV-1a over a canonical *sparse* encoding of the candidate
-    set: the count, then each vector as its dimension, its nonzero-entry
-    count, and its nonzero entries in index order as (index, value) —
+def candidate_set_hash(candidates: "list[Features]", dim: int) -> int:
+    """64-bit FNV-1a over the canonical sparse encoding of the candidate
+    set: the count, then each candidate as the model dimension, its
+    nonzero-entry count, and its (index, value) pairs in index order —
     integers as 8 little-endian bytes, values as little-endian IEEE-754
-    doubles. Entries equal to zero (either sign) are absent, so hashing
-    costs O(nonzeros), not O(dimension): hash-encoded candidates are almost
-    all zeros, and a sparse compiled core need never materialize the dense
-    vector just to hash it. Order-, value-, and shape-sensitive, identical
-    on every platform."""
+    doubles. Candidates already *are* that canonical form (sorted nonzero
+    pairs), so hashing is O(nonzeros) with no conversion; the byte layout
+    is unchanged from the dense-input formulation, so the same logical
+    candidate set hashes to the same value it always did. Order-, value-,
+    and shape-sensitive, identical on every platform."""
     data = bytearray(len(candidates).to_bytes(8, "little"))
     for x in candidates:
+        data += dim.to_bytes(8, "little")
         data += len(x).to_bytes(8, "little")
-        entries = [(i, v) for i, v in enumerate(x) if v != 0.0]
-        data += len(entries).to_bytes(8, "little")
-        for i, v in entries:
+        for i, v in x:
             data += i.to_bytes(8, "little")
             data += struct.pack("<d", v)
     return fnv1a_64(bytes(data))
 
 
 def decide(
-    state: BanditState, candidates: list[list[float]], t: float, salt: str
+    state: BanditState, candidates: "list[Features]", t: float, salt: str
 ) -> tuple[DecisionRecord, BanditState]:
-    """Score, explore, choose, and record one decision.
+    """Score, explore, choose, and record one decision. Each candidate is
+    sparse (index, value) pairs in strictly increasing index order, values
+    nonzero, indices inside the model dimension (encoding.py's output).
 
     The model is untouched (learning happens only through the ledger's
     resolutions, see ledger.py); the state changes are the decision counter
@@ -149,9 +154,18 @@ def decide(
     """
     if len(candidates) < 1:
         raise ValueError("need at least one candidate")
+    dim = state.model.dim
     for x in candidates:
-        if len(x) != state.model.dim:
-            raise ValueError("candidate feature length does not match model dim")
+        prev = -1
+        for j, v in x:
+            if not (prev < j < dim):
+                raise ValueError(
+                    "candidate features must be (index, value) pairs in strictly "
+                    "increasing index order within the model dimension"
+                )
+            if v == 0.0:
+                raise ValueError("candidate feature values must be nonzero")
+            prev = j
 
     # The weights depend on the model only, so they are solved once and
     # shared by every candidate.
@@ -166,9 +180,9 @@ def decide(
     record = DecisionRecord(
         decision_id=decision_id,
         t=t,
-        candidate_hash=candidate_set_hash(candidates),
+        candidate_hash=candidate_set_hash(candidates, dim),
         chosen=chosen,
-        features=tuple(candidates[chosen]),
+        features=tuple((j, v) for j, v in candidates[chosen]),
         propensity=p[chosen],
         model_version=state.model_version,
         salt=salt,

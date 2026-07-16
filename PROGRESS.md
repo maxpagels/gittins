@@ -542,7 +542,9 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   -> 0.75/0.67) but are noise at 5 seeds per the PR 15 finding. Net: at or ahead
   nearly everywhere, half the per-nonzero decision arithmetic, and one less engine
   constant. Measured honestly: reference decide latency is unchanged (1.3
-  ms/decision at dim 256 x 100 arms, both engines) — pure-Python cost is dominated
-  by iterating the dense vectors and by `factorize`, so the saved variance
-  multiplies, sqrt per candidate, and distribution build only pay off in the
-  sparse compiled core, where per-nonzero arithmetic is the whole cost.
+  ms/decision at dim 256 x 100 arms, both engines) — profiling shows pure-Python
+  decide cost is ~82% `candidate_set_hash` (per-byte FNV over the canonical
+  encoding), ~15% the dense per-candidate estimate loop, ~1% `factorize` — so the
+  saved variance multiplies, sqrt per candidate, and distribution build were never
+  going to move the wall clock here; they pay off in the sparse compiled core,
+  where per-nonzero arithmetic is the whole cost.

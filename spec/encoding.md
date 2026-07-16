@@ -73,17 +73,25 @@ the space generously, linear state is cheap (design doc section 13). The
 golden vector below pins a live collision on purpose: collision behavior
 is part of the contract, not an accident.
 
-The reference materializes the dense `2**bits` vector for clarity; the
-compiled core will keep the nonzero (index, value) pairs sparse.
+## Output: sparse pairs
+
+`encode` returns the nonzero entries of the conceptual `2**bits` vector as
+(index, value) pairs in strictly increasing index order — never the dense
+vector. Per-slot contributions accumulate in outer-product iteration order
+(exactly the order the dense formulation added them), so every surviving
+value is bit-identical to the dense formulation's; entries that cancel to
+exactly 0.0 are absent, matching the candidate-set hash's canonical form
+(`spec/decide.md`). Every downstream consumer — scoring, hashing,
+training, the decision record — is O(nonzeros), which is what makes large
+`bits` and thousands of candidates practical (R5, R6).
 
 ## Golden vectors
 
 `bits = 4` (dim 16). Context `{hour: 0.5, device: "mobile"}`, arm
 `banner-sale`, action `{color: "red", price: 1}`:
 
-    [1.0, 0.5, 1.5, 0.0, 0.0, 0.0, 0.5, 0.0,
-     1.0, 1.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0]
+    ((0, 1.0), (1, 0.5), (2, 1.5), (6, 0.5), (8, 1.0), (9, 1.0), (13, 0.5))
 
-(the 1.5 cell is two contributions, 1.0 + 0.5, sharing a slot). And
+(the 1.5 entry is two contributions, 1.0 + 0.5, sharing a slot). And
 `bits = 1` forces `({c: 2}, "z", {a: 3})`'s six contributions into two
-slots: `[-4.0, -5.0]`.
+slots: `((0, -4.0), (1, -5.0))`.

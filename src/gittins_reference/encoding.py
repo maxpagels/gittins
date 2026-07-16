@@ -50,8 +50,13 @@ be pooled offline (D3).
 accumulation order — and therefore every output bit — is independent of
 dict insertion order, identical on every platform.
 
-The reference materializes the dense 2**bits vector for clarity; the
-compiled core will keep the handful of nonzero (index, value) pairs sparse.
+**Output is sparse.** A candidate is a tuple of (index, value) pairs in
+strictly increasing index order, values nonzero — the handful of nonzero
+entries of the conceptual 2**bits vector, never the vector itself. Every
+consumer (scoring, hashing, training, the decision record) is O(nonzeros),
+which is what makes large `bits` and thousands of candidates practical
+(R5, R6). Colliding contributions that cancel to exactly 0.0 are absent,
+matching the candidate-set hash's canonical form (decide.py).
 """
 
 from functools import lru_cache
@@ -86,19 +91,27 @@ def pair_hash(left_token: str, right_token: str) -> int:
     return mix64(fnv1a_64(left_token.encode("utf-8") + PAIR_SEP + right_token.encode("utf-8")))
 
 
-def encode(context: dict, arm_id: str, action: dict, bits: int) -> list[float]:
-    """The feature vector for one (context, candidate) pair: the hashed
-    outer product described in the module docstring. The model dimension is
-    2**bits (pass to `new_bandit`)."""
+def encode(
+    context: dict, arm_id: str, action: dict, bits: int
+) -> "tuple[tuple[int, float], ...]":
+    """The sparse feature vector for one (context, candidate) pair — the
+    hashed outer product described in the module docstring, as (index,
+    value) pairs in strictly increasing index order, exact zeros absent.
+    The model dimension is 2**bits (pass to `new_bandit`).
+
+    Per-slot contributions accumulate in outer-product iteration order,
+    exactly as the former dense vector did, so every surviving value is
+    bit-identical to the dense formulation's."""
     if not (1 <= bits <= 24):
         raise ValueError("bits must be between 1 and 24")
     mask = (1 << bits) - 1
     left = [("", 1.0)] + feature_tokens("c", context)
     right = [("", 1.0)] + feature_tokens("a", action) + [(f"i|{arm_id}", 1.0)]
-    x = [0.0] * (1 << bits)
+    slots: "dict[int, float]" = {}
     for left_token, left_value in left:
         for right_token, right_value in right:
             h = pair_hash(left_token, right_token)
             sign = 1.0 if (h >> 63) == 0 else -1.0
-            x[h & mask] += sign * left_value * right_value
-    return x
+            slot = h & mask
+            slots[slot] = slots.get(slot, 0.0) + sign * left_value * right_value
+    return tuple((j, v) for j, v in sorted(slots.items()) if v != 0.0)

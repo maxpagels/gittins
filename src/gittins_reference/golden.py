@@ -41,13 +41,18 @@ HOUR = 3600.0
 T0 = 1_752_000_000.0
 
 
+def pairs_json(pairs):
+    """Sparse features as [[index, value], ...] in index order."""
+    return [[j, v] for j, v in pairs]
+
+
 def record_json(record):
     return {
         "decision_id": record.decision_id,
         "t": record.t,
         "candidate_hash": record.candidate_hash,
         "chosen": record.chosen,
-        "features": list(record.features),
+        "features": pairs_json(record.features),
         "propensity": record.propensity,
         "model_version": record.model_version,
         "salt": record.salt,
@@ -59,7 +64,8 @@ def resolution_json(resolution):
 
 
 def model_json(model):
-    return {"xx": list(model.xx), "xy": list(model.xy)}
+    # The stored state is pre-scaled: true sums are scale * xx, scale * xy.
+    return {"scale": model.scale, "xx": list(model.xx), "xy": list(model.xy)}
 
 
 def rng_vectors():
@@ -84,17 +90,22 @@ def rng_vectors():
 def model_vectors():
     forgetting = 0.9
     m = new_model(2, forgetting)
-    history = [([1.0, 0.0], 1.0), ([0.0, 1.0], -0.5), ([1.0, 1.0], 0.25)]
+    history = [
+        (((0, 1.0),), 1.0),
+        (((1, 1.0),), -0.5),
+        (((0, 1.0), (1, 1.0)), 0.25),
+    ]
     states = []
     for x, r in history:
         m = update(m, x, r)
         states.append(model_json(m))
-    est, unc = predict(m, [1.0, -1.0])
+    probe = ((0, 1.0), (1, -1.0))
+    est, unc = predict(m, probe)
     return {
         "dim": 2, "forgetting": forgetting, "ridge": 1.0,
-        "updates": [{"x": x, "reward": r} for x, r in history],
+        "updates": [{"x": pairs_json(x), "reward": r} for x, r in history],
         "states": states,
-        "predict": {"x": [1.0, -1.0], "estimate": est, "uncertainty": unc},
+        "predict": {"x": pairs_json(probe), "estimate": est, "uncertainty": unc},
     }
 
 
@@ -132,7 +143,9 @@ def encoding_vectors():
             for l, r in [("", ""), ("", "i|x"), ("c|seg=a", "i|x"), ("c|hour", "a|price")]
         ],
         "encode": [
-            {**case, "vector": encode(case["context"], case["arm_id"], case["action"], case["bits"])}
+            {**case, "pairs": pairs_json(
+                encode(case["context"], case["arm_id"], case["action"], case["bits"])
+            )}
             for case in encode_cases
         ],
     }
@@ -156,7 +169,7 @@ def episode_vector():
         cands = [encode(context, arm, {}, bits) for arm in arms]
         record, state = decide(state, cands, t, "fleet-a")
         events.append({"t": t, "context": context, "arms": arms,
-                       "candidate_hash": candidate_set_hash(cands),
+                       "candidate_hash": candidate_set_hash(cands, 1 << bits),
                        "record": record_json(record)})
         reward = 1.0 if (arms[record.chosen] == "x") == (seg == "a") else 0.0
         return state, record, reward

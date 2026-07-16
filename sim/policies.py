@@ -190,7 +190,8 @@ class ModelPolicy(Policy):
     def begin(self, seed: int) -> None:
         self.model = new_model(2**self.bits, self.forgetting)
 
-    def estimates(self, rd: Round) -> "tuple[list[list[float]], list[float]]":
+    def estimates(self, rd: Round) -> "tuple[list, list[float]]":
+        """(sparse candidates, their estimates) for one round."""
         candidates = [
             encode(rd.context, rd.arm_ids[i], rd.actions[i], self.bits)
             for i in range(len(rd.arm_ids))

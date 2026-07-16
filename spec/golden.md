@@ -25,9 +25,9 @@ diff like code.
 | section | covers |
 |---|---|
 | `rng` | key derivation (incl. the length-prefix boundary cases and non-ASCII), u64/unit streams, a 2^32 counter |
-| `model` | update history → the sums after every update, and a prediction |
+| `model` | update history → (scale, pre-scaled sums) after every update, and a prediction |
 | `exploration` | epsilon-greedy distribution (with a tie for the maximum), sampled indices |
-| `encoding` | tokenization, pair hashes, full hashed vectors at bits 4 and 6 |
+| `encoding` | tokenization, pair hashes, sparse (index, value) encodings at bits 4 and 6 |
 | `episode` | the end-to-end acceptance scenario (below) |
 
 The `episode` section is one agent making hash-encoded decisions with

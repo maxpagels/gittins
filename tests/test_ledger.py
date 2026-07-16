@@ -17,7 +17,7 @@ HOUR = 3600.0
 DAY = 24 * HOUR
 T0 = 1_752_000_000.0
 
-CANDS = [[1.0, 0.0], [0.0, 1.0]]
+CANDS = [((0, 1.0),), ((1, 1.0),)]
 
 
 def fresh(default_reward: float = 0.0):
@@ -51,7 +51,7 @@ class TestLearn:
         assert s2.model_version == s1.model_version + 1
         # The training update is exactly one model update on the record's
         # features — the record is self-contained.
-        assert s2.model == update(s1.model, list(record.features), 1.0)
+        assert s2.model == update(s1.model, record.features, 1.0)
 
     def test_out_of_order_rewards_resolve_safely(self):
         # Two open decisions resolved in either order: both orders fully
@@ -130,7 +130,7 @@ class TestExpire:
         assert s2.ledger == ()
         assert s2.model_version == s1.model_version + 1
         # Trains with the declared default reward.
-        assert s2.model == update(s1.model, list(record.features), 0.25)
+        assert s2.model == update(s1.model, record.features, 0.25)
 
     def test_expires_only_the_due_in_ledger_order(self):
         s = fresh()
@@ -199,6 +199,6 @@ class TestPinnedVectors:
         assert resolutions == (Resolution("pepper:0", EXPIRED, 0.25),)
         assert [r.decision_id for r in s.ledger] == ["pepper:2"]
         assert s.model_version == 2
-        est, unc = predict(s.model, [1.0, -1.0])
-        assert est == 0.4164721573857953
+        est, unc = predict(s.model, ((0, 1.0), (1, -1.0)))
+        assert est == 0.41647215738579535
         assert unc == 1.1547486659415682

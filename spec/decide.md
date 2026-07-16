@@ -35,7 +35,7 @@ default_reward, epsilon, ledger)`:
 | `t` | the caller-supplied decision time |
 | `candidate_hash` | 64-bit hash of the entire candidate set |
 | `chosen` | index into the candidate list |
-| `features` | the chosen candidate's feature vector |
+| `features` | the chosen candidate's sparse (index, value) pairs |
 | `propensity` | the probability the choice was made with |
 | `model_version` | the state's `model_version` at decision time |
 | `salt` | the RNG salt, making the draw exactly replayable |
@@ -50,27 +50,31 @@ never repeats; across a fleet, each agent must be given its own salt — the
 same rule that already keeps their random streams distinct. No hashing, no
 collision probability to reason about.
 
-**Candidate-set hash.** FNV-1a (64-bit, `spec/rng.md`) over a canonical
-*sparse* encoding: the candidate count as 8 little-endian bytes, then each
-vector as its dimension (8 LE bytes), its nonzero-entry count (8 LE bytes),
-and its nonzero entries in increasing index order, each as the index (8 LE
-bytes) followed by the value (little-endian IEEE-754 double). Entries equal
-to zero — either sign — are absent by definition, so the hash costs
-O(nonzeros), not O(dimension): hash-encoded candidates are nearly all
-zeros, and an implementation that keeps candidates as sparse (index, value)
-pairs never materializes the dense vector to hash it. Order- and
-value-sensitive; the dimension and count prefixes keep differently-shaped
-sets with equal flattenings distinct.
+**Candidate-set hash.** `candidate_set_hash(candidates, dim)`: FNV-1a
+(64-bit, `spec/rng.md`) over the canonical sparse encoding — the candidate
+count as 8 little-endian bytes, then each candidate as the model dimension
+`dim` (8 LE bytes), its nonzero-entry count (8 LE bytes), and its (index,
+value) pairs in increasing index order, each as the index (8 LE bytes)
+followed by the value (little-endian IEEE-754 double). Candidates already
+*are* that canonical form, so hashing is O(nonzeros) with no conversion;
+the byte layout is unchanged from the earlier dense-input formulation, so
+the same logical candidate set hashes to the same value it always did.
+Order- and value-sensitive; the dimension and count prefixes keep
+differently-shaped sets with equal flattenings distinct.
 
 ## The decide pipeline
 
-`decide(state, candidates, t, salt)`, where each candidate is a feature
-vector in the model's space (folding context + action description into
-that vector is the feature encoder's job, PR 8):
+`decide(state, candidates, t, salt)`, where each candidate is its sparse
+feature pairs in the model's space — (index, value) tuples in strictly
+increasing index order, values nonzero, indices inside the model dimension
+(validated; folding context + action description into those pairs is the
+feature encoder's job, `spec/encoding.md`):
 
 1. `estimate = estimate_factored(f, x)` for every candidate, in list order
-   (`spec/model.md`); the weights are solved once per decision and shared.
-   No uncertainties are computed anywhere on the decision path.
+   (`spec/model.md`); one lazy factorization is shared by every candidate,
+   so the decision's solve cost is O(coordinates touched), and the scoring
+   cost O(total nonzeros). No uncertainties are computed anywhere on the
+   decision path.
 2. `p = epsilon_greedy_probabilities(estimates, state.epsilon)`
    (`spec/exploration.md`).
 3. `key = derive_key(decision_id, salt)`; the choice is
@@ -96,13 +100,13 @@ the epsilon default itself is settled by the battery sweep
 
 ## Golden vectors
 
-Model dim 2, default forgetting (0.999); updates `([1,0], 1.0)` then
-`([0,1], -0.5)`. State at `next_seq` 7, `model_version` 2. Candidates
-`[[1,0], [0,1], [1,1]]`, decided at T0+3600 = 1752003600.0 with salt
-`"pepper"`:
+Model dim 2, default forgetting (0.999); updates `(((0,1.0),), 1.0)` then
+`(((1,1.0),), -0.5)`. State at `next_seq` 7, `model_version` 2. Candidates
+`[((0,1.0),), ((1,1.0),), ((0,1.0),(1,1.0))]`, decided at
+T0+3600 = 1752003600.0 with salt `"pepper"`:
 
     decision_id    = "pepper:7"
     candidate_hash = 8340395383735871362
     chosen         = 0
-    features       = (1.0, 0.0)
+    features       = ((0, 1.0),)
     propensity     = 0.9666666666666667
