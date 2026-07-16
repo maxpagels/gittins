@@ -23,7 +23,7 @@ from sim.policies import (
 from sim.runner import run
 
 SEEDS = range(5)
-ROUNDS = 800
+ROUNDS = 1500
 BITS = 8
 
 ENVIRONMENTS = [
