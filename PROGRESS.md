@@ -41,7 +41,7 @@ bit-for-bit against golden test vectors.
 | 7 | `pr-07` | Decision ledger; `learn()`; rewarded/expired/censored; late-reward weighting | §6 | Merged |
 | 8 | `pr-08` | Feature encoding: everything hashed into 2^bits dims (features, identity, interactions) | D2 | Merged |
 | 9 | `pr-09` | Timestamp-aligned state merge; commutativity property tests | D3, §13 risk 3 | Merged |
-| 10 | `pr-10` | Golden test vector corpus generated from the reference; GitHub Actions CI | §8 | **In review** |
+| 10 | `pr-10` | Golden test vector corpus generated from the reference; GitHub Actions CI | §8 | Merged |
 
 Phase 0 exit criterion: the spec plus reference is complete enough that an independent
 implementation of `decide`/`learn` can match the golden vectors.
@@ -79,6 +79,15 @@ benchmark page, and any CI regret gate — those stay in Phases 2/4.
   never bit-pinned — sims are statistical, but every run is seeded and exactly
   reproducible (environment randomness comes from the same counter RNG, keyed by
   (environment name, seed, t)).
+- **Cross-language potential**: a sim run is *nearly* bit-comparable to the same sim
+  driven through the future Rust core — the engine side is the bit-pinned path and all
+  environment uniforms are counter-RNG — except for one piece: the reward-noise
+  gaussian (Box–Muller over libm `log`/`cos`, which have no cross-platform rounding
+  guarantee; the same reason the reference vendored `exp2`). If Phase 2 wants the
+  battery as a cross-language differential test (diff whole decision streams
+  Rust-vs-reference, thousands of seeds, far beyond the golden corpus), the fix is
+  contained: vendor deterministic `log`/`cos` in `sim/rand.py`, or switch environment
+  noise to a distribution built from exact IEEE-754 operations.
 - **Environment protocol**: an environment yields per round `t` a context dict plus
   candidate dicts (arm id + features), and returns a stochastic reward for the chosen
   arm; it also exposes the oracle expected reward of every candidate so regret is exact,
@@ -86,6 +95,14 @@ benchmark page, and any CI regret gate — those stay in Phases 2/4.
 - **Runner** drives the real public path — encode (PR 8) → `decide` (PR 6) → ledger
   `learn`/`expire` (PR 7) — never the layers in isolation, so hashing, the gamma
   schedule, the floor, and decay are all in the loop together.
+- **Event-time runner** (PR 13): the PR 11 runner ticks one decision per second and
+  resolves each reward immediately; the event-time runs replace that with a single
+  time-ordered event queue — decision arrivals and reward arrivals interleaved,
+  `expire` swept at every event — so the system updates in real time exactly as a
+  production event loop would, driven at simulated speed. Decision timestamps come
+  from a non-homogeneous arrival process and rewards from a delay distribution, so
+  learning happens mid-traffic from whatever state exists at that instant, some
+  rewards land many decisions late, and some cross the horizon and expire.
 - **Comparators**, all run through the same loop on the same seeds (paired):
   - oracle (upper bound) and uniform-random (lower bound), to normalize regret;
   - greedy (gamma → ∞, no floor) and epsilon-greedy (ε ∈ {0.05, 0.1}), the "would
@@ -118,6 +135,18 @@ and ~20 seeds; runs of 10k–50k decisions.
 - **Missing features**: per-round feature dropout (each feature absent with
   probability p — hashed encoding treats absent as no token), occasionally empty
   context, and irrelevant/noisy distractor features.
+- **Variable event rate (traffic cycles)**: decision arrivals follow a daily
+  sinusoid — morning and evening peaks, an overnight trough, rate swinging
+  ~10–100× — plus bursty periods, on top of a stationary or shifting reward world.
+  The half-life is wall-clock seconds, not events (R4: decisions come at different
+  frequencies at different times of day), so quiet stretches decay evidence with
+  little replenishment: measures the overnight-forgetting cost (does every morning
+  start with regrown uncertainty and a re-exploration tax?), whether gamma's fallback
+  during troughs is proportionate, and how the fixed half-life trades off against the
+  event rate — direct evidence for the one-default-half-life question. Crossed with
+  reward delays (including delays correlated with time of day, e.g. conversions that
+  arrive next morning) and run on a representative subset of the reward worlds above
+  rather than the full cross.
 
 ### Metrics
 
@@ -129,6 +158,10 @@ and ~20 seeds; runs of 10k–50k decisions.
   quality, so a bad result can be attributed to the model or to exploration.
 - Diagnostics logged per run: gamma and mean-uncertainty trajectories, propensity of
   the oracle-best arm over time.
+- For event-time runs: regret rate split by traffic phase (peak / trough / the first
+  stretch after a trough — the morning re-exploration cost), the fraction of decisions
+  that expire unresolved, and ledger occupancy over time (does the horizon bound hold
+  under peak load with slow rewards?).
 
 ### Pass criteria (what "needs updates" means)
 
@@ -155,19 +188,20 @@ the sparse representation that makes very large `bits` cheap belongs to the Rust
 |---|---------|
 | 11 | `sim/` harness: environment protocol, runner over the real encode→decide→learn path, regret metrics, stationary environments, oracle/uniform/greedy/epsilon baselines |
 | 12 | Non-stationary environments (abrupt, drift, seasonal) + arm churn + missing-feature environments |
-| 13 | Sweep driver + markdown report generator; battery run; findings written up as decisions here (and any constant changes land as their own follow-up PRs with regenerated golden vectors) |
+| 13 | Event-time simulation: event-queue runner (decisions and rewards as one time-ordered stream, expire swept per event), non-homogeneous arrival processes (daily traffic curves, bursts), reward-delay distributions, phase-split metrics |
+| 14 | Sweep driver + markdown report generator; battery run; findings written up as decisions here (and any constant changes land as their own follow-up PRs with regenerated golden vectors) |
 
 ## Repository layout
 
 ```
 src/gittins_reference/   pure-Python reference implementation (Phase 0)
-tests/                   pytest suite for the reference
+sim/                     simulation harness (Phase 0.5): environments, comparators, runner, metrics
+tests/                   pytest suite for the reference and the sim harness
 spec/                    written spec sections, grown PR by PR
 PROGRESS.md              this file
 ```
 
-Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM), `sim/` (simulation
-harness).
+Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
 
 ## Decisions log
 
@@ -288,11 +322,9 @@ harness).
   associativity <1e-12. Measured: merging evidence >~53 half-lives apart absorbs the
   older side to nothing — exactly decay's "fully forgotten". Spec: `spec/merge.md`.
 
-## Currently in flight
-
-- **PR 10** (`pr-10`) — `golden.py` + `spec/golden.json`: the golden test vector corpus
-  generated from the reference (design doc §8). Sections per layer (rng, exp2, decay,
-  model, exploration, encoding) plus an end-to-end `episode`: two agents, hashed
+- **PR 10** (2026-07-15) — `golden.py` + `spec/golden.json`: the golden test vector
+  corpus generated from the reference (design doc §8). Sections per layer (rng, exp2,
+  decay, model, exploration, encoding) plus an end-to-end `episode`: two agents, hashed
   encoding, out-of-order rewards, censor, exact-horizon expiry sweep, merge — every
   record and resolution logged; matching it bit-for-bit is the Phase 0 exit test for an
   independent decide/learn. `tests/test_golden.py` pins the checked-in file to exact
@@ -302,3 +334,25 @@ harness).
   (R6); macOS/Windows legs deferred for cost, to return as a release gate with the
   compiled core. `.gitattributes` forces LF so the corpus compares as exact text
   everywhere. Spec: `spec/golden.md`.
+
+## Currently in flight
+
+- **PR 11** (`pr-11`) — `sim/` harness (Phase 0.5 plan above): the environment protocol
+  (per-round context dict + candidate dicts in, stochastic reward out, oracle expected
+  reward of every candidate exposed so regret is exact), a runner driving the real
+  public path — encode → `decide` → ledger `learn`/`expire`, never the layers in
+  isolation — and metrics (normalized cumulative regret with 0 = oracle / 1 = uniform,
+  final-window regret rate, prediction RMSE vs the oracle means, median/IQR over
+  seeds). Stationary environments: well-specified linear (per-arm intercepts + slopes,
+  exactly the dimensions the hashed outer product produces) and XOR-misspecified
+  (best arm depends on a context-feature product the encoding never forms). Comparators
+  through one identical loop: oracle, uniform, greedy (gamma → ∞, no floor),
+  epsilon-greedy (ε ∈ {0.05, 0.1}). All randomness comes from the reference's counter
+  RNG keyed by (name, seed, t), so rounds are pure functions of the seed and every
+  comparator is paired by construction; runs replay exactly but nothing is bit-pinned.
+  `python -m sim` runs the stationary battery and prints a markdown table; CI runs it
+  in a single-leg `sim` job (sims are statistics, not bit-identity checks) and appends
+  the table to the GitHub job summary — a diagnostic, not a gate.
+  Non-stationary/churn/missing-feature environments are PR 12; the event-time runner
+  (variable traffic, delayed rewards) is PR 13; the sweep driver, full report
+  generator, and battery findings are PR 14.

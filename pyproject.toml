@@ -17,3 +17,4 @@ packages = ["src/gittins_reference"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]

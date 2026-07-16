@@ -110,13 +110,13 @@ def vector_add(
         origin = t
         age = 0.0
     weight = exp2(age)
-    values = tuple(v + c * weight for v, c in zip(values, contributions, strict=True))
+    values = tuple([v + c * weight for v, c in zip(values, contributions, strict=True)])
     return DecayedVector(vec.half_life, origin, values)
 
 
 def vector_read(vec: DecayedVector, t: float) -> tuple[float, ...]:
     factor = exp2(-(t - vec.origin) / vec.half_life)
-    return tuple(v * factor for v in vec.values)
+    return tuple([v * factor for v in vec.values])
 
 
 def vector_merge(a: DecayedVector, b: DecayedVector) -> DecayedVector:

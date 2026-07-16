@@ -108,15 +108,24 @@ def new_bandit(
 
 
 def candidate_set_hash(candidates: list[list[float]]) -> int:
-    """64-bit FNV-1a over a canonical encoding of the candidate set: the
-    count, then each vector as its length followed by little-endian IEEE-754
-    doubles. Order- and value-sensitive, identical on every platform."""
-    data = len(candidates).to_bytes(8, "little")
+    """64-bit FNV-1a over a canonical *sparse* encoding of the candidate
+    set: the count, then each vector as its dimension, its nonzero-entry
+    count, and its nonzero entries in index order as (index, value) —
+    integers as 8 little-endian bytes, values as little-endian IEEE-754
+    doubles. Entries equal to zero (either sign) are absent, so hashing
+    costs O(nonzeros), not O(dimension): hash-encoded candidates are almost
+    all zeros, and a sparse compiled core need never materialize the dense
+    vector just to hash it. Order-, value-, and shape-sensitive, identical
+    on every platform."""
+    data = bytearray(len(candidates).to_bytes(8, "little"))
     for x in candidates:
         data += len(x).to_bytes(8, "little")
-        for v in x:
+        entries = [(i, v) for i, v in enumerate(x) if v != 0.0]
+        data += len(entries).to_bytes(8, "little")
+        for i, v in entries:
+            data += i.to_bytes(8, "little")
             data += struct.pack("<d", v)
-    return fnv1a_64(data)
+    return fnv1a_64(bytes(data))
 
 
 def choose_gamma(uncertainties: list[float]) -> float:

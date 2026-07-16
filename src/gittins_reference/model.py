@@ -113,11 +113,21 @@ def factorize(model: LinearModel, t: float) -> Factorization:
 
 def predict_factored(f: Factorization, x: list[float]) -> tuple[float, float]:
     """(estimated reward, uncertainty) for features x, given a factorization
-    built from the same model at the same t."""
-    estimate = dot(x, f.theta)
+    built from the same model at the same t.
+
+    Zero entries are skipped: hash-encoded candidates are nearly all zeros,
+    and the ±0.0 terms they contribute never change a finite sum, so the
+    result is bit-identical to the dense loops."""
+    theta = f.theta
+    inv_a = f.inv_a
+    estimate = 0.0
     variance = 0.0
     for j in range(len(x)):
-        variance += x[j] * x[j] * f.inv_a[j]
+        v = x[j]
+        if v == 0.0:
+            continue
+        estimate += v * theta[j]
+        variance += v * v * inv_a[j]
     return estimate, math.sqrt(variance)
 
 
