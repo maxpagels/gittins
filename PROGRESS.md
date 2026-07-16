@@ -369,9 +369,7 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   1.03 → 0.09. The constant change itself is deferred to the battery-findings PR
   (PR 14) per the sweep plan above.
 
-## Currently in flight
-
-- **PR 12** (`pr-12`) — the non-stationary, churn, and missing-feature environments
+- **PR 12** (2026-07-16) — the non-stationary, churn, and missing-feature environments
   (the battery plan's next tranche): `shift` (a LinearEnvironment world redrawn every
   `period` rounds — post-shift recovery, decide.py's uncertainty-regrowth claim),
   `drift` (parameters rotate continuously between two hidden linear worlds; period
@@ -391,6 +389,32 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   half-life is everyone's compromise regime (all ~0.83-0.98); churn traps greedy
   (median 1.23, worse than uniform — its locked arm vanishes) while epsilon recovers
   (0.30) and the engine stays uniform-bounded (0.86); dropout degrades gracefully
-  (greedy 0.17, engine 0.71 with the best RMSE, 0.24). The event-time runner
-  (variable traffic, delayed rewards) is PR 13; the sweep driver, full report
-  generator, and battery findings are PR 14.
+  (greedy 0.17, engine 0.71 with the best RMSE, 0.24).
+
+## Currently in flight
+
+- **PR 13** (`pr-13`) — event-time simulation. `sim/traffic.py`: `DailyTraffic`, a
+  non-homogeneous Poisson arrival process (Gaussian bumps at 10:00 and 19:00, an
+  overnight trough, peak/trough rate swing set by construction, optional burst
+  windows multiplying the rate), sampled by thinning; delay models `ConstantDelay`,
+  `ExponentialDelay`, and `NextMorningDelay` (the conversion that lands tomorrow at
+  09:00 — delay correlated with time of day); a fixed `phase(t)` bucketing
+  (trough/morning/peak/day) for the phase-split metrics. `sim/event_runner.py`:
+  decisions and rewards interleave in one time-ordered heap, the policy's expiry
+  sweep runs with every event's time, reward values are drawn at decision time but
+  delivered `delay` later, and a reward landing after its decision expired is a
+  structural no-op. `EventRunResult` carries the round runner's series (all round
+  metrics apply unchanged) plus timestamps and the plumbing accounting
+  (resolved + in_flight == decisions, always; expired; ledger high-water mark).
+  Policies gained the event-time primitives sweep/decide_at/resolve —
+  choose/observe are now the same primitives composed for the immediate-reward
+  case (round behavior unchanged; the zero-delay event run is test-asserted equal
+  to the hand-driven round loop). The baselines train on every reward however late
+  (no horizon) — deliberately, so the engine's expiry rule is priced against them.
+  `metrics.phase_regret` splits normalized regret by traffic phase. The battery
+  gained an event-time table (linear-k5, 2 days, half-life 6h): with exp-45m
+  delays and a 2h horizon the engine expires ~7% and everyone pays extra in the
+  trough; with next-morning delays greedy goes *worse than uniform* (1.10 — it
+  learns a day late), epsilon holds 0.75, the engine 0.93 with a whole day open in
+  the ledger (high-water ~1875, bounded by the 26h horizon as claimed). The sweep
+  driver, full report generator, and battery findings are PR 14.

@@ -57,6 +57,20 @@ def recovery_time(
     return None
 
 
+def phase_regret(result, phase_of) -> "dict[str, float]":
+    """Normalized regret split by traffic phase (event-time runs): each
+    decision is bucketed by `phase_of(t)` over the result's `times`, and
+    every bucket gets its own regret/normalizer ratio. Phases whose rounds
+    were all indifferent (normalizer 0) report 0, like normalized_regret;
+    phases with no decisions at all are absent from the dict."""
+    sums: "dict[str, list[float]]" = {}
+    for t, r, u in zip(result.times, result.regret, result.normalizer, strict=True):
+        bucket = sums.setdefault(phase_of(t), [0.0, 0.0])
+        bucket[0] += r
+        bucket[1] += u
+    return {p: (r / u if u != 0.0 else 0.0) for p, (r, u) in sums.items()}
+
+
 def rmse(result: RunResult, first: int = 0, last: "int | None" = None) -> "float | None":
     """Root-mean-square prediction error vs the oracle means over rounds
     [first, last); None for model-free policies. Separates model quality
