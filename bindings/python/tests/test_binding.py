@@ -60,10 +60,10 @@ class TestGoldenGate:
                 e["reward"],
             )
 
-    def test_final_state_bytes_match_the_corpus(self):
+    def test_final_state_matches_the_corpus(self):
         s, state, _, _ = replay_api_section()
         data = gittins.serialize(state)
-        assert data.hex() == s["final"]["state_hex"]
+        assert data == s["final"]["state_hex"]  # serialize IS the hex string
         assert gittins.serialize(gittins.deserialize(data)) == data
 
 
@@ -103,8 +103,10 @@ class TestSurface:
         state = gittins.create(4, horizon=10.0)
         with pytest.raises(ValueError, match="unsupported type"):
             gittins.decide(state, {"bad": [1, 2]}, [("a", {})], 0.0, "s")
+        with pytest.raises(ValueError, match="hexadecimal"):
+            gittins.deserialize(gittins.serialize(state)[:-1])  # odd length
         with pytest.raises(ValueError, match="checksum|truncated"):
-            gittins.deserialize(gittins.serialize(state)[:-1])
+            gittins.deserialize(gittins.serialize(state)[:-2])  # missing byte
 
     def test_unknown_resolutions_are_none(self):
         state = gittins.create(4, horizon=10.0)

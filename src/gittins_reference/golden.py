@@ -307,7 +307,7 @@ def api_vectors():
         "final": {
             "model_version": state._state.model_version,
             "next_seq": state._state.next_seq,
-            "state_hex": api.serialize(state).hex(),
+            "state_hex": api.serialize(state),
         },
     }
 

@@ -13,7 +13,7 @@ Two things to know before the code makes sense:
 - **The state is a handle, updated in place.** `create` gives you one;
   `decide`, `learn`, and `expire` update it as they go and hand back just
   their results. To save, copy, or roll back, snapshot it with
-  `serialize` — the whole state is one byte string.
+  `serialize` — the whole state is one plain string.
 - **You supply the time.** Pass your own clock's `t` (seconds, e.g.
   `time.time()`) into `decide` and `expire`. The engine never looks at a
   clock itself, so any run can be replayed exactly.
@@ -88,20 +88,22 @@ when `expire` runs, at the deadline you chose.
 
 ## Saving and loading
 
-The whole state becomes one byte string, and the exact same bytes come out
-on any machine:
+The whole state becomes one plain string (hex-encoded), and the exact same
+string comes out on any machine — put it in a file, a database column,
+localStorage, or version control as-is; there is never a byte-handling or
+encoding step on your side:
 
 ```python
 from pathlib import Path
 
-Path("bandit.state").write_bytes(gittins.serialize(state))
+Path("bandit.state").write_text(gittins.serialize(state))
 # ... later, or on another machine:
-state = gittins.deserialize(Path("bandit.state").read_bytes())
+state = gittins.deserialize(Path("bandit.state").read_text())
 ```
 
 `deserialize` checks everything (a checksum plus every internal
 consistency rule) and raises `ValueError` rather than load anything
 corrupt. The format is shared across implementations — a state saved by
-the Rust engine loads in the pure-Python reference and vice versa — and is
-small enough and stable enough to commit to version control alongside your
-code.
+the Rust engine loads in the pure-Python reference or in a browser and
+vice versa — and is small enough and stable enough to commit to version
+control alongside your code.

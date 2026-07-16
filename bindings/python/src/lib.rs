@@ -17,7 +17,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyString, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple};
 
 use gittins_core::api;
 use gittins_core::decide::{BanditState as CoreState, DecisionRecord as CoreRecord};
@@ -191,12 +191,14 @@ fn expire<'py>(
 }
 
 #[pyfunction]
-fn serialize<'py>(py: Python<'py>, state: &Bound<'py, BanditState>) -> Bound<'py, PyBytes> {
-    PyBytes::new(py, &api::serialize(&state.borrow().inner))
+/// The current state as one plain hex string — storable anywhere text
+/// goes, with no byte handling on the caller's side.
+fn serialize(state: &Bound<'_, BanditState>) -> String {
+    api::serialize(&state.borrow().inner)
 }
 
 #[pyfunction]
-fn deserialize(data: &[u8]) -> PyResult<BanditState> {
+fn deserialize(data: &str) -> PyResult<BanditState> {
     Ok(BanditState {
         inner: api::deserialize(data).map_err(value_error)?,
     })

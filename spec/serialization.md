@@ -10,7 +10,9 @@ files, weights in version control, browser storage). Implemented in
 
 `serialize(state) -> bytes` and `deserialize(bytes) -> state` are pure,
 exact inverses: one canonical encoding per state, no optional parts, the
-same bytes from every platform and every implementation. The byte string is
+same bytes from every platform and every implementation. (This is the
+internal byte layer; the *public API* surfaces exactly these bytes as a
+lowercase hex string — see `api.md` — so callers never handle bytes.) The byte string is
 the deployment artifact — a flat file, a version-controlled blob, a
 localStorage value — and the golden corpus pins three of them (a fresh
 state, the episode's mid snapshot with two open ledger records, and the

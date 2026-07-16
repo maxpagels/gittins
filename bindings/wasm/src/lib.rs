@@ -19,7 +19,7 @@
 //! - one boundary crossing per decision: `decide` takes the whole
 //!   candidate list, and encode → score → sample run inside the module.
 
-use js_sys::{Array, BigInt, Object, Reflect, Uint8Array};
+use js_sys::{Array, BigInt, Object, Reflect};
 use wasm_bindgen::prelude::*;
 
 use gittins_core::api;
@@ -199,12 +199,15 @@ pub fn expire(state: &mut BanditState, t: f64) -> Array {
 }
 
 #[wasm_bindgen]
-pub fn serialize(state: &BanditState) -> Uint8Array {
-    Uint8Array::from(api::serialize(&state.inner).as_slice())
+/// The current state as one plain hex string — drops straight into
+/// localStorage, JSON, or a database column, no encoding on the caller's
+/// side.
+pub fn serialize(state: &BanditState) -> String {
+    api::serialize(&state.inner)
 }
 
 #[wasm_bindgen]
-pub fn deserialize(data: &[u8]) -> Result<BanditState, JsError> {
+pub fn deserialize(data: &str) -> Result<BanditState, JsError> {
     Ok(BanditState {
         inner: api::deserialize(data).map_err(js_error)?,
     })

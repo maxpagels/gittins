@@ -14,16 +14,15 @@ plain objects with the same field names as the Python API;
 `candidate_hash` is a BigInt.
 
 A bandit that lives entirely in the browser, surviving reloads through
-localStorage — the engine's whole state is one byte string:
+localStorage — the engine's whole state is one plain string, stored and
+loaded as-is:
 
 ```js
 import init, * as gittins from "./pkg/gittins_wasm.js";
 await init();
 
 const saved = localStorage.getItem("bandit");
-let state = saved
-  ? gittins.deserialize(Uint8Array.from(atob(saved), (c) => c.charCodeAt(0)))
-  : gittins.create(8, 3600.0); // bits, horizon seconds
+let state = saved ? gittins.deserialize(saved) : gittins.create(8, 3600.0); // bits, horizon seconds
 
 const candidates = [
   ["banner-sale", { discount: 0.2 }],
@@ -44,11 +43,11 @@ renderBanner(chosenArmId); // your code: act on the choice
 gittins.learn(state, record.decision_id, 1.0);
 gittins.expire(state, Date.now() / 1000);
 
-localStorage.setItem("bandit", btoa(String.fromCharCode(...gittins.serialize(state))));
+localStorage.setItem("bandit", gittins.serialize(state));
 ```
 
-The byte format is shared across implementations: a state saved in the
-browser loads in Python or Rust unchanged. Tests
+The format is shared across implementations: a state saved in the browser
+loads in Python or Rust unchanged. Tests
 (`wasm-pack test --node bindings/wasm`) replay the golden `api` and
 `serialization` sections through this module — the binding acceptance gate,
 and, because WASM mandates IEEE-754 semantics, the project's cross-platform

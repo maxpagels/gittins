@@ -13,7 +13,41 @@ use crate::error::Error;
 // Resolution and serialization pass through unchanged; re-exported so the
 // binding surface is this one module.
 pub use crate::ledger::{censor, expire, learn, Kind, Resolution};
-pub use crate::state::{deserialize, serialize};
+
+/// The current state as one plain string: the canonical byte layout
+/// (state.rs, spec/serialization.md), hex-encoded, lowercase. A string
+/// goes anywhere text goes — a file, a database column, localStorage,
+/// version control — so no caller, in any language, ever handles raw
+/// bytes or picks an encoding.
+pub fn serialize(state: &BanditState) -> String {
+    let bytes = crate::state::serialize(state);
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(char::from_digit((b >> 4) as u32, 16).unwrap());
+        out.push(char::from_digit((b & 0xf) as u32, 16).unwrap());
+    }
+    out
+}
+
+/// A state parsed and validated from a `serialize` string. Hex digits of
+/// either case are accepted; the canonical form `serialize` emits is
+/// lowercase.
+pub fn deserialize(data: &str) -> Result<BanditState, Error> {
+    if data.len() % 2 != 0 {
+        return Err(Error::new("state must be a hexadecimal string"));
+    }
+    let digits = data.as_bytes();
+    let mut bytes = Vec::with_capacity(digits.len() / 2);
+    for pair in digits.chunks(2) {
+        let hi = (pair[0] as char).to_digit(16);
+        let lo = (pair[1] as char).to_digit(16);
+        match (hi, lo) {
+            (Some(hi), Some(lo)) => bytes.push(((hi << 4) | lo) as u8),
+            _ => return Err(Error::new("state must be a hexadecimal string")),
+        }
+    }
+    crate::state::deserialize(&bytes)
+}
 
 /// A fresh bandit whose model spans the 2^bits hashed feature space —
 /// `bits` is the one encoding declaration; every other parameter is

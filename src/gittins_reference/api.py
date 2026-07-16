@@ -13,7 +13,7 @@ The surface is eight names:
     learn(state, decision_id, reward)   -> Resolution | None
     censor(state, decision_id)          -> Resolution | None
     expire(state, t)                    -> (Resolution, ...)
-    serialize(state)                    -> bytes
+    serialize(state)                    -> str (hex)
     deserialize(data)                   -> BanditState
     model_bits(state)                   -> int
 
@@ -151,12 +151,22 @@ def expire(state: BanditState, t: float) -> "tuple[Resolution, ...]":
     return resolutions
 
 
-def serialize(state: BanditState) -> bytes:
-    """The canonical byte string for the current state (state.py)."""
-    return _state.serialize(state._state)
+def serialize(state: BanditState) -> str:
+    """The current state as one plain string: the canonical byte layout
+    (state.py), hex-encoded, lowercase. A string goes anywhere text goes —
+    a file, a database column, localStorage, version control — so no
+    caller, in any language, ever handles raw bytes or picks an encoding."""
+    return _state.serialize(state._state).hex()
 
 
-def deserialize(data: bytes) -> BanditState:
-    """A handle on a state parsed and validated from its canonical bytes;
-    raises ValueError on anything malformed (state.py)."""
-    return BanditState(_state.deserialize(data))
+def deserialize(data: str) -> BanditState:
+    """A handle on a state parsed and validated from a `serialize` string;
+    raises ValueError on anything malformed. Hex digits of either case are
+    accepted; the canonical form `serialize` emits is lowercase."""
+    try:
+        raw = bytes.fromhex(data)
+    except (ValueError, TypeError):
+        raise ValueError("state must be a hexadecimal string") from None
+    if len(data) != 2 * len(raw):  # fromhex tolerates whitespace; the API does not
+        raise ValueError("state must be a hexadecimal string")
+    return BanditState(_state.deserialize(raw))

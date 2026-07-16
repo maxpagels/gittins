@@ -23,8 +23,8 @@ The surface is eight names:
 | `learn(state, decision_id, reward)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
 | `censor(state, decision_id)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
 | `expire(state, t)` | the resolutions, in ledger order | ledger.py, unchanged |
-| `serialize(state)` | the canonical bytes | state.py, unchanged |
-| `deserialize(data)` | a state handle | state.py, unchanged |
+| `serialize(state)` | the state as one hex string | the canonical byte layout (serialization.md), hex-encoded |
+| `deserialize(data)` | a state handle | the inverse; rejects anything malformed |
 | `model_bits(state)` | the `bits` declaration | recovered from the model dimension |
 
 ## State handling: one convention everywhere
@@ -42,6 +42,17 @@ This is purely a facade choice. The reference's internal layers
 immutable values; `api.py`'s handle is a one-field cell that swaps which
 immutable value it holds. Snapshotting, rollback, and replay are one
 `serialize` away.
+
+## Serialization is a plain string
+
+`serialize` returns the canonical byte layout (serialization.md) as a
+lowercase hex string, and `deserialize` takes one back (either case
+accepted; the canonical form is lowercase). A string goes anywhere text
+goes — a file, a database column, localStorage, version control — so no
+caller, in any language, ever handles raw bytes, base64, or `Uint8Array`
+conversions. The bytes remain the specified format; hex is its one public
+text form, identical across implementations (the golden `api` section's
+`state_hex` is exactly what `serialize` returns).
 
 ## Inputs
 

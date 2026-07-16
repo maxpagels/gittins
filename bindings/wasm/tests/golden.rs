@@ -113,17 +113,6 @@ fn assert_resolution(resolution: &JsValue, expected: &Json) {
     }
 }
 
-fn unhex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).expect("bad hex"))
-        .collect()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 #[wasm_bindgen_test]
 fn api_section_through_the_binding() {
     let s = section("api");
@@ -171,10 +160,10 @@ fn api_section_through_the_binding() {
     assert!(censor(&mut state, &ids[2]).is_null());
 
     let fin = s.get("final");
-    let bytes = serialize(&state).to_vec();
-    assert!(hex(&bytes) == fin.get("state_hex").str_(), "final state bytes differ from corpus");
-    let restored = deserialize(&bytes).unwrap();
-    assert!(serialize(&restored).to_vec() == bytes, "round-trip bytes differ");
+    let data = serialize(&state);
+    assert!(data == fin.get("state_hex").str_(), "final state hex differs from corpus");
+    let restored = deserialize(&data).unwrap();
+    assert!(serialize(&restored) == data, "round-trip hex differs");
 }
 
 #[wasm_bindgen_test]
@@ -183,12 +172,12 @@ fn serialization_section_bytes() {
     // The fresh state is reproducible through the public surface alone.
     let fresh = s.get("fresh");
     let state = create(fresh.get("dim").u64_().trailing_zeros(), fresh.get("horizon").f64_(), None, None, None).unwrap();
-    assert!(hex(&serialize(&state).to_vec()) == fresh.get("bytes_hex").str_(), "fresh bytes");
-    // Every pinned byte string is accepted and re-emitted exactly.
+    assert!(serialize(&state) == fresh.get("bytes_hex").str_(), "fresh hex");
+    // Every pinned string is accepted and re-emitted exactly.
     for case in ["fresh", "episode_mid", "episode_final"] {
-        let expected = unhex(s.get(case).get("bytes_hex").str_());
-        let state = deserialize(&expected).unwrap();
-        assert!(serialize(&state).to_vec() == expected, "{case}: bytes differ after round-trip");
+        let expected = s.get(case).get("bytes_hex").str_();
+        let state = deserialize(expected).unwrap();
+        assert!(serialize(&state) == expected, "{case}: hex differs after round-trip");
     }
 }
 
@@ -201,5 +190,6 @@ fn rejections_throw() {
     Reflect::set(&bad, &JsValue::from_str("nested"), &Object::new().into()).unwrap();
     let candidates = Array::of1(&Array::of2(&JsValue::from_str("a"), &bad.into()));
     assert!(decide(&mut state, &context.into(), &candidates.into(), 0.0, "s").is_err());
-    assert!(deserialize(&[0, 1, 2]).is_err());
+    assert!(deserialize("000102").is_err()); // valid hex, truncated state
+    assert!(deserialize("xyz").is_err()); // not hex at all
 }

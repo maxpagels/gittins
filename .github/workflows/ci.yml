@@ -64,11 +64,13 @@ jobs:
       - name: Run environment battery on the Rust core
         run: cargo run --release --manifest-path core/Cargo.toml --bin sim | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # The Python binding: build the wheel (maturin via the PEP 517 backend),
-  # replay the golden api section through it — the binding acceptance gate
-  # (spec/api.md) — and append the decision-cycle benchmark to the summary
-  # so boundary-crossing regressions are visible next to the battery tables.
-  python-binding:
+  # The bindings job: build the Python wheel (maturin via the PEP 517
+  # backend), replay the golden api section through it — the binding
+  # acceptance gate (spec/api.md) — then append the decision-cycle
+  # benchmark to the summary: native core / wheel / wasm / pure reference
+  # in one table, so both engine and boundary regressions are visible next
+  # to the battery tables.
+  bindings:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -84,9 +86,11 @@ jobs:
           uv pip install . ./bindings/python pytest
       - name: Golden gate + binding tests
         run: .venv/bin/python -m pytest bindings/python/tests -q
-      # The benchmark compares all three implementations in one table, so
-      # this job also builds the wasm package for Node (bench.py degrades
-      # to "not built" if it is absent).
+      # The benchmark compares four implementations in one table, so this
+      # job also builds the native-core bench binary and the wasm package
+      # for Node (bench.py degrades cells to "not built" if absent).
+      - name: Build the native-core benchmark binary
+        run: cargo build --release --bin bench --manifest-path core/Cargo.toml
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Build the wasm package for Node

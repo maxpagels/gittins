@@ -412,12 +412,12 @@ fn api_section() {
     let fin = s.get("final");
     assert!(state.model_version == fin.get("model_version").u64_(), "final model_version");
     assert!(state.next_seq == fin.get("next_seq").u64_(), "final next_seq");
-    let expected = unhex(fin.get("state_hex").str_());
+    let expected = fin.get("state_hex").str_();
     assert!(
         api::serialize(&state) == expected,
-        "final state bytes differ from corpus"
+        "final state hex differs from corpus"
     );
-    assert!(api::deserialize(&expected).unwrap() == state);
+    assert!(api::deserialize(expected).unwrap() == state);
 }
 
 fn unhex(text: &str) -> Vec<u8> {

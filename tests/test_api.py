@@ -55,7 +55,7 @@ class TestDecide:
     def test_rejects_states_not_built_by_create(self):
         # dim 5 is not a power of two; reaching the facade with one is only
         # possible via the layered API, and decide refuses it.
-        state = api.deserialize(state_module.serialize(new_bandit(5, horizon=10.0)))
+        state = api.deserialize(state_module.serialize(new_bandit(5, horizon=10.0)).hex())
         with pytest.raises(ValueError, match="2\\*\\*bits"):
             api.decide(state, {}, CATALOG, 0.0, "s")
 
@@ -80,7 +80,15 @@ class TestFullCycle:
         assert api.expire(state, record.t + 5.0) == ()
 
         data = api.serialize(state)
+        assert isinstance(data, str) and data.startswith("67697474696e7300")  # "gittins\0"
         assert api.serialize(api.deserialize(data)) == data
+        assert api.serialize(api.deserialize(data.upper())) == data  # either case in, lowercase out
+
+    def test_deserialize_rejects_non_hex(self):
+        good = api.serialize(api.create(4, horizon=5.0))
+        for bad in (good[:-1], good + "zz", good.replace(good[:2], "6 "), "", "banana"):
+            with pytest.raises(ValueError):
+                api.deserialize(bad)
 
     def test_learning_moves_later_decisions(self):
         # Same salt and context, deterministic replay: after strong rewards
