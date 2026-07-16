@@ -6,7 +6,7 @@
 # deferred, to be revisited when the compiled core lands — cross-OS
 # bit-identity is a release gate even if it isn't a per-PR gate.
 #
-# The sim job runs the stationary battery (sim/) once — one leg, not the
+# The sim job runs the environment battery (sim/) once — one leg, not the
 # matrix, because sims are statistical, not bit-identity checks — and
 # appends its markdown table to the job summary, so regret against the
 # baselines is readable on every PR. Diagnostic, not a gate.
@@ -45,5 +45,5 @@ jobs:
       - uses: astral-sh/setup-uv@v8.3.2
         with:
           python-version: "3.13"
-      - name: Run stationary battery
+      - name: Run environment battery
         run: uv run python -m sim | tee -a "$GITHUB_STEP_SUMMARY"

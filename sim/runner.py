@@ -13,6 +13,9 @@ is exact:
     normalizer[t]  — best mean minus the average mean: the expected
                      per-round regret of uniform random, the unit that
                      metrics.normalized_regret divides by
+    best[t]        — the best candidate's mean: the oracle's expected
+                     reward rate, the level metrics.recovery_time
+                     measures against
     sq_error[t]    — mean squared prediction error across the round's
                      candidates (None for model-free policies), separating
                      model quality from policy quality
@@ -32,6 +35,7 @@ class RunResult:
     seed: int
     regret: tuple[float, ...]
     normalizer: tuple[float, ...]
+    best: tuple[float, ...]
     sq_error: "tuple[float, ...] | None"
     reward: tuple[float, ...]
 
@@ -42,6 +46,7 @@ def run(env: Environment, policy: Policy, seed: int, rounds: int) -> RunResult:
     policy.begin(seed)
     regret = []
     normalizer = []
+    best_means = []
     sq_error: "list[float] | None" = None
     reward = []
     for t in range(rounds):
@@ -54,6 +59,7 @@ def run(env: Environment, policy: Policy, seed: int, rounds: int) -> RunResult:
         best = max(rd.means)
         regret.append(best - rd.means[chosen])
         normalizer.append(best - sum(rd.means) / k)
+        best_means.append(best)
         reward.append(r)
         if estimates is not None:
             if sq_error is None:
@@ -68,6 +74,7 @@ def run(env: Environment, policy: Policy, seed: int, rounds: int) -> RunResult:
         seed=seed,
         regret=tuple(regret),
         normalizer=tuple(normalizer),
+        best=tuple(best_means),
         sq_error=None if sq_error is None else tuple(sq_error),
         reward=tuple(reward),
     )

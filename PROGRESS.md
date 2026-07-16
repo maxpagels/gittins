@@ -335,24 +335,62 @@ Planned later: `core/` (Rust), `bindings/` (Python native, JS/WASM).
   compiled core. `.gitattributes` forces LF so the corpus compares as exact text
   everywhere. Spec: `spec/golden.md`.
 
-## Currently in flight
-
-- **PR 11** (`pr-11`) — `sim/` harness (Phase 0.5 plan above): the environment protocol
-  (per-round context dict + candidate dicts in, stochastic reward out, oracle expected
-  reward of every candidate exposed so regret is exact), a runner driving the real
-  public path — encode → `decide` → ledger `learn`/`expire`, never the layers in
+- **PR 11** (2026-07-16) — `sim/` harness (Phase 0.5 plan above): the environment
+  protocol (per-round context dict + candidate dicts in, stochastic reward out, oracle
+  expected reward of every candidate exposed so regret is exact), a runner driving the
+  real public path — encode → `decide` → ledger `learn`/`expire`, never the layers in
   isolation — and metrics (normalized cumulative regret with 0 = oracle / 1 = uniform,
   final-window regret rate, prediction RMSE vs the oracle means, median/IQR over
-  seeds). Stationary environments: well-specified linear (per-arm intercepts + slopes,
-  exactly the dimensions the hashed outer product produces) and XOR-misspecified
-  (best arm depends on a context-feature product the encoding never forms). Comparators
-  through one identical loop: oracle, uniform, greedy (gamma → ∞, no floor),
-  epsilon-greedy (ε ∈ {0.05, 0.1}). All randomness comes from the reference's counter
-  RNG keyed by (name, seed, t), so rounds are pure functions of the seed and every
-  comparator is paired by construction; runs replay exactly but nothing is bit-pinned.
-  `python -m sim` runs the stationary battery and prints a markdown table; CI runs it
-  in a single-leg `sim` job (sims are statistics, not bit-identity checks) and appends
-  the table to the GitHub job summary — a diagnostic, not a gate.
-  Non-stationary/churn/missing-feature environments are PR 12; the event-time runner
+  seeds). Stationary environments: well-specified linear and XOR-misspecified.
+  Comparators through one identical loop: oracle, uniform, greedy (gamma → ∞, no
+  floor), epsilon-greedy (ε ∈ {0.05, 0.1}). All randomness comes from the reference's
+  counter RNG keyed by (name, seed, t), so rounds are pure functions of the seed and
+  every comparator is paired by construction; runs replay exactly but nothing is
+  bit-pinned. `python -m sim` runs the battery and prints a markdown table; CI runs it
+  in a single-leg `sim` job and appends the table to the GitHub job summary — a
+  diagnostic, not a gate. Expanded before merge with two more stationary
+  environments — `needle`
+  (context-free, one hidden slightly-better arm among many: exploration isolated from
+  the model; greedy provably locks on a lucky arm) and `action-features` (reward
+  bilinear in context x action features, so evidence must transfer between arms; the
+  first exercise of the encoder's action namespace) — plus larger-k variants in the
+  battery. Also from the battery's first findings: `candidate_set_hash` respecced over
+  the sparse (dimension, nonzero count, sorted (index, value) pairs) encoding — zero
+  entries are absent, so hashing is O(nonzeros) and a sparse core never materializes
+  the dense vector; golden vectors regenerated (the diff was exclusively
+  `candidate_hash` values, proving decisions untouched). Behavior-identical speedups
+  (goldens unchanged): `pair_hash` memoized (bounded lru_cache — the same token pairs
+  recur every decision), `predict_factored` single-pass skipping zero entries (±0.0
+  never changes a finite sum), decay vector ops via list comprehensions. Battery
+  wall time 123s → 28s at 1500 rounds x 5 seeds x 6 environments. Battery data:
+  `GAMMA_SCALE = 1.0` plateaus gamma at ~6 (decay bounds uncertainty at ~0.16), so
+  the engine picks a 0.3-gap best arm only ~40% of the time forever; sweeping
+  GAMMA_SCALE ∈ {10, 30, 100, 300} drops linear-k5 regret 0.68 → 0.10 and xor final-10%
+  1.03 → 0.09. The constant change itself is deferred to the battery-findings PR
+  (PR 14) per the sweep plan above.
+
+## Currently in flight
+
+- **PR 12** (`pr-12`) — the non-stationary, churn, and missing-feature environments
+  (the battery plan's next tranche): `shift` (a LinearEnvironment world redrawn every
+  `period` rounds — post-shift recovery, decide.py's uncertainty-regrowth claim),
+  `drift` (parameters rotate continuously between two hidden linear worlds; period
+  beyond the run = slow drift, inside it = seasonal), `churn` (context-free arms with
+  scripted events in absolute rounds: the best arm disappears, returns, and a strictly
+  better stranger is born late — the candidate list changes shape under the policy,
+  no registration anywhere), and `dropout` (each true feature absent per round with
+  probability p, distractor features always on, oracle means from the full context —
+  regret prices the missing information). Runner grows a per-round `best` series (the
+  oracle's expected rate); metrics grow `recovery_time(result, event, window,
+  fraction)` — rounds after an event until the policy's rolling expected reward rate
+  regains `fraction` of the oracle's (meaningful for positive-mean worlds; churn draws
+  its means that way). All four join the CI battery (renamed "environment battery":
+  10 environments, 41s) and the invariant tests (exact replay, oracle-zero,
+  uniform~1). First readings at 1500 rounds: shifts are survivable for every learner
+  (greedy 0.62, engine 0.85, uniform-bounded); seasonal drift against the 1000-round
+  half-life is everyone's compromise regime (all ~0.83-0.98); churn traps greedy
+  (median 1.23, worse than uniform — its locked arm vanishes) while epsilon recovers
+  (0.30) and the engine stays uniform-bounded (0.86); dropout degrades gracefully
+  (greedy 0.17, engine 0.71 with the best RMSE, 0.24). The event-time runner
   (variable traffic, delayed rewards) is PR 13; the sweep driver, full report
   generator, and battery findings are PR 14.
