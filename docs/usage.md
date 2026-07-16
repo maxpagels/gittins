@@ -10,9 +10,10 @@ on this page works there too.)
 
 Two things to know before the code makes sense:
 
-- **Always keep the returned state.** Every call gives the state back;
-  rebind it each time, exactly as written below, and don't hold on to old
-  state variables.
+- **The state is a handle, updated in place.** `create` gives you one;
+  `decide`, `learn`, and `expire` update it as they go and hand back just
+  their results. To save, copy, or roll back, snapshot it with
+  `serialize` — the whole state is one byte string.
 - **You supply the time.** Pass your own clock's `t` (seconds, e.g.
   `time.time()`) into `decide` and `expire`. The engine never looks at a
   clock itself, so any run can be replayed exactly.
@@ -46,7 +47,7 @@ candidates = [                                       # (arm id, that arm's featu
     ("banner-plain", {}),
 ]
 
-record, state = gittins.decide(state, context, candidates, t=1_752_000_000.0, salt="agent-1")
+record = gittins.decide(state, context, candidates, t=1_752_000_000.0, salt="agent-1")
 
 chosen_arm_id = candidates[record.chosen][0]         # act on this
 ```
@@ -69,15 +70,15 @@ only be resolved once:
 
 ```python
 # The reward came in (late or out of order is fine):
-resolution, state = gittins.learn(state, record.decision_id, reward=1.0)
+resolution = gittins.learn(state, record.decision_id, reward=1.0)
 
 # Call this regularly with the current time; decisions that waited past
 # the horizon are trained as default_reward:
-resolutions, state = gittins.expire(state, t=1_752_003_600.0)
+resolutions = gittins.expire(state, t=1_752_003_600.0)
 
 # Throw a decision out of training, but keep that fact on record
 # (say, an outage corrupted the outcome):
-resolution, state = gittins.censor(state, record.decision_id)
+resolution = gittins.censor(state, record.decision_id)
 ```
 
 Each call tells you what it did, so you can log it. Reporting the same

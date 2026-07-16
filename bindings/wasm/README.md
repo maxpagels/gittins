@@ -8,10 +8,10 @@ with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
 wasm-pack build --target web bindings/wasm   # emits bindings/wasm/pkg/
 ```
 
-One JS-flavored difference from the Python API: calls return their result
-only, and the state handle is updated in place — there is no
-`(result, state)` pair to rebind. Decision records and resolutions are
-plain objects with the same field names; `candidate_hash` is a BigInt.
+As everywhere else (`spec/api.md`): calls return their result only, and
+the state handle is updated in place. Decision records and resolutions are
+plain objects with the same field names as the Python API;
+`candidate_hash` is a BigInt.
 
 A bandit that lives entirely in the browser, surviving reloads through
 localStorage — the engine's whole state is one byte string:

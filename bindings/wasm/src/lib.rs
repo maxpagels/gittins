@@ -6,11 +6,10 @@
 //! semantics and the engine uses no libm transcendentals, passing that gate
 //! is also the project's first cross-platform bit-identity check.
 //!
-//! Shapes, translated to JavaScript:
-//! - the state is an opaque handle, **mutated in place** — calls return
-//!   their result only, not a `(result, state)` pair, since rebinding
-//!   tuples is a Python idiom, not a JS one. Everything else matches the
-//!   reference name for name.
+//! Shapes:
+//! - the state is an opaque handle, **updated in place** — calls return
+//!   their result only. This is the uniform convention across every
+//!   implementation (spec/api.md), reference and Python wheel included.
 //! - contexts and action features are plain objects (string values are
 //!   categorical, numbers numeric, booleans 1/0, null/undefined absent);
 //!   candidates are `[armId, actionFeatures]` pairs.
