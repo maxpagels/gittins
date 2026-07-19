@@ -6,7 +6,7 @@ else. The rule it exists to enforce: the public API is specified once, here
 in the reference, and every binding mirrors it exactly; a binding's CI gate
 is the golden `api` section replayed through these functions alone.
 
-The surface is eight names:
+The surface is nine names:
 
     create(bits, horizon, ...)          -> BanditState (a handle)
     decide(state, context, candidates, t, salt,
@@ -17,6 +17,22 @@ The surface is eight names:
     serialize(state)                    -> str (hex)
     deserialize(data)                   -> BanditState
     model_bits(state)                   -> int
+    log_line(record | resolution)       -> str (one experience-log line)
+
+**Assembly-free logging (spec/ope.md).** The record `decide` returns
+carries the inputs the decision was made over — `bits`, `context`,
+`candidates`, attached at the only moment they exist — and `log_line`
+turns it (or any resolution) into one canonical experience-log line, so
+building an OPE-ready log is appending what each call returns:
+
+    f.write(log_line(record) + "\n")      # after decide
+    f.write(log_line(resolution) + "\n")  # after learn / censor / expire
+
+The three input fields live only on records returned by `decide`: the
+ledger keeps the compact record (fixed memory, unchanged serialization),
+so a record that crossed the state boundary — the one a `train` callback
+receives — carries None there. The log, not the state, is where inputs
+persist; `candidate_hash` is the commitment binding the two.
 
 **Bring your own model / exploration (R7, spec/byo.md).** The three
 optional callbacks are the whole BYO surface, each replacing exactly one
@@ -65,11 +81,13 @@ absent. Duplicate candidates are allowed and score identically, exactly as
 duplicate encodings do in the layered API.
 """
 
+import json as _json
+from dataclasses import dataclass
 from dataclasses import replace as _replace
 
 from gittins_reference import ledger as _ledger
 from gittins_reference import state as _state
-from gittins_reference.decide import DecisionRecord, new_bandit
+from gittins_reference.decide import new_bandit
 from gittins_reference.decide import decide as _decide_encoded
 from gittins_reference.encoding import encode
 from gittins_reference.exploration import DEFAULT_EPSILON
@@ -78,6 +96,7 @@ from gittins_reference.model import DEFAULT_FORGETTING
 
 __all__ = [
     "BanditState",
+    "DecisionRecord",
     "create",
     "decide",
     "learn",
@@ -86,7 +105,47 @@ __all__ = [
     "serialize",
     "deserialize",
     "model_bits",
+    "log_line",
 ]
+
+
+@dataclass(frozen=True)
+class DecisionRecord:
+    """The public decision record: decide.py's compact record plus, on
+    records returned by `decide`, the inputs the decision was made over
+    (`bits`, `context`, `candidates` — the caller's own objects, attached
+    at the only moment they exist), so a record logs as-is (`log_line`).
+    A record that crossed the state boundary — the one a `train` callback
+    receives — carries None in those three fields: the ledger keeps only
+    the compact record, and the log is where inputs persist."""
+
+    decision_id: str
+    t: float
+    candidate_hash: int
+    chosen: int
+    features: tuple[tuple[int, float], ...]
+    propensity: float
+    model_version: int
+    salt: str
+    bits: "int | None" = None
+    context: "dict | None" = None
+    candidates: "list[tuple[str, dict]] | None" = None
+
+
+def _public_record(record, bits=None, context=None, candidates=None) -> DecisionRecord:
+    return DecisionRecord(
+        decision_id=record.decision_id,
+        t=record.t,
+        candidate_hash=record.candidate_hash,
+        chosen=record.chosen,
+        features=record.features,
+        propensity=record.propensity,
+        model_version=record.model_version,
+        salt=record.salt,
+        bits=bits,
+        context=context,
+        candidates=candidates,
+    )
 
 
 class BanditState:
@@ -154,7 +213,11 @@ def decide(
 
     `score` and `explore` are the BYO callbacks (module docstring,
     spec/byo.md); `score` is called once with the very `context` and
-    `candidates` passed here."""
+    `candidates` passed here.
+
+    The returned record carries `bits` and the very `context` and
+    `candidates` passed in (no copies), so it logs as-is via
+    `log_line`."""
     bits = model_bits(state)
     encoded = [encode(context, arm_id, action, bits) for arm_id, action in candidates]
     record, state._state = _decide_encoded(
@@ -165,7 +228,7 @@ def decide(
         score=None if score is None else (lambda _encoded: score(context, candidates)),
         explore=explore,
     )
-    return record
+    return _public_record(record, bits=bits, context=context, candidates=candidates)
 
 
 def learn(
@@ -187,7 +250,7 @@ def learn(
     state._state = _replace(
         state._state, model_version=state._state.model_version + 1, ledger=rest
     )
-    train(record, reward)
+    train(_public_record(record), reward)
     return Resolution(decision_id, _ledger.REWARDED, reward)
 
 
@@ -221,8 +284,53 @@ def expire(state: BanditState, t: float, train=None) -> "tuple[Resolution, ...]"
         resolutions.append(
             Resolution(record.decision_id, _ledger.EXPIRED, state._state.default_reward)
         )
-        train(record, state._state.default_reward)
+        train(_public_record(record), state._state.default_reward)
     return tuple(resolutions)
+
+
+def log_line(item) -> str:
+    """One canonical experience-log line (spec/ope.md) for a decision
+    record or a resolution — exactly what `verify`/`evaluate`/`replay`
+    consume, so building an OPE-ready log is appending this, verbatim,
+    after each call. Compact JSON, canonical field order, feature dicts
+    kept in their own (insertion) order — the order they encoded with.
+
+    Decision records must be the ones `decide` returned: those carry the
+    inputs. A record from a `train` callback does not (its inputs are
+    already in your log, written at decide time) and is refused."""
+    if isinstance(item, DecisionRecord):
+        if item.bits is None or item.context is None or item.candidates is None:
+            raise ValueError("log_line needs the record decide returned (it carries the inputs)")
+        return _json.dumps(
+            {
+                "event": "decision",
+                "bits": item.bits,
+                "context": item.context,
+                "candidates": [[arm_id, action] for arm_id, action in item.candidates],
+                "record": {
+                    "decision_id": item.decision_id,
+                    "t": item.t,
+                    "candidate_hash": item.candidate_hash,
+                    "chosen": item.chosen,
+                    "features": [[j, v] for j, v in item.features],
+                    "propensity": item.propensity,
+                    "model_version": item.model_version,
+                    "salt": item.salt,
+                },
+            },
+            separators=(",", ":"),
+        )
+    if isinstance(item, Resolution):
+        return _json.dumps(
+            {
+                "event": "resolution",
+                "decision_id": item.decision_id,
+                "kind": item.kind,
+                "reward": item.reward,
+            },
+            separators=(",", ":"),
+        )
+    raise ValueError("log_line takes a DecisionRecord or Resolution")
 
 
 def serialize(state: BanditState) -> str:

@@ -1,11 +1,11 @@
 # Using gittins
 
 Everything goes through one module, `gittins` — the Rust engine as a Python
-package. It has eight functions, and the four steps below are the whole
+package. It has nine functions, and the four steps below are the whole
 integration: no schema to define, nothing to register, no background
 machinery. (Until the wheel is on PyPI, install it from the repo with
 `pip install ./bindings/python`. The pure-Python reference implementation
-exposes the same eight functions as `gittins_reference.api`, so everything
+exposes the same nine functions as `gittins_reference.api`, so everything
 on this page works there too.)
 
 Two things to know before the code makes sense:
@@ -141,35 +141,26 @@ marked resolved: if your callback crashes, that one observation is lost
 
 ## Logging decisions, and asking "what would have happened?"
 
-If you append what the engine already hands you to a file — each
-decision (together with the context and candidates you passed in) and
-each resolution, one JSON object per line, in the order they happened —
-that file becomes a complete offline-evaluation dataset:
+Logging is appending what each call returns, verbatim. The record
+`decide` hands back carries everything the decision was made over (the
+context, the candidates, the encoding declaration), and `log_line`
+turns it — or any resolution — into one canonical log line:
 
 ```python
-import json
-
-def log_decision(f, record, context, candidates):
-    f.write(json.dumps({
-        "event": "decision",
-        "bits": gittins.model_bits(state),
-        "context": context,
-        "candidates": [[arm, action] for arm, action in candidates],
-        "record": {
-            "decision_id": record.decision_id, "t": record.t,
-            "candidate_hash": record.candidate_hash, "chosen": record.chosen,
-            "features": [list(p) for p in record.features],
-            "propensity": record.propensity,
-            "model_version": record.model_version, "salt": record.salt,
-        },
-    }) + "\n")
-
-def log_resolution(f, r):
-    f.write(json.dumps({
-        "event": "resolution", "decision_id": r.decision_id,
-        "kind": r.kind, "reward": r.reward,
-    }) + "\n")
+with open("decisions.jsonl", "a") as f:
+    record = gittins.decide(state, context, candidates, t=..., salt="agent-1")
+    f.write(gittins.log_line(record) + "\n")
+    # ...later, when outcomes arrive:
+    resolution = gittins.learn(state, record.decision_id, reward=1.0)
+    f.write(gittins.log_line(resolution) + "\n")
+    for r in gittins.expire(state, t=...):
+        f.write(gittins.log_line(r) + "\n")
 ```
+
+That file — decisions and resolutions in the order they happened — is a
+complete offline-evaluation dataset. (One nuance: the inputs ride only
+on the record `decide` returns; the engine's state never stores them,
+so log decisions when you make them.)
 
 The `gittins` command-line tool (built from `bindings/cli`) then answers
 the tuning questions offline, from the log alone — no bindings, no

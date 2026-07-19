@@ -13,25 +13,12 @@ CATALOG_A = [("basic", {"price": 3.0}), ("plus", {"price": 9.0, "trial": True}),
 CATALOG_B = [("basic", {"price": 3.0}), ("mega", {"price": 15.0})]
 
 
-def record_dict(record):
-    return {
-        "decision_id": record.decision_id,
-        "t": record.t,
-        "candidate_hash": record.candidate_hash,
-        "chosen": record.chosen,
-        "features": [list(pair) for pair in record.features],
-        "propensity": record.propensity,
-        "model_version": record.model_version,
-        "salt": record.salt,
-    }
-
-
 def run_agent(bits=4, epsilon=0.1, forgetfulness=0.9, salt="agent"):
-    """Drive the public api exactly as an app would, appending every
-    decision (with its inputs) and every resolution to the log in arrival
-    order. Decisions interleave with resolutions so the model state at
-    decision time actually evolves — the self-evaluation identity test
-    below is vacuous otherwise. Returns (log dicts, state handle)."""
+    """Drive the public api exactly as an app would, logging by appending
+    what each call returns — `api.log_line`, verbatim — in arrival order.
+    Decisions interleave with resolutions so the model state at decision
+    time actually evolves — the self-evaluation identity test below is
+    vacuous otherwise. Returns (log dicts, state handle)."""
     state = api.create(bits, horizon=HORIZON, epsilon=epsilon, forgetfulness=forgetfulness)
     log = []
     records = []
@@ -40,26 +27,11 @@ def run_agent(bits=4, epsilon=0.1, forgetfulness=0.9, salt="agent"):
         catalog = CATALOG_B if i % 3 == 2 else CATALOG_A
         context = {"seg": "a" if i % 2 == 0 else "b", "hour": i}
         record = api.decide(state, context, catalog, T0 + i * 60.0, salt)
-        log.append(
-            {
-                "event": "decision",
-                "bits": bits,
-                "context": context,
-                "candidates": [[arm, action] for arm, action in catalog],
-                "record": record_dict(record),
-            }
-        )
+        log.append(json.loads(api.log_line(record)))
         records.append(record)
 
     def resolve(resolution):
-        log.append(
-            {
-                "event": "resolution",
-                "decision_id": resolution.decision_id,
-                "kind": resolution.kind,
-                "reward": resolution.reward,
-            }
-        )
+        log.append(json.loads(api.log_line(resolution)))
 
     for i in range(3):
         decide(i)

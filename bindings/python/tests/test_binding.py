@@ -309,3 +309,59 @@ class TestByoSurface:
         # re-serializing a state whose counters are advanced identically.
         after = gittins.serialize(state)
         assert after != before  # counters advanced
+
+
+class TestLogLine:
+    # Assembly-free logging (spec/ope.md): the record decide returns
+    # carries the caller's inputs, and log_line emits the canonical
+    # experience-log line — byte-identical to the reference's, since both
+    # serialize with the same rules.
+
+    def test_record_carries_the_callers_objects(self):
+        state = gittins.create(4, horizon=10.0)
+        context = {"seg": "a"}
+        catalog = [("a", {"price": 1.0}), ("b", {})]
+        record = gittins.decide(state, context, catalog, 0.0, "s")
+        assert record.bits == 4
+        assert record.context is context and record.candidates is catalog
+
+    def test_lines_match_the_reference_byte_for_byte(self):
+        api = pytest.importorskip("gittins_reference.api")
+        catalog = [("basic", {"price": 3.0}), ("plus", {"trial": True}), ("free", {})]
+        bound = gittins.create(bits=6, horizon=100.0)
+        pure = api.create(bits=6, horizon=100.0)
+        for i in range(10):
+            context = {"seg": "a" if i % 3 else "b", "hour": float(i % 24)}
+            b_record = gittins.decide(bound, context, catalog, float(i), "eq")
+            p_record = api.decide(pure, context, catalog, float(i), "eq")
+            assert gittins.log_line(b_record) == api.log_line(p_record)
+            if i % 4 == 0:
+                b_res = gittins.learn(bound, b_record.decision_id, 1.0)
+                p_res = api.learn(pure, p_record.decision_id, 1.0)
+                assert gittins.log_line(b_res) == api.log_line(p_res)
+
+    def test_appended_lines_are_a_verified_evaluable_log(self):
+        ope = pytest.importorskip("gittins_reference.ope")
+        state = gittins.create(4, horizon=10.0)
+        catalog = [("a", {"price": 1.0}), ("b", {})]
+        lines = []
+        record = gittins.decide(state, {"seg": "a"}, catalog, 0.0, "s")
+        lines.append(gittins.log_line(record))
+        lines.append(gittins.log_line(gittins.learn(state, record.decision_id, 1.0)))
+        record = gittins.decide(state, {"seg": "b"}, catalog, 1.0, "s")
+        lines.append(gittins.log_line(record))
+        lines.extend(gittins.log_line(r) for r in gittins.expire(state, 100.0))
+        events = tuple(ope.parse_log(lines))
+        assert ope.verify(events) == ()
+        assert ope.evaluate(events, bits=4).resolved == 2
+
+    def test_refusals_match_the_reference(self):
+        state = gittins.create(4, horizon=10.0)
+        record = gittins.decide(state, {}, [("a", {}), ("b", {})], 0.0, "s")
+        seen = []
+        gittins.learn(state, record.decision_id, 1.0, train=lambda rec, r: seen.append(rec))
+        assert seen[0].bits is None and seen[0].context is None and seen[0].candidates is None
+        with pytest.raises(ValueError, match="record decide returned"):
+            gittins.log_line(seen[0])
+        with pytest.raises(ValueError, match="DecisionRecord or Resolution"):
+            gittins.log_line({"not": "a record"})

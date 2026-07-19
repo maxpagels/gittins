@@ -343,3 +343,60 @@ fn byo_rejections() {
     assert!(learn(&mut state, &id, 1.0, Some(bad_train)).is_err());
     assert!(learn(&mut state, &id, 1.0, None).unwrap().is_null());
 }
+
+/// Assembly-free logging (spec/ope.md): the record decide returns
+/// carries the caller's values, log_line emits one canonical
+/// experience-log line (candidate_hash as an exact integer token,
+/// which JSON.stringify alone cannot produce), and a train callback's
+/// record — the compact one — is refused.
+#[wasm_bindgen_test]
+fn log_line_emits_the_experience_log_format() {
+    use gittins_wasm::log_line;
+
+    let mut state = create(4, 10.0, None, None, None).unwrap();
+    let context = js_features(&Json::parse(r#"{"seg": "a"}"#));
+    let catalog: JsValue = Array::of2(
+        &Array::of2(&JsValue::from_str("a"), &js_features(&Json::parse(r#"{"price": 3.0}"#))),
+        &Array::of2(&JsValue::from_str("b"), &js_features(&Json::parse("{}"))),
+    )
+    .into();
+    let record = decide(&mut state, &context, &catalog, 0.0, "s", None, None).unwrap();
+    assert!(get(&record, "bits").as_f64() == Some(4.0));
+    assert!(get(&record, "context") == context, "record.context is the caller's value");
+
+    let line = log_line(&record).unwrap();
+    let parsed = js_sys::JSON::parse(&line).unwrap();
+    assert!(get(&parsed, "event").as_string().as_deref() == Some("decision"));
+    assert!(get(&parsed, "bits").as_f64() == Some(4.0));
+    assert!(get(&get(&parsed, "context"), "seg").as_string().as_deref() == Some("a"));
+    let rec = get(&parsed, "record");
+    assert!(
+        get(&rec, "decision_id").as_string() == get(&record, "decision_id").as_string()
+    );
+    // The hash is an exact integer token in the raw line.
+    let hash: BigInt = get(&record, "candidate_hash").unchecked_into();
+    let token = format!("\"candidate_hash\":{}", String::from(hash.to_string(10).unwrap()));
+    assert!(line.contains(&token), "hash token missing: {line}");
+
+    let id = get(&record, "decision_id").as_string().unwrap();
+    let resolution = learn(&mut state, &id, 1.0, None).unwrap();
+    let line = log_line(&resolution).unwrap();
+    let parsed = js_sys::JSON::parse(&line).unwrap();
+    assert!(get(&parsed, "event").as_string().as_deref() == Some("resolution"));
+    assert!(get(&parsed, "kind").as_string().as_deref() == Some("rewarded"));
+    assert!(get(&parsed, "reward").as_f64() == Some(1.0));
+
+    // A train callback's record is the compact one and is refused.
+    let record = decide(&mut state, &context, &catalog, 1.0, "s", None, None).unwrap();
+    let id = get(&record, "decision_id").as_string().unwrap();
+    let seen: Rc<RefCell<Option<JsValue>>> = Rc::new(RefCell::new(None));
+    let sink = seen.clone();
+    let train = Closure::<dyn FnMut(JsValue, f64)>::new(move |rec: JsValue, _: f64| {
+        *sink.borrow_mut() = Some(rec);
+    });
+    learn(&mut state, &id, 1.0, Some(train.as_ref().unchecked_ref::<Function>().clone())).unwrap();
+    let compact = seen.borrow().clone().unwrap();
+    assert!(get(&compact, "bits").is_null());
+    assert!(log_line(&compact).is_err());
+    assert!(log_line(&JsValue::from_str("nope")).is_err());
+}

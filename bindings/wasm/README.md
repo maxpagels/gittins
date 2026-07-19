@@ -1,6 +1,6 @@
 # gittins — browser / JS binding
 
-The gittins engine compiled to WebAssembly, exposing the same eight
+The gittins engine compiled to WebAssembly, exposing the same nine
 functions as the Python package and the reference (`spec/api.md`). Build
 with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
 

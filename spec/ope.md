@@ -48,7 +48,12 @@ Two event kinds:
 
 The app writes a decision event after each `decide` and a resolution
 event after each non-null `learn`/`censor` result and each `expire`
-resolution, in the order the engine returned them. Merging a fleet's
+resolution, in the order the engine returned them. No assembly is
+required: the record `decide` returns carries `bits`, `context`, and
+`candidates` (api.md), and the public API's `log_line` emits exactly
+one event line for a record or a resolution — logging is
+`write(log_line(returned) + "\n")`, verbatim. The golden `ope`
+section's log is `log_line`'s output, pinning that equivalence. Merging a fleet's
 logs is file concatenation or timestamp interleaving; the semantics
 below never assume a single agent.
 

@@ -433,26 +433,13 @@ def ope_vectors():
         # collisions is order-sensitive at the last bit.
         context = {"hour": i, "seg": "a" if i % 2 == 0 else "b"}
         record = api.decide(state, context, catalog, T0 + i * 60.0, salt)
-        log.append(
-            {
-                "event": "decision",
-                "bits": bits,
-                "context": context,
-                "candidates": [[arm, action] for arm, action in catalog],
-                "record": record_json(record),
-            }
-        )
+        # The log is api.log_line's output, verbatim — pinning that the
+        # assembly-free logging surface emits exactly the specced format.
+        log.append(json.loads(api.log_line(record)))
         records.append(record)
 
     def resolve(resolution):
-        log.append(
-            {
-                "event": "resolution",
-                "decision_id": resolution.decision_id,
-                "kind": resolution.kind,
-                "reward": resolution.reward,
-            }
-        )
+        log.append(json.loads(api.log_line(resolution)))
 
     # Interleave resolutions with decisions so the model state at
     # decision time actually evolves; otherwise the identity report

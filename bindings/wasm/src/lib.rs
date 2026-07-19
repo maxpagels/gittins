@@ -1,5 +1,5 @@
 //! The JavaScript binding: the public API (spec: `spec/api.md`) exposed to
-//! the browser and Node via wasm-bindgen — the same eight names as
+//! the browser and Node via wasm-bindgen — the same nine names as
 //! `gittins_reference.api` and the Python wheel. The acceptance gate is the
 //! golden `api` and `serialization` sections replayed through this module
 //! under Node (`tests/golden.rs`); because WASM mandates IEEE-754
@@ -154,8 +154,18 @@ fn set(obj: &Object, key: &str, value: &JsValue) {
     Reflect::set(obj, &JsValue::from_str(key), value).expect("setting a plain object field");
 }
 
+fn get(obj: &JsValue, key: &str) -> JsValue {
+    Reflect::get(obj, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
+}
+
 fn record_to_js(record: DecisionRecord) -> JsValue {
     let obj = Object::new();
+    // The input fields exist on every record; only `decide` fills them
+    // (spec/ope.md) — a train callback's record carries null there, the
+    // ledger keeping only the compact record.
+    set(&obj, "bits", &JsValue::NULL);
+    set(&obj, "context", &JsValue::NULL);
+    set(&obj, "candidates", &JsValue::NULL);
     set(&obj, "decision_id", &JsValue::from_str(&record.decision_id));
     set(&obj, "t", &JsValue::from_f64(record.t));
     set(&obj, "candidate_hash", &BigInt::from(record.candidate_hash).into());
@@ -249,6 +259,7 @@ pub fn decide(
             number_list(&result, "explore must return one probability per candidate")
         }
     });
+    let bits = api::model_bits(&state.inner).map_err(|e| JsValue::from(js_error(e)))?;
     let result = api::decide(
         &mut state.inner,
         &parsed_context,
@@ -258,7 +269,73 @@ pub fn decide(
         score_cb.as_mut().map(|c| c as _),
         explore_cb.as_mut().map(|c| c as _),
     );
-    Ok(record_to_js(caught.rethrow(result)?))
+    let record = record_to_js(caught.rethrow(result)?);
+    // The returned record carries the very values the caller passed —
+    // attached at the only moment they exist (spec/ope.md).
+    let obj: &Object = record.unchecked_ref();
+    set(obj, "bits", &JsValue::from_f64(bits as f64));
+    set(obj, "context", context);
+    set(obj, "candidates", candidates);
+    Ok(record)
+}
+
+/// One canonical experience-log line (spec/ope.md) for a decision record
+/// or resolution — append it to your log verbatim; it is exactly what
+/// the `gittins` CLI's verify/eval/replay consume. Decision records must
+/// be the ones `decide` returned (they carry the inputs; a `train`
+/// callback's record does not — its inputs are already in your log).
+#[wasm_bindgen]
+pub fn log_line(item: &JsValue) -> Result<String, JsError> {
+    fn quoted(v: &JsValue) -> Result<String, JsError> {
+        js_sys::JSON::stringify(v)
+            .map(String::from)
+            .map_err(|_| JsError::new("log_line could not serialize a field"))
+    }
+    let absent = |v: &JsValue| v.is_null() || v.is_undefined();
+    if !item.is_object() {
+        return Err(JsError::new("log_line takes a DecisionRecord or Resolution"));
+    }
+    if !absent(&get(item, "propensity")) {
+        let (bits, context, candidates) =
+            (get(item, "bits"), get(item, "context"), get(item, "candidates"));
+        if absent(&bits) || absent(&context) || absent(&candidates) {
+            return Err(JsError::new(
+                "log_line needs the record decide returned (it carries the inputs)",
+            ));
+        }
+        // candidate_hash is a BigInt using all 64 bits: it must land in
+        // the JSON as an exact integer token, which JSON.stringify cannot
+        // produce — hence the assembled line.
+        let hash: BigInt = get(item, "candidate_hash").unchecked_into();
+        let hash = String::from(
+            hash.to_string(10)
+                .map_err(|_| JsError::new("log_line could not serialize a field"))?,
+        );
+        return Ok(format!(
+            "{{\"event\":\"decision\",\"bits\":{},\"context\":{},\"candidates\":{},\
+             \"record\":{{\"decision_id\":{},\"t\":{},\"candidate_hash\":{hash},\
+             \"chosen\":{},\"features\":{},\"propensity\":{},\"model_version\":{},\"salt\":{}}}}}",
+            quoted(&bits)?,
+            quoted(&context)?,
+            quoted(&candidates)?,
+            quoted(&get(item, "decision_id"))?,
+            quoted(&get(item, "t"))?,
+            quoted(&get(item, "chosen"))?,
+            quoted(&get(item, "features"))?,
+            quoted(&get(item, "propensity"))?,
+            quoted(&get(item, "model_version"))?,
+            quoted(&get(item, "salt"))?,
+        ));
+    }
+    if !absent(&get(item, "kind")) {
+        return Ok(format!(
+            "{{\"event\":\"resolution\",\"decision_id\":{},\"kind\":{},\"reward\":{}}}",
+            quoted(&get(item, "decision_id"))?,
+            quoted(&get(item, "kind"))?,
+            quoted(&get(item, "reward"))?,
+        ));
+    }
+    Err(JsError::new("log_line takes a DecisionRecord or Resolution"))
 }
 
 /// The resolution object, or null if the id is unknown or already resolved.

@@ -78,7 +78,11 @@ struct BanditState {
 
 /// One decision, self-contained: what was chosen, with what probability,
 /// under which id — everything outcome reporting and offline evaluation
-/// need.
+/// need. Records returned by `decide` additionally carry the inputs the
+/// decision was made over (`bits`, `context`, `candidates` — the
+/// caller's own objects), so they log as-is via `log_line`; records that
+/// crossed the state boundary (a `train` callback's) carry None there —
+/// the ledger keeps only the compact record (spec/ope.md).
 #[pyclass(frozen, name = "DecisionRecord", module = "gittins")]
 struct DecisionRecord {
     #[pyo3(get)]
@@ -97,6 +101,12 @@ struct DecisionRecord {
     model_version: u64,
     #[pyo3(get)]
     salt: String,
+    #[pyo3(get)]
+    bits: Option<u32>,
+    #[pyo3(get)]
+    context: Option<Py<PyAny>>,
+    #[pyo3(get)]
+    candidates: Option<Py<PyAny>>,
 }
 
 impl From<CoreRecord> for DecisionRecord {
@@ -110,6 +120,9 @@ impl From<CoreRecord> for DecisionRecord {
             propensity: r.propensity,
             model_version: r.model_version,
             salt: r.salt,
+            bits: None,
+            context: None,
+            candidates: None,
         }
     }
 }
@@ -232,6 +245,7 @@ fn decide(
             })
         }
     });
+    let bits = api::model_bits(&state.borrow().inner).map_err(value_error)?;
     let result = api::decide(
         &mut state.borrow_mut().inner,
         &parsed_context,
@@ -241,7 +255,58 @@ fn decide(
         score_cb.as_mut().map(|c| c as _),
         explore_cb.as_mut().map(|c| c as _),
     );
-    caught.rethrow(result).map(Into::into)
+    let mut record: DecisionRecord = caught.rethrow(result)?.into();
+    // The returned record carries the very objects the caller passed —
+    // attached at the only moment they exist (spec/ope.md).
+    record.bits = Some(bits);
+    record.context = Some(context.clone().into_any().unbind());
+    record.candidates = Some(candidates.clone().unbind());
+    Ok(record)
+}
+
+/// One canonical experience-log line (spec/ope.md) for a decision record
+/// or resolution — append it to your log verbatim; it is exactly what
+/// the `gittins` CLI's verify/eval/replay consume. Decision records must
+/// be the ones `decide` returned (they carry the inputs; a `train`
+/// callback's record does not — its inputs are already in your log).
+#[pyfunction]
+fn log_line(py: Python<'_>, item: &Bound<'_, PyAny>) -> PyResult<String> {
+    let json = py.import("json")?;
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("separators", (",", ":"))?;
+    let line = PyDict::new(py);
+    if let Ok(record) = item.downcast::<DecisionRecord>() {
+        let r = record.get();
+        let (Some(bits), Some(context), Some(candidates)) = (r.bits, &r.context, &r.candidates)
+        else {
+            return Err(PyValueError::new_err(
+                "log_line needs the record decide returned (it carries the inputs)",
+            ));
+        };
+        line.set_item("event", "decision")?;
+        line.set_item("bits", bits)?;
+        line.set_item("context", context)?;
+        line.set_item("candidates", candidates)?;
+        let compact = PyDict::new(py);
+        compact.set_item("decision_id", &r.decision_id)?;
+        compact.set_item("t", r.t)?;
+        compact.set_item("candidate_hash", r.candidate_hash)?;
+        compact.set_item("chosen", r.chosen)?;
+        compact.set_item("features", &r.features)?;
+        compact.set_item("propensity", r.propensity)?;
+        compact.set_item("model_version", r.model_version)?;
+        compact.set_item("salt", &r.salt)?;
+        line.set_item("record", compact)?;
+    } else if let Ok(resolution) = item.downcast::<Resolution>() {
+        let r = resolution.get();
+        line.set_item("event", "resolution")?;
+        line.set_item("decision_id", &r.decision_id)?;
+        line.set_item("kind", &r.kind)?;
+        line.set_item("reward", r.reward)?;
+    } else {
+        return Err(PyValueError::new_err("log_line takes a DecisionRecord or Resolution"));
+    }
+    json.getattr("dumps")?.call((line,), Some(&kwargs))?.extract()
 }
 
 /// The resolution, or None if the id is unknown or already resolved.
@@ -321,5 +386,6 @@ fn gittins(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;
     m.add_function(wrap_pyfunction!(model_bits, m)?)?;
+    m.add_function(wrap_pyfunction!(log_line, m)?)?;
     Ok(())
 }

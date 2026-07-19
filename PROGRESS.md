@@ -417,7 +417,27 @@ decisions log above, and this file's git history has the full entries.
   in the CLI (gzip through the streaming decompressor), and the three
   walks are single-pass — log size is bounded by disk, not memory;
   `sweep` re-reads the file per configuration rather than ever holding
-  it. The corpus
+  it.
+
+  Same PR, prompted by the logging boilerplate: **assembly-free
+  logging**. The record `decide` returns now carries its inputs
+  (`bits`, `context`, `candidates` — the caller's own objects, attached
+  at the only moment they exist), and the public surface gained a ninth
+  name, `log_line(record | resolution)`, emitting one canonical
+  experience-log line — so building an OPE-ready log is appending what
+  each call returns, verbatim. The ledger deliberately keeps only the
+  compact record (fixed memory, serialization untouched; a `train`
+  callback's record carries None in the input fields and `log_line`
+  refuses it — the log, not the state, is where inputs persist, with
+  `candidate_hash` as the commitment binding the two). The golden `ope`
+  log is now generated *through* `log_line`, pinning that it emits
+  exactly the specced format (corpus byte-identical); the wheel's
+  `log_line` is byte-identical to the reference's (same serializer),
+  the wasm module's is parse-equivalent (host number rendering;
+  `candidate_hash` hand-assembled as an exact integer token, which
+  `JSON.stringify` cannot produce), and a Node-written wasm log
+  verifies clean and yields the exact w = 1 self-evaluation identity
+  through both the reference and the CLI. The corpus
   gained an `ope` section (additive; every other section
   byte-identical): one interleaved api-driven log, its clean verify, three
   progressive IPS/SNIPS reports — the logging configuration's report
