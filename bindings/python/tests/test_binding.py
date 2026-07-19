@@ -18,7 +18,7 @@ GOLDEN = json.loads(
 def replay_api_section():
     """The corpus scenario, driven through the binding only."""
     s = GOLDEN["sections"]["api"]
-    state = gittins.create(bits=s["bits"], horizon=s["horizon"], forgetting=s["forgetting"])
+    state = gittins.create(bits=s["bits"], horizon=s["horizon"], forgetfulness=s["forgetting"])
     catalog = [(arm_id, action) for arm_id, action in s["catalog"]]
     records = []
     for event in s["events"]:
