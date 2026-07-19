@@ -155,12 +155,18 @@ fn cmd_eval(flags: &Flags) -> Result<i32, String> {
     println!("resolved     {}", report.resolved);
     println!("censored     {}", report.censored);
     println!("unresolved   {}", report.unresolved);
-    println!("logged mean  {}", opt(report.logged_mean));
-    println!("ips          {}", opt(report.ips));
-    println!("snips        {}", opt(report.snips));
-    println!("ess          {}", opt(report.ess));
+    println!("logged E(r)  {}", opt(report.logged_mean));
+    println!("ips E(r)     {}", opt(report.ips));
+    println!("snips E(r)   {}", opt(report.snips));
     println!("max weight   {}", opt(report.max_weight));
     Ok(0)
+}
+
+/// Table cells are rounded for readability — the sweep is for comparing
+/// configurations at a glance; `eval` keeps full precision (where e.g.
+/// the self-evaluation identity is visible bit for bit).
+fn rounded(v: Option<f64>, decimals: usize) -> String {
+    v.map_or("n/a".to_string(), |x| format!("{x:.decimals$}"))
 }
 
 fn cmd_sweep(flags: &Flags) -> Result<i32, String> {
@@ -172,23 +178,50 @@ fn cmd_sweep(flags: &Flags) -> Result<i32, String> {
     };
     let epsilons = flags.list("epsilon", DEFAULT_EPSILON)?;
     let forgetfulnesses = flags.list("forgetfulness", DEFAULT_FORGETTING)?;
-    println!("| bits | epsilon | forgetfulness | logged mean | ips | snips | ess | max weight | resolved |");
-    println!("|---|---|---|---|---|---|---|---|---|");
+    let header = [
+        "bits", "epsilon", "forgetfulness", "logged E(r)", "ips E(r)", "snips E(r)",
+        "max weight", "resolved",
+    ];
+    let mut rows: Vec<Vec<String>> = Vec::new();
     for &bits in &all_bits {
         for &epsilon in &epsilons {
             for &forgetfulness in &forgetfulnesses {
                 let r: OpeReport = evaluate(flags.events()?, bits, epsilon, forgetfulness)?;
-                println!(
-                    "| {bits} | {epsilon} | {forgetfulness} | {} | {} | {} | {} | {} | {} |",
-                    opt(r.logged_mean),
-                    opt(r.ips),
-                    opt(r.snips),
-                    opt(r.ess),
-                    opt(r.max_weight),
-                    r.resolved,
-                );
+                rows.push(vec![
+                    bits.to_string(),
+                    epsilon.to_string(),
+                    forgetfulness.to_string(),
+                    rounded(r.logged_mean, 4),
+                    rounded(r.ips, 4),
+                    rounded(r.snips, 4),
+                    rounded(r.max_weight, 4),
+                    r.resolved.to_string(),
+                ]);
             }
         }
+    }
+    // Pad every column to its widest cell so the table lines up in a
+    // terminal; the `---:` separators keep it valid (right-aligned)
+    // markdown when pasted into a summary.
+    let mut widths: Vec<usize> = header.iter().map(|h| h.len()).collect();
+    for row in &rows {
+        for (i, cell) in row.iter().enumerate() {
+            widths[i] = widths[i].max(cell.len());
+        }
+    }
+    let render = |cells: &[String]| {
+        let padded: Vec<String> = cells
+            .iter()
+            .zip(&widths)
+            .map(|(cell, &w)| format!("{cell:>w$}"))
+            .collect();
+        format!("| {} |", padded.join(" | "))
+    };
+    println!("{}", render(&header.map(String::from)));
+    let separator: Vec<String> = widths.iter().map(|&w| format!("{}:", "-".repeat(w - 1))).collect();
+    println!("{}", render(&separator));
+    for row in &rows {
+        println!("{}", render(row));
     }
     Ok(0)
 }

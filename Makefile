@@ -1,4 +1,25 @@
-.PHONY: book book-wasm serve
+.PHONY: book book-wasm serve ope-verify ope-eval ope-sweep ope-verify-gz ope-demo
+
+# The CLI (bindings/cli) against the committed example experience log
+# (examples/decisions.jsonl, regenerable with examples/generate.py).
+# `make ope-demo` runs the whole tour in order.
+GITTINS_CLI = cargo run --manifest-path bindings/cli/Cargo.toml --
+OPE_LOG = examples/decisions.jsonl
+
+ope-verify:
+	$(GITTINS_CLI) verify --log $(OPE_LOG)
+
+ope-eval:
+	$(GITTINS_CLI) eval --log $(OPE_LOG) --bits 8
+
+ope-sweep:
+	$(GITTINS_CLI) sweep --log $(OPE_LOG) --bits 8 --epsilon 0.02,0.05,0.1
+
+ope-verify-gz:
+	gzip -kf $(OPE_LOG)
+	$(GITTINS_CLI) verify --log $(OPE_LOG).gz
+
+ope-demo: ope-verify ope-eval ope-sweep ope-verify-gz
 
 book: docs/book/index.html
 

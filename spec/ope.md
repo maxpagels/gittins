@@ -135,9 +135,11 @@ The report, over the `resolved` (non-censored) resolutions:
 
 All null when `resolved` is 0. No clipping and no clipping knob:
 epsilon-greedy logging already bounds every weight structurally at
-`k / epsilon`. The diagnostics (`ess`, `max_weight`) are printed next to
-every estimate because an IPS number without them is a trap; the CLI
-never shows one without the other.
+`k / epsilon`. The diagnostics (`ess`, `max_weight`) travel with every
+report because an IPS number without them is a trap; the CLI prints
+`max_weight` next to every estimate (`ess` stays in the report's
+semantics, pinned by the golden section, but is currently not
+displayed).
 
 ## `replay`
 
