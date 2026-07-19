@@ -194,9 +194,6 @@ state = gittins.deserialize(localStorage.getItem("bandit"));
 the format is shared across implementations: a state saved in the browser
 will load in Python, and vice versa.
 
-The rest of this document unpacks what each of these calls is actually
-doing, and introduces the remaining functions as they become relevant.
-
 ---
 
 ## Anatomy of a Decision
