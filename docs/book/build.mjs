@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Renders docs/book/index.md into a single HTML page styled after
+// Renders docs/book/index.md into a single HTML page inspired by after
 // "Dive Into HTML5" (diveintohtml5.info). Zero build dependencies; the body
 // font is Linux Libertine, self-hosted from docs/book/fonts/ (OFL/GPL).
 //
@@ -16,9 +16,9 @@
 // [TOC] on its own line (replaced with a roman-numeral table of contents
 // built from the ## headings), [SIM] / [SIM-FORGET] / [BENCH] on their own
 // lines (replaced with the live WASM demos; see sim.js, sim-forget.js,
-// bench.js with bench-core.js, and `make book-wasm`), and [WIP] ... [/WIP]
-// around under-construction content (rendered blurred and unselectable,
-// with a visible note).
+// bench.js with bench-core.js, and `make book-wasm`), [WIP] on its own
+// line (an "under construction" note for an unwritten section), and
+// [VERSION] on its own line (the engine version from core/Cargo.toml).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -28,12 +28,17 @@ const here = dirname(fileURLToPath(import.meta.url));
 const inFile = process.argv[2] ?? join(here, "index.md");
 const outFile = process.argv[3] ?? join(here, "index.html");
 
+// The engine version, from the core crate — the source of truth.
+const version = readFileSync(join(here, "../../core/Cargo.toml"), "utf8")
+  .match(/^version\s*=\s*"([^"]+)"/m)[1];
+
 const escapeHtml = (s) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
    .replace(/"/g, "&quot;");
 
 const slugify = (s) =>
-  s.toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
+  s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // links slug by their label
+    .toLowerCase().replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
 
 // Inline formatting. Code spans are pulled out first so no other rule
 // touches their contents.
@@ -169,17 +174,17 @@ function render(md) {
       continue;
     }
 
-    // [WIP] ... [/WIP]: under-construction block — blurred, unselectable,
-    // hidden from screen readers.
+    // [VERSION]: the engine version, read from core/Cargo.toml at build time.
+    if (/^\[VERSION\]\s*$/.test(line)) {
+      flush();
+      html.push(`<div class="version">covering version ${version}</div>`);
+      continue;
+    }
+
+    // [WIP]: an under-construction note for an unwritten section.
     if (/^\[WIP\]\s*$/.test(line)) {
       flush();
       html.push('<div class="wip-note" role="note">under construction</div>');
-      html.push('<div class="wip" aria-hidden="true"><div class="wip-inner">');
-      continue;
-    }
-    if (/^\[\/WIP\]\s*$/.test(line)) {
-      flush();
-      html.push("</div></div>");
       continue;
     }
 
@@ -338,6 +343,15 @@ const css = `
 
   /* The byline: the h2 directly after the masthead. */
   header + h2 { margin: 2em 0 4.5em; }
+  header + h2:has(+ .version) { margin-bottom: 0.75em; }
+  .version {
+    text-align: center;
+    font-size: 0.8em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #999;
+    margin: 0 0 4.5em;
+  }
   .subtitle { font-style: italic; color: #555; margin: 0; }
   h2 {
     font-size: 1.7em;
@@ -438,21 +452,8 @@ const css = `
     font-style: italic;
     color: #999;
     font-size: 0.85em;
-    margin: 0 0 1.5em;
+    margin: 0 0 3em;
   }
-  /* The blur is on an inner wrapper and clipped by the outer one: Safari
-     paints filter output beyond the element's box, smearing neighbors. The
-     negative margins push the clip edge outward and the padding pulls the
-     text back, leaving room for the blur to feather before it is clipped. */
-  .wip {
-    overflow: hidden;
-    margin: 0 -1.5em;
-    padding: 0.75em 1.5em 0;
-    user-select: none;
-    -webkit-user-select: none;
-    pointer-events: none;
-  }
-  .wip-inner { filter: blur(9px); }
 
   .demo-fallback {
     font-style: italic;
