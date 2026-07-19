@@ -1,6 +1,6 @@
 //! Canonical state serialization — the port of `state.py`; the byte layout
-//! and every validation rule are specified there and in
-//! `spec/serialization.md`. `serialize` and `deserialize` are exact
+//! and every validation rule are specified there.
+//! `serialize` and `deserialize` are exact
 //! inverses with one canonical encoding per state; the byte strings are
 //! golden-pinned, so this module must produce the reference's bytes
 //! exactly. Deserialization is all-or-nothing: the checksum rejects

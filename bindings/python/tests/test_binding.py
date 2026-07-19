@@ -1,4 +1,4 @@
-"""The binding's acceptance tests, per spec/api.md: replay the golden `api`
+"""The binding's acceptance tests: replay the golden `api`
 section through the binding's public surface alone, and pin the binding to
 the reference bit for bit. Requires the `gittins` wheel and (for the
 equivalence test) `gittins-reference` installed in the same environment."""
@@ -133,7 +133,7 @@ class TestSurface:
         assert gittins.serialize(restored) == gittins.serialize(state)
 
 
-# The spec-defined golden byo callbacks (spec/byo.md), written natively in
+# The spec-defined golden byo callbacks, written natively in
 # Python — the binding-side halves of the corpus's `byo` section.
 def byo_score(context, candidates):
     base = 1.0 if context["seg"] == "a" else 0.0
@@ -312,7 +312,7 @@ class TestByoSurface:
 
 
 class TestLogLine:
-    # Assembly-free logging (spec/ope.md): the record decide returns
+    # Assembly-free logging: the record decide returns
     # carries the caller's inputs, and log_line emits the canonical
     # experience-log line — byte-identical to the reference's, since both
     # serialize with the same rules.

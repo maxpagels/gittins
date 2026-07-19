@@ -315,14 +315,14 @@ def api_vectors():
 
 
 def byo_vectors():
-    """The BYO plumbing (spec/byo.md) pinned through the public surface:
+    """The BYO plumbing pinned through the public surface:
     decides under a spec-defined score callback, explore callback, both,
     and neither on one shared state; out-of-order rewards through a train
     callback, one deliberately mixed built-in learn, a censor, and an
     exact-horizon expiry with train. `trained` is the exact sequence of
     (record, reward) observations the train callback received. Every
     implementation replays this with the callbacks written natively in its
-    own language (the rules below, exact arithmetic in spec/byo.md)."""
+    own language (the rules below)."""
     bits = 4
     forgetting = 0.9
     horizon = HOUR
@@ -404,7 +404,7 @@ def byo_vectors():
 
 
 def ope_vectors():
-    """The experience log and OPE (spec/ope.md) pinned end to end: one
+    """The experience log and OPE pinned end to end: one
     api-driven log (two candidate sets, out-of-order rewards, a censor,
     an exact-horizon expiry, three decisions left open), its clean
     verify, progressive IPS/SNIPS reports — the logging configuration

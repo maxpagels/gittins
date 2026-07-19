@@ -32,8 +32,8 @@ class TestEpsilonGreedy:
 
     def test_every_probability_at_least_epsilon_over_k(self):
         # Even the worst candidate keeps epsilon / k: importance weights in
-        # offline evaluation are bounded by k / epsilon (R3), and every arm
-        # keeps accumulating evidence (R2).
+        # offline evaluation are bounded by k / epsilon, and every arm
+        # keeps accumulating evidence.
         p = epsilon_greedy_probabilities([1.0, -100.0], epsilon=DEFAULT_EPSILON)
         assert min(p) == DEFAULT_EPSILON / 2
 

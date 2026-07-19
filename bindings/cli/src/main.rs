@@ -1,5 +1,5 @@
 //! The `gittins` binary: verify / eval / sweep / replay over one
-//! experience log (spec/ope.md). Presentation only — flags, tables, exit
+//! experience log. Presentation only — flags, tables, exit
 //! codes; every semantic lives in `ope.rs`, the reference's port.
 //!
 //! Exit codes: 0 ok; 1 `verify` found problems; 2 usage or input error.
@@ -14,7 +14,7 @@ usage:
   gittins replay --log FILE --bits N --horizon SECONDS [--default-reward X]
                  [--epsilon X] [--forgetfulness X]
 
-The log is JSONL (one decision or resolution event per line, spec/ope.md),
+The log is JSONL (one decision or resolution event per line),
 gzip-compressed or plain — detected by content, not file name.
 
   verify  recompute everything the log claims; exit 1 on any violation

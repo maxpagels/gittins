@@ -13,7 +13,7 @@ class TestGoldenCorpus:
         # deliberate semantics change, regenerate with
         #   uv run python -m gittins_reference.golden
         # and review the diff like code. Running this test on every CI
-        # platform is also the cross-platform bit-identity check (R6).
+        # platform is also the cross-platform bit-identity check.
         assert GOLDEN_PATH.read_text(encoding="utf-8") == render()
 
     def test_floats_round_trip_bitwise_through_json(self):

@@ -46,9 +46,9 @@ candidate touches it and memoized for the rest of the decision, making a
 decision's solve cost O(coordinates touched), never O(dim). Because the
 sums forget, the effective sample size is bounded at ~1/(1 - forgetting),
 so uncertainty has a floor and the model can never become absolutely
-certain (R2); evidence on features that stop appearing fades out of the
+certain; evidence on features that stop appearing fades out of the
 true sums with every subsequent update, recycling their dimensions under
-feature churn (R1). This is the classic tracking estimator (recursive
+feature churn. This is the classic tracking estimator (recursive
 least squares with a forgetting factor): after the world changes, old
 evidence is outweighed within ~one effective window regardless of how much
 history preceded it.
@@ -63,7 +63,7 @@ The state is deliberately the outer-product matrix's *diagonal*, not the
 full matrix: memory is O(dim), scoring k candidates is O(k * nonzeros)
 arithmetic with no factorization step, and the same code is practical from
 a two-arm toy to hashed spaces of millions of dimensions and thousands of
-candidates (R5, R6) — the operating point proven at scale by hashed linear
+candidates — the operating point proven at scale by hashed linear
 learners like Vowpal Wabbit. The price is credit assignment: features that
 always fire together each take full credit (co-occurring evidence is
 double-counted, never split), so redundant feature descriptions inflate

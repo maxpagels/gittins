@@ -159,7 +159,7 @@ mod tests {
     }
 
     /// forgetting = 1.0 (never forget) is excluded from the golden corpus
-    /// by design (spec/golden.md), so it gets pinned here as the reference's
+    /// by design, so it gets pinned here as the reference's
     /// pytest suite pins it: the scale stays exactly 1.0, the sums are plain
     /// sums, and the weight is the shrunk running average n / (n + ridge).
     #[test]

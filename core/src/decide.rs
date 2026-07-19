@@ -8,7 +8,7 @@
 //! — uniqueness is structural. This core mutates the state in place; the
 //! record returned is a clone of the one the ledger holds.
 //!
-//! Bring your own model / exploration (R7, spec/byo.md): `decide` takes
+//! Bring your own model / exploration: `decide` takes
 //! two optional callbacks, each replacing exactly one built-in component —
 //! `score(candidates)` the built-in estimates, `explore(estimates,
 //! epsilon)` epsilon-greedy. Outputs are validated here (the reference's
@@ -91,18 +91,18 @@ pub fn candidate_set_hash(candidates: &[Features], dim: usize) -> u64 {
     fnv1a_64(&data)
 }
 
-/// A BYO score callback: the candidates' estimates, in candidate order
-/// (spec/byo.md). The `Err` side carries a binding's failure across the
+/// A BYO score callback: the candidates' estimates, in candidate order.
+/// The `Err` side carries a binding's failure across the
 /// boundary; validation of the `Ok` side happens in `decide`.
 pub type Score<'a> = &'a mut dyn FnMut(&[Features]) -> Result<Vec<f64>, Error>;
 
 /// A BYO explore callback: (estimates, epsilon) to one probability per
-/// candidate; the engine draws from it (spec/byo.md).
+/// candidate; the engine draws from it.
 pub type Explore<'a> = &'a mut dyn FnMut(&[f64], f64) -> Result<Vec<f64>, Error>;
 
 /// How far a BYO explore distribution's sum may sit from 1.0 before it is
 /// rejected: generous against benign rounding, unforgiving of real errors
-/// — a wrong sum poisons every logged propensity (spec/byo.md).
+/// — a wrong sum poisons every logged propensity.
 pub const PROBABILITY_TOLERANCE: f64 = 1e-9;
 
 fn validated_estimates(estimates: Vec<f64>, k: usize) -> Result<Vec<f64>, Error> {
@@ -135,7 +135,7 @@ fn validated_probabilities(p: Vec<f64>, k: usize) -> Result<Vec<f64>, Error> {
 
 /// Score, explore, choose, and record one decision. The model is untouched
 /// (learning happens only through the ledger's resolutions). `score` and
-/// `explore` are the BYO callbacks (module docs, spec/byo.md).
+/// `explore` are the BYO callbacks (module docs).
 pub fn decide(
     state: &mut BanditState,
     candidates: &[Features],

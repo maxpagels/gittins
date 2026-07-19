@@ -1,5 +1,5 @@
 //! The experience log and offline policy evaluation — the port of
-//! `gittins_reference/ope.py` (spec: `spec/ope.md`).
+//! `gittins_reference/ope.py`.
 //!
 //! Same shapes, same walk, same fixed-order arithmetic: `read_log`
 //! streams one event per line (plain files read line by line, gzipped
@@ -58,7 +58,7 @@ pub enum Event {
 }
 
 /// One evaluation's estimates and the diagnostics they must never be
-/// read without (spec/ope.md). Estimates are None when nothing resolved.
+/// read without. Estimates are None when nothing resolved.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpeReport {
     pub decisions: u64,
@@ -303,7 +303,7 @@ where
 }
 
 /// Progressive IPS/SNIPS over the log for one candidate configuration
-/// of the built-in engine (spec/ope.md). One pass over any event
+/// of the built-in engine. One pass over any event
 /// stream. Strict where `verify` is lenient — run `verify` first.
 pub fn evaluate<I>(
     events: I,
@@ -399,7 +399,7 @@ where
     })
 }
 
-/// The fleet-pooling rebuild (spec/ope.md): a fresh, deployable state
+/// The fleet-pooling rebuild: a fresh, deployable state
 /// whose model absorbed every rewarded/expired resolution's re-encoded
 /// chosen candidate and logged reward, in log order. One pass over any
 /// event stream.

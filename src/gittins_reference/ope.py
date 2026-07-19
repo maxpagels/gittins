@@ -1,5 +1,4 @@
-"""The experience log and offline policy evaluation (R3, R8d; spec:
-`ope.md`).
+"""The experience log and offline policy evaluation.
 
 The decision log *is* the offline-evaluation dataset: the app appends
 every decision (with the dict-shaped inputs it was made over) and every
@@ -21,7 +20,7 @@ hold is only their own bookkeeping: seen ids for exactly-once checks,
 open decisions awaiting their resolution. Generators are consumed once;
 wrap in `tuple` when events must be reused.
 
-`verify` is the R4-flavored guard: it recomputes what the log claims —
+`verify` is the guard: it recomputes what the log claims —
 `candidate_hash` over the re-encoded candidates, the chosen candidate's
 features, propensity bounds, exactly-once resolutions, per-salt time
 order — and collects every violation instead of stopping at the first.
@@ -286,7 +285,7 @@ def evaluate(
     forgetfulness: float = DEFAULT_FORGETTING,
 ) -> OpeReport:
     """Progressive IPS/SNIPS over the log for one candidate configuration
-    of the built-in engine (module docstring, spec/ope.md). One pass over
+    of the built-in engine (module docstring). One pass over
     any event iterable. Strict where `verify` is lenient: malformed
     decisions raise rather than skew the estimate — run `verify` first."""
     if not (1 <= bits <= 24):
@@ -356,7 +355,7 @@ def replay(
     epsilon: float = DEFAULT_EPSILON,
     forgetfulness: float = DEFAULT_FORGETTING,
 ):
-    """The fleet-pooling rebuild (R8d): a fresh, deployable BanditState
+    """The fleet-pooling rebuild: a fresh, deployable BanditState
     whose model absorbed every rewarded/expired resolution's (re-encoded
     chosen candidate, logged reward), in log order. Expired resolutions
     train with their *logged* reward; `default_reward` here only governs

@@ -55,7 +55,7 @@ export function create(bits, horizon, default_reward, epsilon, forgetfulness) {
 }
 
 /**
- * `score` and `explore` are the BYO callbacks (spec/byo.md):
+ * `score` and `explore` are the BYO callbacks:
  * `score(context, candidates)` — called with the very values passed here —
  * and `explore(estimates, epsilon)`; each returns an array of numbers.
  * @param {BanditState} state
@@ -94,7 +94,7 @@ export function deserialize(data) {
 
 /**
  * Every decision past its horizon at time `t`, resolved as expired, in
- * ledger order. `train` as on `learn`, fired per due record (spec/byo.md).
+ * ledger order. `train` as on `learn`, fired per due record.
  * @param {BanditState} state
  * @param {number} t
  * @param {Function | null} [train]
@@ -111,7 +111,7 @@ export function expire(state, t, train) {
 
 /**
  * The resolution object, or null if the id is unknown or already resolved.
- * `train` is the BYO training tap (spec/byo.md): it replaces the built-in
+ * `train` is the BYO training tap: it replaces the built-in
  * update and fires after the resolution commits, exactly once, with the
  * record object and the reward.
  * @param {BanditState} state
@@ -132,7 +132,7 @@ export function learn(state, decision_id, reward, train) {
 }
 
 /**
- * One canonical experience-log line (spec/ope.md) for a decision record
+ * One canonical experience-log line for a decision record
  * or resolution — append it to your log verbatim; it is exactly what
  * the `gittins` CLI's verify/eval/replay consume. Decision records must
  * be the ones `decide` returned (they carry the inputs; a `train`

@@ -114,7 +114,7 @@ class TestFullCycle:
 
 
 class TestByo:
-    # The public BYO surface (spec/byo.md): score/explore on decide, train
+    # The public BYO surface: score/explore on decide, train
     # on learn/expire. A BYO model is score + train; a BYO exploration
     # rule is explore; the engine keeps encoding, the RNG draw, the
     # record, propensity logging, and the exactly-once ledger.
@@ -153,7 +153,7 @@ class TestByo:
         [(rec, r)] = trained
         assert (rec.decision_id, rec.features, r) == (record.decision_id, record.features, 0.75)
         # The train-side record is the compact one: the inputs live in the
-        # log written at decide time, never in the state (spec/ope.md).
+        # log written at decide time, never in the state.
         assert rec.bits is None and rec.context is None and rec.candidates is None
         # Exactly once: the retry is a no-op and the callback stays quiet.
         assert api.learn(state, record.decision_id, 0.75, train=lambda rec, r: trained.append((rec, r))) is None
@@ -228,7 +228,7 @@ class TestByo:
 
 
 class TestLogLine:
-    # Assembly-free logging (spec/ope.md): the record decide returns
+    # Assembly-free logging: the record decide returns
     # carries its inputs, and log_line emits exactly the experience-log
     # line verify/evaluate/replay consume.
 

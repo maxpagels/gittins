@@ -1,5 +1,5 @@
 # The CLI binding: the experience log and offline policy evaluation
-# (spec/ope.md) as the `gittins` binary — verify / eval / sweep / replay
+# as the `gittins` binary — verify / eval / sweep / replay
 # over gittins_reference/ope.py's semantics, gated by the golden `ope`
 # section. The core crate stays zero-dependency; serde_json (JSONL, with
 # preserve_order — feature iteration order is semantic under hashing —

@@ -8,7 +8,7 @@ the intercept, and every interaction term hashes into one fixed space of
 schema, no field registration, and nothing to migrate: new field names, new
 categorical values, and new arms are all usable the moment they first
 appear, and evidence on anything that stops appearing is forgotten out of
-the sums by later updates, recycling its dimensions (R1). Fixed state
+the sums by later updates, recycling its dimensions. Fixed state
 memory under unbounded feature and arm churn, by construction.
 
 **Tokens.** Each supplied (name, value) becomes one token in its namespace
@@ -54,8 +54,8 @@ dict insertion order, identical on every platform.
 strictly increasing index order, values nonzero — the handful of nonzero
 entries of the conceptual 2**bits vector, never the vector itself. Every
 consumer (scoring, hashing, training, the decision record) is O(nonzeros),
-which is what makes large `bits` and thousands of candidates practical
-(R5, R6). Colliding contributions that cancel to exactly 0.0 are absent,
+which is what makes large `bits` and thousands of candidates practical.
+Colliding contributions that cancel to exactly 0.0 are absent,
 matching the candidate-set hash's canonical form (decide.py).
 """
 
@@ -87,7 +87,7 @@ def feature_tokens(namespace: str, values: dict) -> "list[tuple[str, float]]":
 def pair_hash(left_token: str, right_token: str) -> int:
     # A pure function of the tokens, and the same pairs recur on every
     # decision, so the hash is memoized; the bound keeps memory fixed under
-    # unbounded feature churn (R1).
+    # unbounded feature churn.
     return mix64(fnv1a_64(left_token.encode("utf-8") + PAIR_SEP + right_token.encode("utf-8")))
 
 
