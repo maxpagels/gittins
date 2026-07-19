@@ -259,12 +259,10 @@ a reason:
 | `candidate_hash` | a fingerprint of the whole candidate set, proving what the alternatives were. |
 | `model_version` | how many observations the model had absorbed; it identifies exactly which policy made this decision. |
 | `salt` | the RNG key that makes the draw itself replayable. |
-| `context`, `candidates`, `bits` | the inputs you passed to `decide`, attached to the returned record. The engine's own memory keeps only the compact record above, so these three are `None` on the record a `train` callback receives (see [Bring Your Own Algorithms](#bring-your-own-algorithms)); the log, not the engine, is where inputs persist. |
+| `context`, `candidates`, `bits` | the inputs you passed to `decide`, attached to the returned record. The engine's own memory keeps only a compact record, so these three are `None` on the record a `train` callback receives (see [Bring Your Own Algorithms](#bring-your-own-algorithms)).|
 
 Notice what the record makes unnecessary. Because `features` is stored at
-decision time, and never passed back when calling `learn` there is no API for hand-assembling training data, and so no
-way to construct invalid training data post-decision. Because `propensity` is always
-recorded, and the record carries its own inputs, offline evaluation needs no additional information (see
+decision time, and never passed back when calling `learn`, constructing data for offline evaluation will contain its own validation, making it difficult to construct the wrong kind of training data (see
 [What Would Have Happened?](#what-would-have-happened)).
 
 ---
