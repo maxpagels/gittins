@@ -89,6 +89,8 @@ jobs:
           uv pip install . ./bindings/python pytest
       - name: Golden gate + tests, Python binding
         run: .venv/bin/python -m pytest bindings/python/tests -q
+      - name: Golden gate + tests, CLI binding
+        run: cargo test --manifest-path bindings/cli/Cargo.toml
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: Golden gate under Node, wasm binding

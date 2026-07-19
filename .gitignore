@@ -7,5 +7,6 @@ dist/
 core/target/
 bindings/python/target/
 bindings/wasm/target/
+bindings/cli/target/
 bindings/wasm/pkg/
 bindings/wasm/pkg-node/

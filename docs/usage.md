@@ -139,6 +139,67 @@ would poison the decision log. And `train` runs *after* a decision is
 marked resolved: if your callback crashes, that one observation is lost
 (loudly — the exception reaches you), but it can never be trained twice.
 
+## Logging decisions, and asking "what would have happened?"
+
+If you append what the engine already hands you to a file — each
+decision (together with the context and candidates you passed in) and
+each resolution, one JSON object per line, in the order they happened —
+that file becomes a complete offline-evaluation dataset:
+
+```python
+import json
+
+def log_decision(f, record, context, candidates):
+    f.write(json.dumps({
+        "event": "decision",
+        "bits": gittins.model_bits(state),
+        "context": context,
+        "candidates": [[arm, action] for arm, action in candidates],
+        "record": {
+            "decision_id": record.decision_id, "t": record.t,
+            "candidate_hash": record.candidate_hash, "chosen": record.chosen,
+            "features": [list(p) for p in record.features],
+            "propensity": record.propensity,
+            "model_version": record.model_version, "salt": record.salt,
+        },
+    }) + "\n")
+
+def log_resolution(f, r):
+    f.write(json.dumps({
+        "event": "resolution", "decision_id": r.decision_id,
+        "kind": r.kind, "reward": r.reward,
+    }) + "\n")
+```
+
+The `gittins` command-line tool (built from `bindings/cli`) then answers
+the tuning questions offline, from the log alone — no bindings, no
+notebook required. Logs may be gzip-compressed; the tool detects it by
+content:
+
+```sh
+# is the log internally consistent? (recomputes every hash; exits nonzero if not)
+gittins verify --log decisions.jsonl.gz
+
+# how would a different configuration have done on this exact traffic?
+gittins eval --log decisions.jsonl.gz --bits 8 --epsilon 0.1
+
+# compare a whole grid in one table
+gittins sweep --log decisions.jsonl.gz --bits 8 --epsilon 0.02,0.05,0.1 --forgetfulness 0.999,0.995
+
+# rebuild a deployable state from the log (fleet pooling: merge logs, replay, ship)
+gittins replay --log decisions.jsonl.gz --bits 8 --horizon 3600 > bandit.state
+```
+
+`eval` reports IPS and SNIPS estimates of mean reward next to the logged
+policy's realized mean — and always with the diagnostics (effective
+sample size, largest importance weight) that tell you how much to trust
+them. Every command is deterministic: the same log and settings produce
+the same numbers on every machine. And every command streams: the log is
+read one line at a time (gzip included), so its size is bounded by your
+disk, not your memory. The same functions are available in Python as
+`gittins_reference.ope` (`read_log`, `verify`, `evaluate`, `replay` —
+`read_log` is a generator) for notebook use.
+
 ## Saving and loading
 
 The whole state becomes one plain string (hex-encoded), and the exact same
