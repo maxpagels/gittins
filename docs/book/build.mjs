@@ -542,10 +542,10 @@ const css = `
 
 const { title, body, description } = render(readFileSync(inFile, "utf8"));
 
-// Absolute URLs for Open Graph: set BOOK_URL to the deployed origin (e.g.
-// BOOK_URL=https://example.com node build.mjs). Without it the image URL is
-// root-relative, which some link scrapers will not resolve.
-const siteUrl = (process.env.BOOK_URL ?? "").replace(/\/+$/, "");
+// Open Graph URLs must be absolute or link scrapers reject them. The
+// deployed origin is the default; BOOK_URL overrides it (e.g. previews).
+const siteUrl = (process.env.BOOK_URL ?? "https://docs.getgittins.dev")
+  .replace(/\/+$/, "");
 const meta = [
   `<meta name="description" content="${escapeHtml(description)}">`,
   '<meta property="og:type" content="website">',
