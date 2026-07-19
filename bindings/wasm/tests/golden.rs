@@ -123,7 +123,7 @@ fn api_section_through_the_binding() {
         s.get("horizon").f64_(),
         None,
         None,
-        Some(s.get("forgetting").f64_()),
+        Some(s.get("forgetfulness").f64_()),
     )
     .unwrap();
     assert!(model_bits(&state).unwrap() as u64 == s.get("bits").u64_());

@@ -93,7 +93,7 @@ fn model_section() {
     let s = section("model");
     let mut m = new_model(
         s.get("dim").usize_(),
-        s.get("forgetting").f64_(),
+        s.get("forgetfulness").f64_(),
         s.get("ridge").f64_(),
     )
     .unwrap();
@@ -217,7 +217,7 @@ fn assert_resolutions(actual: &[Resolution], expected: &Json) {
 /// reference's serialization snapshot.
 fn replay_episode(s: &Json) -> (BanditState, BanditState) {
     let bits: u32 = s.get("bits").u64_() as u32;
-    let forgetting = s.get("forgetting").f64_();
+    let forgetting = s.get("forgetfulness").f64_();
     let horizon = s.get("horizon").f64_();
     let default_reward = s.get("default_reward").f64_();
     let t0 = 1_752_000_000.0;
@@ -377,7 +377,7 @@ fn api_section() {
     let s = section("api");
     let bits = s.get("bits").u64_() as u32;
     let horizon = s.get("horizon").f64_();
-    let forgetting = s.get("forgetting").f64_();
+    let forgetting = s.get("forgetfulness").f64_();
     let salt = s.get("salt").str_();
     let catalog: Vec<(String, Vec<(String, Value)>)> = s
         .get("catalog")

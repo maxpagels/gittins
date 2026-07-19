@@ -104,7 +104,7 @@ def model_vectors():
     probe = ((0, 1.0), (1, -1.0))
     est, unc = predict(m, probe)
     return {
-        "dim": 2, "forgetting": forgetting, "ridge": 1.0,
+        "dim": 2, "forgetfulness": forgetting, "ridge": 1.0,
         "updates": [{"x": pairs_json(x), "reward": r} for x, r in history],
         "states": states,
         "predict": {"x": pairs_json(probe), "estimate": est, "uncertainty": unc},
@@ -228,7 +228,7 @@ def run_episode():
             predictions.append({"seg": seg, "arm": arm,
                                 "estimate": est, "uncertainty": unc})
     section = {
-        "bits": bits, "forgetting": forgetting, "horizon": horizon,
+        "bits": bits, "forgetfulness": forgetting, "horizon": horizon,
         "default_reward": 0.0,
         "reward_rule": "1.0 if (arm == 'x') == (seg == 'a') else 0.0",
         "expire_sweep_at": sweep_t,
@@ -298,7 +298,7 @@ def api_vectors():
     resolutions.extend(resolution_json(r) for r in api.expire(state, sweep_t))
     assert not state._state.ledger, "api scenario must end with nothing open"
     return {
-        "bits": bits, "forgetting": forgetting, "horizon": horizon,
+        "bits": bits, "forgetfulness": forgetting, "horizon": horizon,
         "salt": salt,
         "catalog": [[arm_id, action] for arm_id, action in catalog],
         "events": events,
