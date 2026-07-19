@@ -96,17 +96,26 @@ function highlight(code, lang) {
   return out + escapeHtml(code.slice(last));
 }
 
+// Markdown stripped to plain text, for meta descriptions.
+const plainText = (s) =>
+  s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_`]|\+\+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
 function render(md) {
   const lines = md.split(/\r?\n/);
   const html = [];
   const chapters = []; // { id, title } from ## headings, for the TOC
   let title = "Untitled";
   let subtitle = "";
+  let firstPara = ""; // the book's opening paragraph, for og:description
   let para = [];
   let list = null; // { tag, items }
 
   const flushPara = () => {
     if (para.length) {
+      if (!firstPara) firstPara = plainText(para.join(" "));
       html.push(`<p>${inline(para.join(" "))}</p>`);
       para = [];
     }
@@ -290,7 +299,11 @@ function render(md) {
     : "";
 
   const body = html.join("\n").replace("\u0000TOC\u0000", toc);
-  return { title, body };
+  let description = firstPara;
+  if (description.length > 200) {
+    description = description.slice(0, 200).replace(/\s+\S*$/, "") + "…";
+  }
+  return { title, body, description };
 }
 
 const css = `
@@ -527,7 +540,24 @@ const css = `
   hr { border: 0; }
 `;
 
-const { title, body } = render(readFileSync(inFile, "utf8"));
+const { title, body, description } = render(readFileSync(inFile, "utf8"));
+
+// Absolute URLs for Open Graph: set BOOK_URL to the deployed origin (e.g.
+// BOOK_URL=https://example.com node build.mjs). Without it the image URL is
+// root-relative, which some link scrapers will not resolve.
+const siteUrl = (process.env.BOOK_URL ?? "").replace(/\/+$/, "");
+const meta = [
+  `<meta name="description" content="${escapeHtml(description)}">`,
+  '<meta property="og:type" content="website">',
+  `<meta property="og:title" content="${escapeHtml(title)}">`,
+  `<meta property="og:description" content="${escapeHtml(description)}">`,
+  `<meta property="og:image" content="${siteUrl}/og.png">`,
+  '<meta property="og:image:width" content="1200">',
+  '<meta property="og:image:height" content="630">',
+  '<meta property="og:image:alt" content="A dark red italic epsilon">',
+  ...(siteUrl ? [`<meta property="og:url" content="${siteUrl}/">`] : []),
+  '<meta name="twitter:card" content="summary_large_image">',
+].join("\n");
 
 writeFileSync(outFile, `<!DOCTYPE html>
 <html lang="en">
@@ -535,6 +565,7 @@ writeFileSync(outFile, `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
+${meta}
 <style>${css}</style>
 </head>
 <body>

@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gittins</title>
+<meta name="description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Gittins">
+<meta property="og:description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta property="og:image" content="/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A dark red italic epsilon">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   @font-face {
     font-family: "Linux Libertine";
@@ -271,7 +280,7 @@
 <p>You may be thinking to yourself, &quot;why not use supervised learning instead of bandits?&quot;. That is a fair question, and for some problems, it works well. But consider a case of topic recommendation on social media. If you use supervised learning to choose the best topic from a handful of candidates, you must a) have enough cover in your training data to learn the optimal relationships, however obscure, snd b) have some way of being able to recommend entirely new topics that you don't have history for. Bandits offer a natural way of introducing new actions by virtue of its explorative design.</p>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="your-first-decision">Your First Decision</h2>
-<p>Gittins comes in three flavours: a (slow) reference Python implementation, which is not packaged and not recommended outside development of the system; Python bindings, for most data science workflows; and Web Assembly bindings, for in-browser decisions. The bindings call a core written in Rust for performance reasons.</p>
+<p>Gittins comes in three flavours: a (slow) reference Python implementation, which is not packaged and not recommended outside development of the system; Python bindings, for most data science workflows; and WASM bindings, for in-browser decisions. The bindings call a core written in Rust for performance reasons.</p>
 <p>Whichever flavour you pick, the interface is the same eight functions with the same names and the same semantics. A state saved by one loads in the others, bit for bit. The examples in this document default to Python; use the toggle above any code block to switch to the WASM (JavaScript) API, and the whole page follows.</p>
 <p>All you need resides in one module, <code>gittins</code>. There is no schema to define, nothing to register, and no background machinery. Start by creating a bandit. What you get back is a handle: <code>decide</code>, <code>learn</code>, and <code>expire</code> update it in place and return just their results. The module holds no state of its own — the handle <em>is</em> the bandit, so you can hold several, snapshot one, or ship one across languages. Passing a handle costs nothing (it is a reference to the one bandit in memory); only <code>serialize</code> ever copies the bandit state.</p>
 <div class="codetabs">
