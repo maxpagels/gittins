@@ -1,4 +1,4 @@
-"""Canonical state serialization (design doc section 7, R8).
+"""Canonical state serialization (design doc section 7).
 
 The engine's state is an explicit value, and this module is what makes that
 operational: `serialize` turns a BanditState into one self-contained byte

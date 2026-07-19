@@ -1,5 +1,5 @@
 //! The CLI binding's acceptance gate: the golden `ope` section
-//! (spec/ope.md) replayed through the library half — the log lines
+//! replayed through the library half — the log lines
 //! re-serialized from the corpus and parsed as real JSONL, the clean
 //! verify, every evaluation report bit for bit (the logging
 //! configuration's identity included), the replay hex, and the tampered

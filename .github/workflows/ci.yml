@@ -2,7 +2,7 @@
 #
 # The test suite pins expected outputs at the bit level (pinned vectors in
 # tests/, plus regeneration of spec/golden.json), so every matrix leg is a
-# bit-identity check (R6). Ubuntu-only for cost; macOS/Windows legs are
+# bit-identity check. Ubuntu-only for cost; macOS/Windows legs are
 # deferred, to be revisited when the compiled core lands — cross-OS
 # bit-identity is a release gate even if it isn't a per-PR gate.
 #
@@ -66,7 +66,7 @@ jobs:
 
   # The bindings job, both bindings end to end. Python: build the wheel
   # (maturin via the PEP 517 backend) and replay the golden api section
-  # through it — the binding acceptance gate (spec/api.md). Wasm: the same
+  # through it — the binding acceptance gate. Wasm: the same
   # gate plus the serialization section under Node — also the project's
   # cross-platform bit-identity check, since WASM mandates IEEE-754
   # semantics — and a packaging smoke build. Then the decision-cycle

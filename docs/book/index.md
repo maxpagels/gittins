@@ -5,7 +5,7 @@
 
 [SIM]
 
-Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands on the shoulders of giants, in particular
+Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based on my experience working with bandit problems. It stands on the shoulders of giants, in particular
 [Vowpal Wabbit](https://vowpalwabbit.org/), and adheres strictly to a design in support of real-world production use. Gittins is not a research tool.
 
 1. **Online by nature**. Gittins learns one observation at a time, in O(1) work, and in fixed memory as long as open decisions are regularly resolved.
@@ -133,7 +133,7 @@ was chosen with. Gittins will keep this information in a ledger in memory pendin
 Gittins learns only when you resolve a decision, and each decision can be
 resolved exactly once. When the reward arrives simply report it by id.
 
-In addition to submitting rewards, remember to call `expire` regularly with the current time so that decisions which waited past the horizon are trained as `default_reward`. If you fail to call expire regularly, the memory usage will continue to grow. It is a deliberate choice to pass the expiration responsibility to you, as your application may have reasons not to expire unresolved records at regular intervals. However, for most applications, you will usually want to call expire inside a timer to ensure the records in memory never grow too large.
+In addition to submitting rewards, remember to call `expire` regularly with the current time so that decisions which waited past the horizon are trained as `default_reward`. If you fail to call expire regularly, the memory usage will continue to grow. It is a deliberate choice to pass the expiration responsibility to you, as your application may have reasons not to expire unresolved records at regular intervals. However, for most applications, you will usually want to call expire inside a timer or directly after every `decide` call to ensure the records in memory never grow too large.
 
 ```python
 import threading

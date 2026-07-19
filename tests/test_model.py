@@ -146,8 +146,8 @@ class TestUncertainty:
 
     def test_uncertainty_has_a_floor(self):
         # Forgetting bounds the effective sample size at 1/(1 - f), so
-        # certainty saturates: the model can never become absolutely sure
-        # (R2). With f = 0.9 and unit features, the true xx -> 10 in the
+        # certainty saturates: the model can never become absolutely sure.
+        # With f = 0.9 and unit features, the true xx -> 10 in the
         # limit, so uncertainty can never fall below 1/sqrt(11).
         m = new_model(1, forgetting=0.9)
         for _ in range(500):
@@ -172,7 +172,7 @@ class TestForgetting:
 
     def test_dead_dimensions_are_recycled(self):
         # Evidence on a feature that stops appearing fades with every later
-        # update (R1): after many updates elsewhere, the dead dimension is
+        # update: after many updates elsewhere, the dead dimension is
         # back to ~the prior.
         m = new_model(2, forgetting=0.9)
         for _ in range(50):

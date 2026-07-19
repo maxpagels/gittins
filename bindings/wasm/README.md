@@ -1,14 +1,14 @@
 # gittins — browser / JS binding
 
 The gittins engine compiled to WebAssembly, exposing the same nine
-functions as the Python package and the reference (`spec/api.md`). Build
+functions as the Python package and the reference. Build
 with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
 
 ```sh
 wasm-pack build --target web bindings/wasm   # emits bindings/wasm/pkg/
 ```
 
-As everywhere else (`spec/api.md`): calls return their result only, and
+As everywhere else: calls return their result only, and
 the state handle is updated in place. Decision records and resolutions are
 plain objects with the same field names as the Python API;
 `candidate_hash` is a BigInt.

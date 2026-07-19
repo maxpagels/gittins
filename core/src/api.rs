@@ -1,5 +1,5 @@
 //! The public API — the port of `api.py`, the dict-shaped facade every
-//! binding mirrors (spec: `api.md`). This module is the complete binding
+//! binding mirrors. This module is the complete binding
 //! surface: PR 20/21 expose exactly these names and nothing else. Every
 //! function is the layered API unchanged, with the hashed encoding folded
 //! inside `decide` so sparse pairs never cross the public boundary; the
@@ -17,7 +17,7 @@ use crate::ledger;
 // BYO `train` callback below.
 pub use crate::ledger::{censor, Kind, Resolution};
 
-/// A BYO train callback (spec/byo.md): the resolved decision's record and
+/// A BYO train callback: the resolved decision's record and
 /// the reward it resolved with — the exactly-once, correctly-joined
 /// observation the user's model trains on in place of the built-in update.
 pub type Train<'a> = &'a mut dyn FnMut(&DecisionRecord, f64) -> Result<(), Error>;
@@ -28,7 +28,7 @@ pub type Train<'a> = &'a mut dyn FnMut(&DecisionRecord, f64) -> Result<(), Error
 /// model_version advances — and then `train(record, reward)` fires,
 /// exactly once per decision; its error propagates after the commit, so a
 /// failing callback loses that one example loudly but can never
-/// double-train (spec/byo.md).
+/// double-train.
 pub fn learn(
     state: &mut BanditState,
     decision_id: &str,
@@ -55,7 +55,7 @@ pub fn learn(
 /// ledger order. With `train` each expiry commits and then fires
 /// `train(record, default_reward)` — one record at a time, so an error
 /// leaves earlier records resolved and later ones open for the next sweep,
-/// and no record ever trains twice (spec/byo.md). The resolutions already
+/// and no record ever trains twice. The resolutions already
 /// made stand when an error is returned.
 pub fn expire(
     state: &mut BanditState,
@@ -85,7 +85,7 @@ pub fn expire(
 }
 
 /// The current state as one plain string: the canonical byte layout
-/// (state.rs, spec/serialization.md), hex-encoded, lowercase. A string
+/// (state.rs), hex-encoded, lowercase. A string
 /// goes anywhere text goes — a file, a database column, localStorage,
 /// version control — so no caller, in any language, ever handles raw
 /// bytes or picks an encoding.
@@ -154,7 +154,7 @@ pub fn model_bits(state: &BanditState) -> Result<u32, Error> {
 /// inputs: `context` is one feature list, each candidate is an
 /// (arm_id, action features) pair, encoded here in candidate order.
 /// Everything returned and every state change is `decide`'s, unchanged.
-/// `score` and `explore` are the BYO callbacks (spec/byo.md); bindings
+/// `score` and `explore` are the BYO callbacks; bindings
 /// build them over the caller's own context/candidate objects.
 pub fn decide(
     state: &mut BanditState,
@@ -219,7 +219,7 @@ mod tests {
             .contains("2**bits"));
     }
 
-    /// The BYO training tap (spec/byo.md): train replaces the built-in
+    /// The BYO training tap: train replaces the built-in
     /// update, model_version still advances, the callback fires exactly
     /// once per decision, and the commit precedes the callback so a
     /// failing trainer can never cause a double-train.

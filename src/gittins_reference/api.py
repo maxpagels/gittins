@@ -19,7 +19,7 @@ The surface is nine names:
     model_bits(state)                   -> int
     log_line(record | resolution)       -> str (one experience-log line)
 
-**Assembly-free logging (spec/ope.md).** The record `decide` returns
+**Assembly-free logging.** The record `decide` returns
 carries the inputs the decision was made over — `bits`, `context`,
 `candidates`, attached at the only moment they exist — and `log_line`
 turns it (or any resolution) into one canonical experience-log line, so
@@ -34,7 +34,7 @@ so a record that crossed the state boundary — the one a `train` callback
 receives — carries None there. The log, not the state, is where inputs
 persist; `candidate_hash` is the commitment binding the two.
 
-**Bring your own model / exploration (R7, spec/byo.md).** The three
+**Bring your own model / exploration.** The three
 optional callbacks are the whole BYO surface, each replacing exactly one
 built-in component while everything else — encoding, the RNG draw, the
 record, propensity logging, the ledger's exactly-once join, OPE — is
@@ -54,7 +54,7 @@ A BYO model is `score` + `train`; a BYO exploration rule is `explore`.
 Callbacks are per-call values, never stored, so the state stays plain
 serializable data. `train` fires *after* its resolution commits: a raising
 callback loses that one training example loudly, but can never cause a
-double-train — the record is already spent (spec/byo.md).
+double-train — the record is already spent.
 
 **The state is an opaque handle, updated in place.** `create` and
 `deserialize` return one; `decide`/`learn`/`censor`/`expire` mutate it and
@@ -211,8 +211,8 @@ def decide(
     (arm_id, action feature dict) pair, encoded here in candidate order.
     The record returned and every state change are decide.py's, unchanged.
 
-    `score` and `explore` are the BYO callbacks (module docstring,
-    spec/byo.md); `score` is called once with the very `context` and
+    `score` and `explore` are the BYO callbacks (module docstring);
+    `score` is called once with the very `context` and
     `candidates` passed here.
 
     The returned record carries `bits` and the very `context` and
@@ -237,7 +237,7 @@ def learn(
     """Resolve an open decision as rewarded; None (a no-op) if the id is
     unknown or already resolved.
 
-    With `train` (the BYO model's training tap, spec/byo.md), the built-in
+    With `train` (the BYO model's training tap), the built-in
     model is left untouched: the resolution commits — the record leaves the
     ledger and model_version advances — and then `train(record, reward)`
     fires, exactly once per decision."""
@@ -265,7 +265,7 @@ def expire(state: BanditState, t: float, train=None) -> "tuple[Resolution, ...]"
     """Resolve every open decision past its horizon at time `t` as expired,
     in ledger order.
 
-    With `train` (spec/byo.md) each expiry commits and then fires
+    With `train` each expiry commits and then fires
     `train(record, default_reward)` — one record at a time, so a raising
     callback leaves earlier records resolved and later ones open for the
     next sweep, and no record ever trains twice."""
@@ -289,7 +289,7 @@ def expire(state: BanditState, t: float, train=None) -> "tuple[Resolution, ...]"
 
 
 def log_line(item) -> str:
-    """One canonical experience-log line (spec/ope.md) for a decision
+    """One canonical experience-log line for a decision
     record or a resolution — exactly what `verify`/`evaluate`/`replay`
     consume, so building an OPE-ready log is appending this, verbatim,
     after each call. Compact JSON, canonical field order, feature dicts

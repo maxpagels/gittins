@@ -1,5 +1,5 @@
 """Regenerates decisions.jsonl: a deterministic 1000-decision example
-experience log (spec/ope.md), written the way an app writes one —
+experience log, written the way an app writes one —
 `api.log_line` output, verbatim, in arrival order. Rewards arrive three
 decisions late, every 97th outcome is censored, some rewards never
 arrive (the regular expiry sweep resolves them), and the reward rule is

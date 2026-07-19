@@ -8,7 +8,7 @@ randomness comes from the counter RNG keyed by the decision's identity.
 `decide()` does not return a bare action (D5). It returns a **decision
 record** — the unit the rest of the engine is built around: `learn`
 (ledger.py) accepts only a record plus an outcome, and the append-only log
-of records *is* the offline-evaluation dataset (R3). The record carries:
+of records *is* the offline-evaluation dataset. The record carries:
 
     decision_id    — unique; see below
     t              — the caller-supplied decision time
@@ -38,7 +38,7 @@ arrives with it.
 **Where epsilon comes from.** The exploration rule (exploration.py) takes
 its uniform-exploration mass `epsilon` from the state: declared once at
 construction, defaulting to `DEFAULT_EPSILON` — an expert override like
-`forgetting`, not a routine knob (R2). The rule needs only the reward
+`forgetting`, not a routine knob. The rule needs only the reward
 estimates, so scoring is one dot product per candidate — no uncertainties,
 no sqrt, no schedule. A fresh model estimates every candidate at 0.0 and
 the exact-tie split makes the first distributions uniform; the epsilon
@@ -49,7 +49,7 @@ gamma schedule here — see exploration.py for the reasoning and the price.
 RNG counter allocation: counter 0 of the decision's stream is the sampling
 draw. Later counters are reserved for future per-decision randomness.
 
-**Bring your own model / exploration (R7, spec/byo.md).** `decide` takes
+**Bring your own model / exploration.** `decide` takes
 two optional callbacks, each replacing exactly one built-in component and
 inheriting everything else unchanged:
 
@@ -57,8 +57,8 @@ inheriting everything else unchanged:
     explore(estimates, epsilon) -> one probability per candidate
 
 `score` replaces the built-in model's estimates; `explore` replaces
-epsilon-greedy. The engine validates each callback's output (see
-`spec/byo.md` for the exact rules) and everything downstream — the
+epsilon-greedy. The engine validates each callback's output, and
+everything downstream — the
 inverse-CDF draw on the decision's RNG stream, the record, the logged
 propensity, the ledger — is unchanged, so a BYO decision is exactly as
 deterministic, replayable, and OPE-ready as a built-in one. Callbacks are
@@ -163,12 +163,12 @@ def candidate_set_hash(candidates: "list[Features]", dim: int) -> int:
 # How far a BYO explore distribution's sum may sit from 1.0 before it is
 # rejected: generous against benign rounding (the built-in rule lands
 # within a few ulps), unforgiving of real errors — a wrong sum poisons
-# every logged propensity (spec/byo.md).
+# every logged propensity.
 PROBABILITY_TOLERANCE = 1e-9
 
 
 def validated_estimates(raw, k: int) -> list[float]:
-    """A BYO score result as k floats, or ValueError (spec/byo.md)."""
+    """A BYO score result as k floats, or ValueError."""
     message = "score must return one finite estimate per candidate"
     try:
         estimates = list(raw)
@@ -182,8 +182,8 @@ def validated_estimates(raw, k: int) -> list[float]:
 
 
 def validated_probabilities(raw, k: int) -> list[float]:
-    """A BYO explore result as a k-candidate distribution, or ValueError
-    (spec/byo.md): every entry finite and nonnegative, the index-order sum
+    """A BYO explore result as a k-candidate distribution, or ValueError:
+    every entry finite and nonnegative, the index-order sum
     within PROBABILITY_TOLERANCE of 1."""
     try:
         p = list(raw)
@@ -217,8 +217,8 @@ def decide(
     resolutions, see ledger.py); the state changes are the decision counter
     advancing and the record joining the ledger of open decisions.
 
-    `score` and `explore` are the BYO callbacks (module docstring,
-    spec/byo.md): `score(candidates)` replaces the built-in estimates,
+    `score` and `explore` are the BYO callbacks (module docstring):
+    `score(candidates)` replaces the built-in estimates,
     `explore(estimates, epsilon)` replaces epsilon-greedy; each output is
     validated here and everything else is unchanged.
     """

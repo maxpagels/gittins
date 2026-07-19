@@ -1,4 +1,4 @@
-//! The binding's acceptance gate, per spec/api.md: replay the golden `api`
+//! The binding's acceptance gate: replay the golden `api`
 //! section through the wasm module's public surface alone, and pin the
 //! `serialization` section's bytes. Runs under Node via
 //! `wasm-pack test --node`. WASM mandates IEEE-754 semantics and the
@@ -200,7 +200,7 @@ fn rejections_throw() {
     assert!(deserialize("xyz").is_err()); // not hex at all
 }
 
-/// The corpus's byo scenario (spec/byo.md) through the module alone, with
+/// The corpus's byo scenario through the module alone, with
 /// the spec callbacks as real JS source compiled by the VM — the callback
 /// boundary the binding actually ships.
 #[wasm_bindgen_test]
@@ -344,7 +344,7 @@ fn byo_rejections() {
     assert!(learn(&mut state, &id, 1.0, None).unwrap().is_null());
 }
 
-/// Assembly-free logging (spec/ope.md): the record decide returns
+/// Assembly-free logging: the record decide returns
 /// carries the caller's values, log_line emits one canonical
 /// experience-log line (candidate_hash as an exact integer token,
 /// which JSON.stringify alone cannot produce), and a train callback's

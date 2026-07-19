@@ -1,4 +1,4 @@
-"""The decision ledger: safe reward handling (design doc section 6, R4).
+"""The decision ledger: safe reward handling (design doc section 6).
 
 The engine owns the join between decisions and rewards. The state's ledger
 holds every *open* decision record — made by `decide`, not yet resolved —
@@ -92,7 +92,7 @@ def learn(
 
 def censor(state: BanditState, decision_id: str) -> "tuple[Resolution | None, BanditState]":
     """Resolve an open decision as censored: removed from the ledger without
-    training, the exclusion itself returned for the log (R3)."""
+    training, the exclusion itself returned for the log."""
     record, rest = take(state.ledger, decision_id)
     if record is None:
         return None, state

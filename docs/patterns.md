@@ -225,7 +225,7 @@ indices in the (documented, canonical) serialized state, and you get a free
 report: *what works* (weights on context-action interactions — "discounts
 convert on mobile") and *where traffic went* (evidence mass). No BI
 pipeline; the model is the dashboard. Caveat: this one needs a little code —
-decoding the serialized format per `spec/serialization.md` — so it is
+decoding the serialized format — so it is
 "possible and neat" rather than free.
 
 ## Feature importance without experiments

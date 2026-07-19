@@ -422,7 +422,7 @@ fn api_section() {
     assert!(api::deserialize(expected).unwrap() == state);
 }
 
-/// The BYO section (spec/byo.md): the corpus scenario replayed through the
+/// The BYO section: the corpus scenario replayed through the
 /// public facade with the spec-defined score/explore/train callbacks
 /// written natively — exactly what each binding's acceptance test does in
 /// its own language.

@@ -1,8 +1,7 @@
 """Tests for the counter-based RNG.
 
 The pinned hex constants here are the first golden vectors of the project: any
-future implementation (Rust, WASM) must reproduce them bit for bit. They are
-also recorded in spec/rng.md.
+future implementation (Rust, WASM) must reproduce them bit for bit.
 """
 
 from gittins_reference.rng import (

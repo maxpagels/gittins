@@ -91,7 +91,7 @@ class TestDecide:
 
     def test_trained_state_is_greedy_but_never_certain(self):
         # After clear evidence the good arm dominates, but the bad arm's
-        # propensity keeps exactly epsilon / k (R2).
+        # propensity keeps exactly epsilon / k.
         s = trained_state()
         n = 2000
         cands = [((0, 1.0),), ((1, 1.0),)]
@@ -201,7 +201,7 @@ class TestPinnedVectors:
 
 
 class TestByoCallbacks:
-    # The BYO surface at the layered level (spec/byo.md): score replaces
+    # The BYO surface at the layered level: score replaces
     # the built-in estimates, explore replaces epsilon-greedy, and
     # everything downstream — the RNG draw, the record, the propensity —
     # is shared with the built-in path.

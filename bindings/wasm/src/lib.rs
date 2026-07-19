@@ -1,4 +1,4 @@
-//! The JavaScript binding: the public API (spec: `spec/api.md`) exposed to
+//! The JavaScript binding: the public API exposed to
 //! the browser and Node via wasm-bindgen — the same nine names as
 //! `gittins_reference.api` and the Python wheel. The acceptance gate is the
 //! golden `api` and `serialization` sections replayed through this module
@@ -9,7 +9,7 @@
 //! Shapes:
 //! - the state is an opaque handle, **updated in place** — calls return
 //!   their result only. This is the uniform convention across every
-//!   implementation (spec/api.md), reference and Python wheel included.
+//!   implementation, reference and Python wheel included.
 //! - contexts and action features are plain objects (string values are
 //!   categorical, numbers numeric, booleans 1/0, null/undefined absent);
 //!   candidates are `[armId, actionFeatures]` pairs.
@@ -18,7 +18,7 @@
 //!   bits — a JS number would silently round it).
 //! - one boundary crossing per decision: `decide` takes the whole
 //!   candidate list, and encode → score → sample run inside the module.
-//! - the BYO callbacks (spec/byo.md) are plain JS functions: `score` and
+//! - the BYO callbacks are plain JS functions: `score` and
 //!   `explore` on `decide`, `train` on `learn`/`expire`. Each crosses the
 //!   boundary once per call — with the caller's own context/candidates,
 //!   all estimates, or the one resolved record — never per candidate. A
@@ -79,7 +79,7 @@ fn number_list(value: &JsValue, message: &str) -> Result<Vec<f64>, Error> {
     Ok(out)
 }
 
-/// The BYO train callback (spec/byo.md) as the core's shape: called with
+/// The BYO train callback as the core's shape: called with
 /// the resolved decision's record (a plain object) and the reward, once
 /// per resolution.
 fn train_callback<'a>(
@@ -161,7 +161,7 @@ fn get(obj: &JsValue, key: &str) -> JsValue {
 fn record_to_js(record: DecisionRecord) -> JsValue {
     let obj = Object::new();
     // The input fields exist on every record; only `decide` fills them
-    // (spec/ope.md) — a train callback's record carries null there, the
+    // — a train callback's record carries null there, the
     // ledger keeping only the compact record.
     set(&obj, "bits", &JsValue::NULL);
     set(&obj, "context", &JsValue::NULL);
@@ -225,7 +225,7 @@ pub fn model_bits(state: &BanditState) -> Result<u32, JsError> {
     api::model_bits(&state.inner).map_err(js_error)
 }
 
-/// `score` and `explore` are the BYO callbacks (spec/byo.md):
+/// `score` and `explore` are the BYO callbacks:
 /// `score(context, candidates)` — called with the very values passed here —
 /// and `explore(estimates, epsilon)`; each returns an array of numbers.
 #[wasm_bindgen]
@@ -271,7 +271,7 @@ pub fn decide(
     );
     let record = record_to_js(caught.rethrow(result)?);
     // The returned record carries the very values the caller passed —
-    // attached at the only moment they exist (spec/ope.md).
+    // attached at the only moment they exist.
     let obj: &Object = record.unchecked_ref();
     set(obj, "bits", &JsValue::from_f64(bits as f64));
     set(obj, "context", context);
@@ -279,7 +279,7 @@ pub fn decide(
     Ok(record)
 }
 
-/// One canonical experience-log line (spec/ope.md) for a decision record
+/// One canonical experience-log line for a decision record
 /// or resolution — append it to your log verbatim; it is exactly what
 /// the `gittins` CLI's verify/eval/replay consume. Decision records must
 /// be the ones `decide` returned (they carry the inputs; a `train`
@@ -339,7 +339,7 @@ pub fn log_line(item: &JsValue) -> Result<String, JsError> {
 }
 
 /// The resolution object, or null if the id is unknown or already resolved.
-/// `train` is the BYO training tap (spec/byo.md): it replaces the built-in
+/// `train` is the BYO training tap: it replaces the built-in
 /// update and fires after the resolution commits, exactly once, with the
 /// record object and the reward.
 #[wasm_bindgen]
@@ -373,7 +373,7 @@ pub fn censor(state: &mut BanditState, decision_id: &str) -> JsValue {
 }
 
 /// Every decision past its horizon at time `t`, resolved as expired, in
-/// ledger order. `train` as on `learn`, fired per due record (spec/byo.md).
+/// ledger order. `train` as on `learn`, fired per due record.
 #[wasm_bindgen]
 pub fn expire(
     state: &mut BanditState,

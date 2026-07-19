@@ -1,5 +1,5 @@
 //! The Python binding: `gittins_reference.api` mirrored name for name over
-//! the Rust core's `api` module (spec: `spec/api.md`), so the reference's
+//! the Rust core's `api` module, so the reference's
 //! usage docs and this module are interchangeable. The acceptance gate is
 //! the golden `api` section replayed through this module alone
 //! (`tests/test_binding.py`).
@@ -8,14 +8,14 @@
 //! decision. `decide` takes the context dict and the whole candidate list
 //! and encode → score → sample all happen inside Rust; nothing calls back
 //! into Python per candidate or per feature. The BYO callbacks
-//! (spec/byo.md) keep that rule: `score`/`explore`/`train` each cross the
+//! keep that rule: `score`/`explore`/`train` each cross the
 //! boundary once per call — with all candidates, all estimates, or the one
 //! resolved record — never per candidate. A callback's own Python
 //! exception is re-raised as itself; a malformed callback *result* raises
 //! ValueError with the reference's message.
 //!
-//! State handling, the uniform convention across every implementation
-//! (spec/api.md): the state is an opaque handle, updated in place — calls
+//! State handling, the uniform convention across every implementation:
+//! the state is an opaque handle, updated in place — calls
 //! return only their results (`record = gittins.decide(state, ...)`), and
 //! every alias of the handle observes the current state. Snapshot or
 //! persist it with `serialize`.
@@ -82,7 +82,7 @@ struct BanditState {
 /// decision was made over (`bits`, `context`, `candidates` — the
 /// caller's own objects), so they log as-is via `log_line`; records that
 /// crossed the state boundary (a `train` callback's) carry None there —
-/// the ledger keeps only the compact record (spec/ope.md).
+/// the ledger keeps only the compact record.
 #[pyclass(frozen, name = "DecisionRecord", module = "gittins")]
 struct DecisionRecord {
     #[pyo3(get)]
@@ -193,7 +193,7 @@ impl Caught {
     }
 }
 
-/// The BYO train callback (spec/byo.md) as the core's shape: called with
+/// The BYO train callback as the core's shape: called with
 /// the resolved decision's record and the reward, once per resolution.
 fn train_callback<'a>(
     py: Python<'a>,
@@ -225,7 +225,7 @@ fn decide(
         .map(|(arm_id, action)| Ok((arm_id, features(&action)?)))
         .collect::<PyResult<_>>()?;
     let caught = Caught::new();
-    // The callbacks receive the very objects the caller passed (spec/byo.md);
+    // The callbacks receive the very objects the caller passed;
     // the encoded candidates the core offers are not re-surfaced to Python.
     let mut score_cb = score.map(|f| {
         |_: &[Features]| -> Result<Vec<f64>, Error> {
@@ -257,14 +257,14 @@ fn decide(
     );
     let mut record: DecisionRecord = caught.rethrow(result)?.into();
     // The returned record carries the very objects the caller passed —
-    // attached at the only moment they exist (spec/ope.md).
+    // attached at the only moment they exist.
     record.bits = Some(bits);
     record.context = Some(context.clone().into_any().unbind());
     record.candidates = Some(candidates.clone().unbind());
     Ok(record)
 }
 
-/// One canonical experience-log line (spec/ope.md) for a decision record
+/// One canonical experience-log line for a decision record
 /// or resolution — append it to your log verbatim; it is exactly what
 /// the `gittins` CLI's verify/eval/replay consume. Decision records must
 /// be the ones `decide` returned (they carry the inputs; a `train`
@@ -310,7 +310,7 @@ fn log_line(py: Python<'_>, item: &Bound<'_, PyAny>) -> PyResult<String> {
 }
 
 /// The resolution, or None if the id is unknown or already resolved.
-/// `train` is the BYO training tap (spec/byo.md): it replaces the built-in
+/// `train` is the BYO training tap: it replaces the built-in
 /// update and fires after the resolution commits, exactly once.
 #[pyfunction]
 #[pyo3(signature = (state, decision_id, reward, train=None))]
@@ -339,7 +339,7 @@ fn censor(state: &Bound<'_, BanditState>, decision_id: &str) -> Option<Resolutio
 }
 
 /// Every decision past its horizon at time `t`, resolved as expired, in
-/// ledger order. `train` as on `learn`, fired per due record (spec/byo.md).
+/// ledger order. `train` as on `learn`, fired per due record.
 #[pyfunction]
 #[pyo3(signature = (state, t, train=None))]
 fn expire<'py>(

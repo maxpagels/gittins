@@ -13,9 +13,9 @@ the maximal estimate. Splitting the greedy mass across ties instead of
 picking the first maximum matters at cold start: a fresh model estimates
 every candidate at 0.0, so the first distributions are uniform rather than
 hammering index 0. This rule needs nothing from the model except reward
-estimates (R7) — no uncertainties, no schedule, no per-candidate divisions.
+estimates — no uncertainties, no schedule, no per-candidate divisions.
 
-One constant does three jobs (R2, R3): the system never fully converges,
+One constant does three jobs: the system never fully converges,
 importance weights in offline evaluation stay bounded (by k / epsilon), and
 every arm keeps accumulating fresh evidence, so a fallen-then-recovered arm
 is always rediscovered. `DEFAULT_EPSILON` is the engine default; overriding
@@ -23,7 +23,7 @@ it is an expert move (decide.py), not routine tuning.
 
 Epsilon-greedy replaced inverse-gap weighting (SquareCB) here. SquareCB's
 regret guarantee is forfeited the moment a permanent exploration floor is
-mixed in — and R2 demands that floor — so the two rules differ only in how
+mixed in — and this engine demands that floor — so the two rules differ only in how
 they spend the transient exploration, at very different prices: SquareCB
 needs per-candidate uncertainties (twice the prediction arithmetic plus a
 sqrt), a gamma schedule with a swept constant, and a full distribution
