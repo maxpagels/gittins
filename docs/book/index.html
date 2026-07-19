@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gittins</title>
+<meta name="description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Gittins">
+<meta property="og:description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta property="og:image" content="/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A dark red italic epsilon">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   @font-face {
     font-family: "Linux Libertine";
@@ -54,6 +63,15 @@
 
   /* The byline: the h2 directly after the masthead. */
   header + h2 { margin: 2em 0 4.5em; }
+  header + h2:has(+ .version) { margin-bottom: 0.75em; }
+  .version {
+    text-align: center;
+    font-size: 0.8em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #999;
+    margin: 0 0 4.5em;
+  }
   .subtitle { font-style: italic; color: #555; margin: 0; }
   h2 {
     font-size: 1.7em;
@@ -154,21 +172,8 @@
     font-style: italic;
     color: #999;
     font-size: 0.85em;
-    margin: 0 0 1.5em;
+    margin: 0 0 3em;
   }
-  /* The blur is on an inner wrapper and clipped by the outer one: Safari
-     paints filter output beyond the element's box, smearing neighbors. The
-     negative margins push the clip edge outward and the padding pulls the
-     text back, leaving room for the blur to feather before it is clipped. */
-  .wip {
-    overflow: hidden;
-    margin: 0 -1.5em;
-    padding: 0.75em 1.5em 0;
-    user-select: none;
-    -webkit-user-select: none;
-    pointer-events: none;
-  }
-  .wip-inner { filter: blur(9px); }
 
   .demo-fallback {
     font-style: italic;
@@ -244,7 +249,8 @@
 </head>
 <body>
 <header><h1>Gittins</h1></header>
-<h2 id="by-max-pagels">By Max Pagels</h2>
+<h2 id="by-max-pagels">By <a href="https://maxpagels.com">Max Pagels</a></h2>
+<div class="version">covering version 0.1.0</div>
 <div id="bandit-sim" class="bandit-sim"><noscript>The live simulation requires JavaScript.</noscript></div>
 <script type="module" src="sim.js"></script>
 <p>Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands on the shoulders of giants, in particular <a href="https://vowpalwabbit.org/">Vowpal Wabbit</a>, and adheres strictly to a design in support of real-world production use. Gittins is not a research tool.</p>
@@ -260,7 +266,7 @@
 <li><strong>Choose your own complexity.</strong> The same model needs to be able to run (a) ephemerally in memory, (b) persisted to a flat file, or (c) used via a shared service. There should be no need for databases; indeed, the model weights should be possible to check in to version control and deploy as part of normal deployment workflows.</li>
 </ol>
 <p>These concepts are discussed throughout this document, which serves both as an introduction to bandits and as technical documentation for Gittins. I encourage the reader to read the whole document once; once you have understood the concepts on a broad level, use the table of contents below to jump to sections you need to reference.</p>
-<nav class="toc"><h2>Table of Contents</h2><ol><li><a href="#the-contextual-bandit-problem">The Contextual Bandit Problem</a></li><li><a href="#your-first-decision">Your First Decision</a></li><li><a href="#anatomy-of-a-decision">Anatomy of a Decision</a></li><li><a href="#learning-to-forget">Learning to Forget</a></li><li><a href="#what-would-have-happened">What Would Have Happened?</a></li><li><a href="#bring-your-own-model">Bring Your Own Model</a></li><li><a href="#fast-and-the-same-everywhere">Fast, and the Same Everywhere</a></li><li><a href="#choose-your-own-complexity">Choose Your Own Complexity</a></li></ol></nav>
+<nav class="toc"><h2>Table of Contents</h2><ol><li><a href="#the-contextual-bandit-problem">The Contextual Bandit Problem</a></li><li><a href="#your-first-decision">Your First Decision</a></li><li><a href="#anatomy-of-a-decision">Anatomy of a Decision</a></li><li><a href="#learning-to-forget">Learning to Forget</a></li><li><a href="#what-would-have-happened">What Would Have Happened?</a></li><li><a href="#bring-your-own-model">Bring Your Own Model</a></li><li><a href="#fast-and-the-same-everywhere">Fast, and the Same Everywhere</a></li><li><a href="#choose-your-own-complexity">Choose Your Own Complexity</a></li><li><a href="#stupid-gittins-tricks">Stupid? Gittins Tricks</a></li></ol></nav>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="the-contextual-bandit-problem">The Contextual Bandit Problem</h2>
 <p>In the contextual bandit setting, you (repeatedly):</p>
@@ -410,19 +416,9 @@ state = gittins.deserialize(localStorage.getItem(<span class="tok-str">&quot;ban
 <div class="fleuron" role="separator">ε</div>
 <h2 id="what-would-have-happened">What Would Have Happened?</h2>
 <div class="wip-note" role="note">under construction</div>
-<div class="wip" aria-hidden="true"><div class="wip-inner">
-<p>Donec ullamcorper nulla non metus auctor fringilla. Maecenas faucibus mollis interdum, sed posuere consectetur est at lobortis. Nullam id dolor id nibh ultricies vehicula ut id elit. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Aenean lacinia bibendum nulla sed consectetur. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor. Cras justo odio, dapibus ac facilisis in, egestas eget quam.</p>
-<p>Etiam porta sem malesuada magna mollis euismod. Praesent commodo cursus magna, vel scelerisque nisl consectetur et. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Sed posuere consectetur est at lobortis. Donec ullamcorper nulla non metus auctor fringilla. Maecenas faucibus mollis interdum, sed posuere consectetur est at lobortis.</p>
-<p>Nullam quis risus eget urna mollis ornare vel eu leo. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Duis mollis, est non commodo luctus, nisi erat porttitor ligula, eget lacinia odio sem nec elit. Vestibulum id ligula porta felis euismod semper. Morbi leo risus, porta ac consectetur ac, vestibulum at eros.</p>
-</div></div>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="bring-your-own-model">Bring Your Own Model</h2>
 <div class="wip-note" role="note">under construction</div>
-<div class="wip" aria-hidden="true"><div class="wip-inner">
-<p>Curabitur blandit tempus porttitor. Morbi leo risus, porta ac consectetur ac, vestibulum at eros. Maecenas sed diam eget risus varius blandit sit amet non magna. Donec id elit non mi porta gravida at eget metus. Integer posuere erat a ante venenatis dapibus posuere velit aliquet. Nulla vitae elit libero, a pharetra augue. Cras mattis consectetur purus sit amet fermentum.</p>
-<p>Aenean eu leo quam. Pellentesque ornare sem lacinia quam venenatis vestibulum. Sed posuere consectetur est at lobortis. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor. Maecenas faucibus mollis interdum, sed posuere consectetur est at lobortis.</p>
-<p>Nullam id dolor id nibh ultricies vehicula ut id elit. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Cras justo odio, dapibus ac facilisis in, egestas eget quam. Vestibulum id ligula porta felis euismod semper.</p>
-</div></div>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="fast-and-the-same-everywhere">Fast, and the Same Everywhere</h2>
 <p>Gittins is built by implementing a relatively slow Python reference, that is used to create golden example outputs. The reference has then been ported to a fast Rust-based core, which is interfaced with via WASM or Python bindings. The bindings and the core recreate the reference examples (bit-identically) exactly.</p>
@@ -432,7 +428,10 @@ state = gittins.deserialize(localStorage.getItem(<span class="tok-str">&quot;ban
 <p>As you can see, and I'll hope you agree, these are high performance numbers. High throughput enables architectures not always apparent; for example, if your use case is ephemeral, you can run Gittins single-threaded in one small virtual machine and serve far more users than the server software in front of it is likely to be able to handle, assuming a typical amount of actions.</p>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="choose-your-own-complexity">Choose Your Own Complexity</h2>
-<p>Aenean lacinia bibendum nulla sed consectetur. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor. Sed posuere consectetur est at lobortis. Donec sed odio dui.</p>
+<div class="wip-note" role="note">under construction</div>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="stupid-gittins-tricks">Stupid? Gittins Tricks</h2>
+<div class="wip-note" role="note">under construction</div>
 <div class="fleuron" role="separator">ε</div>
 <div class="fleuron">ε ε ε</div>
 <script>

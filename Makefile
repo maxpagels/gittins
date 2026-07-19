@@ -2,7 +2,7 @@
 
 book: docs/book/index.html
 
-docs/book/index.html: docs/book/index.md docs/book/build.mjs
+docs/book/index.html: docs/book/index.md docs/book/build.mjs core/Cargo.toml
 	node docs/book/build.mjs
 
 # Build the WASM engine and copy it into the book so the live demo works

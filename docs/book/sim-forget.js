@@ -48,8 +48,9 @@ async function boot() {
   }
   let gittins;
   try {
-    gittins = await import("./pkg/gittins_wasm.js");
-    await gittins.default();
+    const engine = await import("./engine.js");
+    await engine.ready;
+    gittins = engine.gittins;
   } catch {
     fallback(
       "The simulation engine could not be loaded. If you are reading this " +

@@ -1,5 +1,7 @@
 # Gittins
-## By Max Pagels
+## By [Max Pagels](https://maxpagels.com)
+
+[VERSION]
 
 [SIM]
 
@@ -290,52 +292,11 @@ How quickly to forget is a question without a fixed answer. It depends on the pr
 
 [WIP]
 
-Donec ullamcorper nulla non metus auctor fringilla. Maecenas faucibus mollis
-interdum, sed posuere consectetur est at lobortis. Nullam id dolor id nibh
-ultricies vehicula ut id elit. Cum sociis natoque penatibus et magnis dis
-parturient montes, nascetur ridiculus mus. Aenean lacinia bibendum nulla sed
-consectetur. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor
-auctor. Cras justo odio, dapibus ac facilisis in, egestas eget quam.
-
-Etiam porta sem malesuada magna mollis euismod. Praesent commodo cursus
-magna, vel scelerisque nisl consectetur et. Fusce dapibus, tellus ac cursus
-commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet
-risus. Sed posuere consectetur est at lobortis. Donec ullamcorper nulla non
-metus auctor fringilla. Maecenas faucibus mollis interdum, sed posuere
-consectetur est at lobortis.
-
-Nullam quis risus eget urna mollis ornare vel eu leo. Cum sociis natoque
-penatibus et magnis dis parturient montes, nascetur ridiculus mus. Duis
-mollis, est non commodo luctus, nisi erat porttitor ligula, eget lacinia
-odio sem nec elit. Vestibulum id ligula porta felis euismod semper. Morbi
-leo risus, porta ac consectetur ac, vestibulum at eros.
-
-[/WIP]
-
 ---
 
 ## Bring Your Own Model
 
 [WIP]
-
-Curabitur blandit tempus porttitor. Morbi leo risus, porta ac consectetur ac,
-vestibulum at eros. Maecenas sed diam eget risus varius blandit sit amet non
-magna. Donec id elit non mi porta gravida at eget metus. Integer posuere
-erat a ante venenatis dapibus posuere velit aliquet. Nulla vitae elit
-libero, a pharetra augue. Cras mattis consectetur purus sit amet fermentum.
-
-Aenean eu leo quam. Pellentesque ornare sem lacinia quam venenatis
-vestibulum. Sed posuere consectetur est at lobortis. Etiam porta sem
-malesuada magna mollis euismod. Donec sed odio dui. Vivamus sagittis lacus
-vel augue laoreet rutrum faucibus dolor auctor. Maecenas faucibus mollis
-interdum, sed posuere consectetur est at lobortis.
-
-Nullam id dolor id nibh ultricies vehicula ut id elit. Fusce dapibus,
-tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum
-massa justo sit amet risus. Cras justo odio, dapibus ac facilisis in,
-egestas eget quam. Vestibulum id ligula porta felis euismod semper.
-
-[/WIP]
 
 ---
 
@@ -353,8 +314,12 @@ As you can see, and I'll hope you agree, these are high performance numbers. Hig
 
 ## Choose Your Own Complexity
 
-Aenean lacinia bibendum nulla sed consectetur. Vivamus sagittis lacus vel
-augue laoreet rutrum faucibus dolor auctor. Sed posuere consectetur est at
-lobortis. Donec sed odio dui.
+[WIP]
+
+---
+
+## Stupid? Gittins Tricks
+
+[WIP]
 
 ---
