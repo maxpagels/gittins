@@ -90,6 +90,9 @@ bindings/python/         Python binding (Phase 2): the public API as a
                          PyO3/maturin wheel, gated on the golden api section
 bindings/wasm/           browser/JS binding (Phase 2): the same surface via
                          wasm-bindgen, gated under Node
+bindings/cli/            CLI binding: the `gittins` binary — experience-log
+                         verify / eval / sweep / replay (spec/ope.md), gated
+                         on the golden ope section
 PROGRESS.md              this file
 ```
 
@@ -110,8 +113,9 @@ Also outstanding, order flexible:
   priced by the binding benchmark: 210 µs against the roadmap's 10–50 µs
   target (bits=8, 100 arms × 5 context features) — the next perf PR; the
   hash contract itself stays frozen;
-- further out: multislot/ranking (R5) and OPE tooling over the decision
-  log (R3).
+- further out: multislot/ranking (R5); estimator growth on the OPE
+  tooling (R3 landed with the experience log + CLI — see the 2026-07-19
+  decision) if IPS/SNIPS prove insufficient in practice.
 
 ## Decisions log
 
@@ -191,6 +195,29 @@ Also outstanding, order flexible:
   but can never double-train; explore outputs are validated (nonnegative,
   sum within 1e-9 of 1) because a wrong distribution would poison every
   logged propensity. Spec: `byo.md`; pinned by the corpus's `byo` section.
+- **2026-07-19** — Offline evaluation (R3) works over a specified
+  **experience log** — JSONL of exactly what the engine returns
+  (decision records plus the dict-shaped inputs they were made over,
+  and resolutions), in arrival order, gzip transparent — and ships as a
+  **CLI binding** (`bindings/cli`, the `gittins` binary), not a library
+  API: verify / eval / sweep / replay. Logging the full candidate set
+  is what makes counterfactual evaluation possible (the record alone
+  carries only the chosen candidate), and `verify` turns
+  `candidate_hash` from documentation into an enforced invariant — an
+  invalid evaluation is refused, not discouraged (R4's ethos applied to
+  R3). Estimators are progressive IPS + SNIPS only, no clipping knob
+  (epsilon-greedy logging bounds weights structurally at k/epsilon),
+  and estimates are never printed without their diagnostics (effective
+  sample size, max weight). Replay doubles as the R8d fleet-pooling
+  rebuild: merge logs, replay, ship the state. Everything is
+  fixed-order IEEE-754: same log + config ⇒ bit-identical reports and
+  replay bytes, pinned by the corpus's `ope` section, whose first
+  report is the self-evaluation identity (w = 1 everywhere). Semantics
+  live in the reference (`ope.py`, the spec); the CLI is the port plus
+  presentation. Two portability traps recorded in spec/ope.md: JSON
+  float parsing must be correctly rounded (serde_json's
+  `float_roundtrip`; its default is one ulp off), and JSON key order is
+  semantic under hashed encoding (`preserve_order`).
 - **2026-07-16** — Public serialization trades in one plain string: the
   canonical byte layout (spec/serialization.md) hex-encoded, lowercase —
   `serialize` returns it, `deserialize` accepts it (either case), in every
@@ -379,3 +406,44 @@ decisions log above, and this file's git history has the full entries.
   the sim battery and benches unchanged in behavior); `Error::new` became
   public so bindings can carry their failures through the callback types'
   `Err` side. docs/usage.md gained the BYO section by example.
+
+- **OPE + the experience log** (`feature/byo`, second concept) — R3 per
+  the 2026-07-19 OPE decision: `spec/ope.md` (the log format and the
+  evaluation semantics), `gittins_reference/ope.py` (read_log with
+  transparent gzip, parse_log, verify, evaluate, replay — the spec
+  carrier), and the CLI binding `bindings/cli` (serde_json + flate2 in
+  the binding crate only; the core stays zero-dependency). Reading is
+  incremental by contract: generators in the reference, a line iterator
+  in the CLI (gzip through the streaming decompressor), and the three
+  walks are single-pass — log size is bounded by disk, not memory;
+  `sweep` re-reads the file per configuration rather than ever holding
+  it.
+
+  Same PR, prompted by the logging boilerplate: **assembly-free
+  logging**. The record `decide` returns now carries its inputs
+  (`bits`, `context`, `candidates` — the caller's own objects, attached
+  at the only moment they exist), and the public surface gained a ninth
+  name, `log_line(record | resolution)`, emitting one canonical
+  experience-log line — so building an OPE-ready log is appending what
+  each call returns, verbatim. The ledger deliberately keeps only the
+  compact record (fixed memory, serialization untouched; a `train`
+  callback's record carries None in the input fields and `log_line`
+  refuses it — the log, not the state, is where inputs persist, with
+  `candidate_hash` as the commitment binding the two). The golden `ope`
+  log is now generated *through* `log_line`, pinning that it emits
+  exactly the specced format (corpus byte-identical); the wheel's
+  `log_line` is byte-identical to the reference's (same serializer),
+  the wasm module's is parse-equivalent (host number rendering;
+  `candidate_hash` hand-assembled as an exact integer token, which
+  `JSON.stringify` cannot produce), and a Node-written wasm log
+  verifies clean and yields the exact w = 1 self-evaluation identity
+  through both the reference and the CLI. The corpus
+  gained an `ope` section (additive; every other section
+  byte-identical): one interleaved api-driven log, its clean verify, three
+  progressive IPS/SNIPS reports — the logging configuration's report
+  pinned as the exact identity — the replay state hex, and a tampered
+  log with its exact findings; the CLI reproduces all of it bit for bit
+  (`cargo test`, wired into the CI bindings job). The reference suite
+  additionally pins replay-at-logger-config == the logger's model, bit
+  for bit, and gzip/plain parse identity. docs/usage.md gained the
+  logging + CLI section.

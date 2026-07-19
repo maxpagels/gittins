@@ -1,11 +1,11 @@
 # Using gittins
 
 Everything goes through one module, `gittins` — the Rust engine as a Python
-package. It has eight functions, and the four steps below are the whole
+package. It has nine functions, and the four steps below are the whole
 integration: no schema to define, nothing to register, no background
 machinery. (Until the wheel is on PyPI, install it from the repo with
 `pip install ./bindings/python`. The pure-Python reference implementation
-exposes the same eight functions as `gittins_reference.api`, so everything
+exposes the same nine functions as `gittins_reference.api`, so everything
 on this page works there too.)
 
 Two things to know before the code makes sense:
@@ -138,6 +138,58 @@ to 1 — the engine rejects anything else, because a wrong distribution
 would poison the decision log. And `train` runs *after* a decision is
 marked resolved: if your callback crashes, that one observation is lost
 (loudly — the exception reaches you), but it can never be trained twice.
+
+## Logging decisions, and asking "what would have happened?"
+
+Logging is appending what each call returns, verbatim. The record
+`decide` hands back carries everything the decision was made over (the
+context, the candidates, the encoding declaration), and `log_line`
+turns it — or any resolution — into one canonical log line:
+
+```python
+with open("decisions.jsonl", "a") as f:
+    record = gittins.decide(state, context, candidates, t=..., salt="agent-1")
+    f.write(gittins.log_line(record) + "\n")
+    # ...later, when outcomes arrive:
+    resolution = gittins.learn(state, record.decision_id, reward=1.0)
+    f.write(gittins.log_line(resolution) + "\n")
+    for r in gittins.expire(state, t=...):
+        f.write(gittins.log_line(r) + "\n")
+```
+
+That file — decisions and resolutions in the order they happened — is a
+complete offline-evaluation dataset. (One nuance: the inputs ride only
+on the record `decide` returns; the engine's state never stores them,
+so log decisions when you make them.)
+
+The `gittins` command-line tool (built from `bindings/cli`) then answers
+the tuning questions offline, from the log alone — no bindings, no
+notebook required. Logs may be gzip-compressed; the tool detects it by
+content:
+
+```sh
+# is the log internally consistent? (recomputes every hash; exits nonzero if not)
+gittins verify --log decisions.jsonl.gz
+
+# how would a different configuration have done on this exact traffic?
+gittins eval --log decisions.jsonl.gz --bits 8 --epsilon 0.1
+
+# compare a whole grid in one table
+gittins sweep --log decisions.jsonl.gz --bits 8 --epsilon 0.02,0.05,0.1 --forgetfulness 0.999,0.995
+
+# rebuild a deployable state from the log (fleet pooling: merge logs, replay, ship)
+gittins replay --log decisions.jsonl.gz --bits 8 --horizon 3600 > bandit.state
+```
+
+`eval` reports IPS and SNIPS estimates of mean reward next to the logged
+policy's realized mean — and always with the diagnostics (effective
+sample size, largest importance weight) that tell you how much to trust
+them. Every command is deterministic: the same log and settings produce
+the same numbers on every machine. And every command streams: the log is
+read one line at a time (gzip included), so its size is bounded by your
+disk, not your memory. The same functions are available in Python as
+`gittins_reference.ope` (`read_log`, `verify`, `evaluate`, `replay` —
+`read_log` is a generator) for notebook use.
 
 ## Saving and loading
 

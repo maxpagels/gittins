@@ -44,7 +44,7 @@ You may be thinking to yourself, "why not use supervised learning instead of ban
 
 Gittins comes in three flavours: a (slow) reference Python implementation, which is not packaged and not recommended outside development of the system; Python bindings, for most data science workflows; and WASM bindings, for in-browser decisions. The bindings call a core written in Rust for performance reasons.
 
-Whichever flavour you pick, the interface is the same eight functions with the same
+Whichever flavour you pick, the interface is the same nine functions with the same
 names and the same semantics. A state saved by one loads in the others,
 bit for bit. The examples in this document default to Python; use the toggle
 above any code block to switch to the WASM (JavaScript) API, and the whole
@@ -194,9 +194,6 @@ state = gittins.deserialize(localStorage.getItem("bandit"));
 the format is shared across implementations: a state saved in the browser
 will load in Python, and vice versa.
 
-The rest of this document unpacks what each of these calls is actually
-doing, and introduces the remaining functions as they become relevant.
-
 ---
 
 ## Anatomy of a Decision
@@ -262,13 +259,11 @@ a reason:
 | `candidate_hash` | a fingerprint of the whole candidate set, proving what the alternatives were. |
 | `model_version` | how many observations the model had absorbed; it identifies exactly which policy made this decision. |
 | `salt` | the RNG key that makes the draw itself replayable. |
+| `context`, `candidates`, `bits` | the inputs you passed to `decide`, attached to the returned record. The engine's own memory keeps only a compact record, so these three are `None` on the record a `train` callback receives (see [Bring Your Own Algorithms](#bring-your-own-algorithms)).|
 
 Notice what the record makes unnecessary. Because `features` is stored at
-decision time, and never passed back when calling `learn` there is no API for hand-assembling training data, and so no
-way to construct invalid training data post-decision. Because `propensity` is always
-recorded, if you save your decision records to file, this log is already an offline-evaluation dataset, with
-no extra instrumentation; that is the subject of
-[What Would Have Happened?](#what-would-have-happened).
+decision time, and never passed back when calling `learn`, constructing data for offline evaluation will contain its own validation, making it difficult to construct the wrong kind of training data (see
+[What Would Have Happened?](#what-would-have-happened)).
 
 ---
 

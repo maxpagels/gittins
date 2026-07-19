@@ -27,10 +27,12 @@ Serialization notes for independent implementations:
   vector specifies its exact update/resolution sequence.
 """
 
+import dataclasses
 import json
 import sys
 
 from gittins_reference import api
+from gittins_reference import ope
 from gittins_reference.decide import candidate_set_hash, decide, new_bandit
 from gittins_reference.encoding import encode, feature_tokens, pair_hash
 from gittins_reference.exploration import epsilon_greedy_probabilities, sample_index
@@ -401,6 +403,101 @@ def byo_vectors():
     }
 
 
+def ope_vectors():
+    """The experience log and OPE (spec/ope.md) pinned end to end: one
+    api-driven log (two candidate sets, out-of-order rewards, a censor,
+    an exact-horizon expiry, three decisions left open), its clean
+    verify, progressive IPS/SNIPS reports — the logging configuration
+    first, whose report must be the exact identity (w = 1 everywhere:
+    ips == snips == logged_mean, ess == resolved) — the replay state
+    hex, and one tampered copy with its expected verify findings. The
+    CLI binding replays all of it with the log lines parsed from JSON."""
+    bits = 4
+    epsilon = 0.1
+    forgetting = 0.9
+    horizon = HOUR
+    salt = "ope-golden"
+    catalog_a = [("basic", {"price": 3.0}), ("plus", {"price": 9.0, "trial": True}), ("free", {})]
+    catalog_b = [("basic", {"price": 3.0}), ("mega", {"price": 15.0})]
+
+    state = api.create(bits, horizon=horizon, epsilon=epsilon, forgetfulness=forgetting)
+    log = []
+    records = []
+
+    def decide(i):
+        catalog = catalog_b if i % 3 == 2 else catalog_a
+        # Key order is deliberately canonical (insertion == sorted): the
+        # corpus is written with sort_keys, and a consumer replaying the
+        # log from the corpus must see the same feature iteration order
+        # the reference encoded with — per-slot accumulation under hash
+        # collisions is order-sensitive at the last bit.
+        context = {"hour": i, "seg": "a" if i % 2 == 0 else "b"}
+        record = api.decide(state, context, catalog, T0 + i * 60.0, salt)
+        # The log is api.log_line's output, verbatim — pinning that the
+        # assembly-free logging surface emits exactly the specced format.
+        log.append(json.loads(api.log_line(record)))
+        records.append(record)
+
+    def resolve(resolution):
+        log.append(json.loads(api.log_line(resolution)))
+
+    # Interleave resolutions with decisions so the model state at
+    # decision time actually evolves; otherwise the identity report
+    # would be vacuous.
+    for i in range(3):
+        decide(i)
+    resolve(api.learn(state, records[1].decision_id, 1.0))
+    resolve(api.learn(state, records[0].decision_id, 0.0))
+    decide(3)
+    decide(4)
+    resolve(api.censor(state, records[2].decision_id))
+    resolve(api.learn(state, records[4].decision_id, 0.5))
+    for i in (5, 6, 7):
+        decide(i)
+    for r in api.expire(state, T0 + 3 * 60.0 + horizon):  # decision 3 exactly due
+        resolve(r)
+
+    events = tuple(ope.parse_log(json.dumps(e) for e in log))  # parse_log streams; reused below
+    assert ope.verify(events) == (), "the golden log must verify clean"
+    configs = [
+        {"bits": bits, "epsilon": epsilon, "forgetfulness": forgetting},  # the identity
+        {"bits": 5, "epsilon": 0.05, "forgetfulness": 0.999},
+        {"bits": 4, "epsilon": 0.2, "forgetfulness": 0.95},
+    ]
+    identity = ope.evaluate(events, **configs[0])
+    assert identity.ips == identity.snips == identity.logged_mean, "self-evaluation must be exact"
+    assert identity.max_weight == 1.0 and identity.ess == float(identity.resolved)
+    replayed = ope.replay(events, bits=bits, horizon=horizon, epsilon=epsilon, forgetfulness=forgetting)
+    assert replayed.model == state._state.model, "replay must reproduce the logging model"
+
+    # The tampered copy: one non-chosen candidate's price changed (the
+    # hash breaks, the chosen features stay consistent) plus a duplicated
+    # resolution appended.
+    tampered = json.loads(json.dumps(log))
+    event = tampered[0]
+    not_chosen = (event["record"]["chosen"] + 1) % len(event["candidates"])
+    event["candidates"][not_chosen][1]["price"] = 4.0
+    tampered.append(next(e for e in log if e["event"] == "resolution"))
+    problems = ope.verify(ope.parse_log(json.dumps(e) for e in tampered))
+    assert len(problems) == 2, "the tampered log must yield exactly two findings"
+
+    return {
+        "bits": bits, "epsilon": epsilon, "forgetfulness": forgetting,
+        "horizon": horizon, "salt": salt,
+        "log": log,
+        "reports": [
+            {**config, "report": dataclasses.asdict(ope.evaluate(events, **config))}
+            for config in configs
+        ],
+        "replay": {
+            "bits": bits, "horizon": horizon, "default_reward": 0.0,
+            "epsilon": epsilon, "forgetfulness": forgetting,
+            "state_hex": serialize(replayed).hex(),
+        },
+        "tampered": {"log": tampered, "problems": list(problems)},
+    }
+
+
 def generate() -> dict:
     episode, mid_state, final_state = run_episode()
     return {
@@ -414,6 +511,7 @@ def generate() -> dict:
             "serialization": serialization_vectors(mid_state, final_state),
             "api": api_vectors(),
             "byo": byo_vectors(),
+            "ope": ope_vectors(),
         },
     }
 

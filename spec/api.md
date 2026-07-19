@@ -14,18 +14,39 @@ deliberately a facade: every function is the layered API unchanged, with
 the hashed encoding folded inside `decide` so sparse pairs never cross the
 public boundary.
 
-The surface is eight names:
+The surface is nine names:
 
 | function | returns | is |
 |---|---|---|
 | `create(bits, horizon, default_reward=0.0, epsilon=0.05, forgetfulness=0.999)` | a state handle | `new_bandit` with `bits` (the one encoding declaration) in place of a raw dimension: the model spans the 2^bits hashed space |
-| `decide(state, context, candidates, t, salt, score=None, explore=None)` | the decision record | encode each `(arm_id, action dict)` candidate against the context dict, in candidate order, then `decide.py`'s decide; `score`/`explore` are the BYO callbacks (byo.md) |
+| `decide(state, context, candidates, t, salt, score=None, explore=None)` | the decision record, carrying its inputs (`bits`, `context`, `candidates` — the caller's own objects) | encode each `(arm_id, action dict)` candidate against the context dict, in candidate order, then `decide.py`'s decide; `score`/`explore` are the BYO callbacks (byo.md) |
 | `learn(state, decision_id, reward, train=None)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged; with `train`, the BYO training tap replaces the built-in update (byo.md) |
 | `censor(state, decision_id)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
 | `expire(state, t, train=None)` | the resolutions, in ledger order | ledger.py, unchanged; `train` as on `learn`, fired per due record (byo.md) |
 | `serialize(state)` | the state as one hex string | the canonical byte layout (serialization.md), hex-encoded |
 | `deserialize(data)` | a state handle | the inverse; rejects anything malformed |
 | `model_bits(state)` | the `bits` declaration | recovered from the model dimension |
+| `log_line(record \| resolution)` | one experience-log line (ope.md) | canonical compact JSON of exactly the event `verify`/`evaluate`/`replay` consume; logging is appending what each call returns |
+
+## The record carries its inputs; the ledger does not
+
+The record `decide` returns carries `bits` and the very `context` and
+`candidates` passed in (no copies) — attached at the only moment they
+exist, so a record logs as-is via `log_line`. The ledger keeps only the
+compact record: fixed memory, unchanged serialization. A record that
+crossed the state boundary — the one a `train` callback receives —
+therefore carries None/null in those three fields, and `log_line`
+refuses it (its inputs are already in the log, written at decide time).
+`candidate_hash` is the commitment binding a record to its logged
+inputs; `verify` (ope.md) enforces it.
+
+`log_line` is implemented at each app-facing surface (the reference,
+the wheel, the browser module) because it serializes the caller's own
+objects; the core's `api` module carries the other eight names. Its
+output is compact single-line JSON in canonical field order, feature
+dicts kept in their own insertion order (the order they encoded with);
+number rendering is each host's shortest round-trip, so lines from
+different hosts are parse-equivalent, byte-equal in the common case.
 
 ## State handling: one convention everywhere
 

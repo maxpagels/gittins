@@ -132,6 +132,34 @@ export function learn(state, decision_id, reward, train) {
 }
 
 /**
+ * One canonical experience-log line (spec/ope.md) for a decision record
+ * or resolution — append it to your log verbatim; it is exactly what
+ * the `gittins` CLI's verify/eval/replay consume. Decision records must
+ * be the ones `decide` returned (they carry the inputs; a `train`
+ * callback's record does not — its inputs are already in your log).
+ * @param {any} item
+ * @returns {string}
+ */
+export function log_line(item) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.log_line(item);
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * @param {BanditState} state
  * @returns {number}
  */
@@ -225,6 +253,10 @@ function __wbg_get_imports() {
             const ret = arg0[arg1 >>> 0];
             return ret;
         },
+        __wbg_get_78f252d074a84d0b: function() { return handleError(function (arg0, arg1) {
+            const ret = Reflect.get(arg0, arg1);
+            return ret;
+        }, arguments); },
         __wbg_get_unchecked_6e0ad6d2a41b06f6: function(arg0, arg1) {
             const ret = arg0[arg1 >>> 0];
             return ret;
@@ -255,6 +287,14 @@ function __wbg_get_imports() {
         },
         __wbg_set_8535240470bf2500: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = Reflect.set(arg0, arg1, arg2);
+            return ret;
+        }, arguments); },
+        __wbg_stringify_b54333f60f1e4dad: function() { return handleError(function (arg0) {
+            const ret = JSON.stringify(arg0);
+            return ret;
+        }, arguments); },
+        __wbg_toString_34387d7c1df9ca1e: function() { return handleError(function (arg0, arg1) {
+            const ret = arg0.toString(arg1);
             return ret;
         }, arguments); },
         __wbindgen_cast_0000000000000001: function(arg0) {

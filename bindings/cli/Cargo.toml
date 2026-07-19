@@ -1,0 +1,22 @@
+# The CLI binding: the experience log and offline policy evaluation
+# (spec/ope.md) as the `gittins` binary — verify / eval / sweep / replay
+# over gittins_reference/ope.py's semantics, gated by the golden `ope`
+# section. The core crate stays zero-dependency; serde_json (JSONL, with
+# preserve_order — feature iteration order is semantic under hashing —
+# and float_roundtrip — the default float parse can be off by one ulp,
+# one ulp more than a bit-identical engine tolerates) and flate2
+# (gzipped logs) live here, like PyO3 and wasm-bindgen live in their
+# binding crates.
+[package]
+name = "gittins-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "gittins"
+path = "src/main.rs"
+
+[dependencies]
+gittins-core = { path = "../../core" }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+flate2 = "1"
