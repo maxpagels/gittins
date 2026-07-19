@@ -11,7 +11,10 @@ pub struct Error {
 }
 
 impl Error {
-    pub(crate) fn new(message: impl Into<String>) -> Error {
+    /// Public so bindings can carry their own failures — a user callback
+    /// raising, a malformed callback result — through the BYO callback
+    /// types' `Err` side (decide.rs, api.rs).
+    pub fn new(message: impl Into<String>) -> Error {
         Error {
             message: message.into(),
         }

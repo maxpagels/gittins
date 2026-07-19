@@ -86,6 +86,59 @@ decision twice does nothing and returns `None` — no double-counting. And a
 missing reward is never quietly counted as zero: it only becomes a value
 when `expire` runs, at the deadline you chose.
 
+## Bringing your own model or exploration rule
+
+The three optional callbacks are the whole story: `score` and `explore`
+on `decide`, `train` on `learn` and `expire`. Each one replaces exactly
+one built-in piece — everything else (feature encoding, deterministic
+sampling, decision records, the exactly-once reward ledger, offline
+evaluation) keeps working unchanged. Callbacks are passed per call and
+never stored, so saving and loading the state is exactly as before.
+
+To swap in your own prediction model, supply `score` (called once per
+decision, with the same `context` and `candidates` you passed in; return
+one estimated reward per candidate) and `train` (called once per resolved
+decision with the decision's record and its reward — the engine has
+already matched the reward to the right decision, exactly once):
+
+```python
+model = MyModel()  # anything with predict/update
+
+record = gittins.decide(
+    state, context, candidates, t=..., salt="agent-1",
+    score=lambda ctx, cands: [model.predict(ctx, action) for _, action in cands],
+)
+
+gittins.learn(
+    state, record.decision_id, reward=1.0,
+    train=lambda rec, reward: model.update(rec.decision_id, reward),
+)
+# Give expire the same callback so timed-out decisions train too:
+gittins.expire(state, t=..., train=lambda rec, reward: model.update(rec.decision_id, reward))
+```
+
+To swap in your own exploration rule, supply `explore`: it gets the
+estimates (yours or the built-in model's) plus the configured `epsilon`,
+and returns one probability per candidate. The engine still does the
+random draw itself — deterministically, from the decision's own RNG
+stream — and logs the probability the choice was made with, so replay
+and offline evaluation stay trustworthy:
+
+```python
+def explore(estimates, epsilon):  # e.g. more uniform than epsilon-greedy
+    k = len(estimates)
+    best = max(range(k), key=lambda i: estimates[i])
+    return [0.5 + 0.5 / k if i == best else 0.5 / k for i in range(k)]
+
+record = gittins.decide(state, context, candidates, t=..., salt="agent-1", explore=explore)
+```
+
+Two rules to remember. The probabilities must be nonnegative and sum
+to 1 — the engine rejects anything else, because a wrong distribution
+would poison the decision log. And `train` runs *after* a decision is
+marked resolved: if your callback crashes, that one observation is lost
+(loudly — the exception reaches you), but it can never be trained twice.
+
 ## Saving and loading
 
 The whole state becomes one plain string (hex-encoded), and the exact same

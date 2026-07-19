@@ -207,7 +207,7 @@ impl Policy for GittinsPolicy {
         let candidates: Vec<Features> = (0..rd.arm_ids.len())
             .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits).unwrap())
             .collect();
-        let record = decide(&mut self.state, &candidates, rd.t, &self.salt).unwrap();
+        let record = decide(&mut self.state, &candidates, rd.t, &self.salt, None, None).unwrap();
         self.decision_id = record.decision_id;
         // Metric-only read: the same estimates decide just scored with,
         // recomputed because decide deliberately logs only the chosen

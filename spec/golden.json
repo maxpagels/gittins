@@ -212,6 +212,337 @@
    ],
    "salt": "api-golden"
   },
+  "byo": {
+   "bits": 4,
+   "catalog": [
+    [
+     "basic",
+     {
+      "price": 3.0
+     }
+    ],
+    [
+     "plus",
+     {
+      "price": 9.0
+     }
+    ],
+    [
+     "free",
+     {}
+    ]
+   ],
+   "events": [
+    {
+     "context": {
+      "seg": "a"
+     },
+     "mode": "score",
+     "record": {
+      "candidate_hash": 15908859812381084010,
+      "chosen": 1,
+      "decision_id": "byo-golden:0",
+      "features": [
+       [
+        6,
+        1.0
+       ],
+       [
+        8,
+        -8.0
+       ],
+       [
+        9,
+        9.0
+       ],
+       [
+        11,
+        1.0
+       ],
+       [
+        13,
+        1.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.9666666666666667,
+      "salt": "byo-golden",
+      "t": 1752000000.0
+     },
+     "t": 1752000000.0
+    },
+    {
+     "context": {
+      "seg": "b"
+     },
+     "mode": "explore",
+     "record": {
+      "candidate_hash": 6181585579857618853,
+      "chosen": 1,
+      "decision_id": "byo-golden:1",
+      "features": [
+       [
+        4,
+        1.0
+       ],
+       [
+        7,
+        1.0
+       ],
+       [
+        9,
+        9.0
+       ],
+       [
+        11,
+        1.0
+       ],
+       [
+        13,
+        10.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.3333333333333333,
+      "salt": "byo-golden",
+      "t": 1752000900.0
+     },
+     "t": 1752000900.0
+    },
+    {
+     "context": {
+      "seg": "a"
+     },
+     "mode": "both",
+     "record": {
+      "candidate_hash": 15908859812381084010,
+      "chosen": 1,
+      "decision_id": "byo-golden:2",
+      "features": [
+       [
+        6,
+        1.0
+       ],
+       [
+        8,
+        -8.0
+       ],
+       [
+        9,
+        9.0
+       ],
+       [
+        11,
+        1.0
+       ],
+       [
+        13,
+        1.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.3333333333333333,
+      "salt": "byo-golden",
+      "t": 1752001800.0
+     },
+     "t": 1752001800.0
+    },
+    {
+     "context": {
+      "seg": "b"
+     },
+     "mode": "builtin",
+     "record": {
+      "candidate_hash": 6181585579857618853,
+      "chosen": 0,
+      "decision_id": "byo-golden:3",
+      "features": [
+       [
+        4,
+        1.0
+       ],
+       [
+        9,
+        3.0
+       ],
+       [
+        11,
+        2.0
+       ],
+       [
+        12,
+        1.0
+       ],
+       [
+        13,
+        3.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.3333333333333333,
+      "salt": "byo-golden",
+      "t": 1752002700.0
+     },
+     "t": 1752002700.0
+    },
+    {
+     "context": {
+      "seg": "a"
+     },
+     "mode": "score",
+     "record": {
+      "candidate_hash": 15908859812381084010,
+      "chosen": 1,
+      "decision_id": "byo-golden:4",
+      "features": [
+       [
+        6,
+        1.0
+       ],
+       [
+        8,
+        -8.0
+       ],
+       [
+        9,
+        9.0
+       ],
+       [
+        11,
+        1.0
+       ],
+       [
+        13,
+        1.0
+       ]
+      ],
+      "model_version": 0,
+      "propensity": 0.9666666666666667,
+      "salt": "byo-golden",
+      "t": 1752003600.0
+     },
+     "t": 1752003600.0
+    }
+   ],
+   "expire_sweep_at": 1752006300.0,
+   "explore_rule": "p[i] = (i + 1) / (k * (k + 1) / 2), estimates and epsilon ignored",
+   "final": {
+    "model_version": 4,
+    "next_seq": 5,
+    "state_hex": "67697474696e730001000000000000001000000000000000000000000000f03fcdccccccccccec3fcdccccccccccec3f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000721cc7711cc7f13f0000000000000000721cc7711cc7514000000000008056400000000000000000721cc7711cc7f13f0000000000000000721cc7711cc7f13f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000721cc7711cc7f13f0000000000000000721cc7711cc721c000000000000024400000000000000000721cc7711cc7f13f0000000000000000721cc7711cc7f13f0000000000000000000000000000000005000000000000000400000000000000000000000020ac4000000000000000009a9999999999a93f000000000000000067f26ee53cb45b02"
+   },
+   "forgetfulness": 0.9,
+   "horizon": 3600.0,
+   "resolutions": [
+    {
+     "decision_id": "byo-golden:1",
+     "kind": "rewarded",
+     "reward": 1.0
+    },
+    {
+     "decision_id": "byo-golden:0",
+     "kind": "rewarded",
+     "reward": 0.0
+    },
+    {
+     "decision_id": "byo-golden:4",
+     "kind": "rewarded",
+     "reward": 1.0
+    },
+    {
+     "decision_id": "byo-golden:2",
+     "kind": "censored",
+     "reward": null
+    },
+    {
+     "decision_id": "byo-golden:3",
+     "kind": "expired",
+     "reward": 0.0
+    }
+   ],
+   "salt": "byo-golden",
+   "score_rule": "(1.0 if seg == 'a' else 0.0) + 0.5 * price - i, price 0.0 if absent",
+   "trained": [
+    {
+     "decision_id": "byo-golden:1",
+     "features": [
+      [
+       4,
+       1.0
+      ],
+      [
+       7,
+       1.0
+      ],
+      [
+       9,
+       9.0
+      ],
+      [
+       11,
+       1.0
+      ],
+      [
+       13,
+       10.0
+      ]
+     ],
+     "reward": 1.0
+    },
+    {
+     "decision_id": "byo-golden:0",
+     "features": [
+      [
+       6,
+       1.0
+      ],
+      [
+       8,
+       -8.0
+      ],
+      [
+       9,
+       9.0
+      ],
+      [
+       11,
+       1.0
+      ],
+      [
+       13,
+       1.0
+      ]
+     ],
+     "reward": 0.0
+    },
+    {
+     "decision_id": "byo-golden:3",
+     "features": [
+      [
+       4,
+       1.0
+      ],
+      [
+       9,
+       3.0
+      ],
+      [
+       11,
+       2.0
+      ],
+      [
+       12,
+       1.0
+      ],
+      [
+       13,
+       3.0
+      ]
+     ],
+     "reward": 0.0
+    }
+   ]
+  },
   "encoding": {
    "encode": [
     {

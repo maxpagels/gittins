@@ -55,18 +55,23 @@ export function create(bits, horizon, default_reward, epsilon, forgetfulness) {
 }
 
 /**
+ * `score` and `explore` are the BYO callbacks (spec/byo.md):
+ * `score(context, candidates)` — called with the very values passed here —
+ * and `explore(estimates, epsilon)`; each returns an array of numbers.
  * @param {BanditState} state
  * @param {any} context
  * @param {any} candidates
  * @param {number} t
  * @param {string} salt
+ * @param {Function | null} [score]
+ * @param {Function | null} [explore]
  * @returns {any}
  */
-export function decide(state, context, candidates, t, salt) {
+export function decide(state, context, candidates, t, salt, score, explore) {
     _assertClass(state, BanditState);
     const ptr0 = passStringToWasm0(salt, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.decide(state.__wbg_ptr, context, candidates, t, ptr0, len0);
+    const ret = wasm.decide(state.__wbg_ptr, context, candidates, t, ptr0, len0, isLikeNone(score) ? 0 : addToExternrefTable0(score), isLikeNone(explore) ? 0 : addToExternrefTable0(explore));
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -89,30 +94,41 @@ export function deserialize(data) {
 
 /**
  * Every decision past its horizon at time `t`, resolved as expired, in
- * ledger order.
+ * ledger order. `train` as on `learn`, fired per due record (spec/byo.md).
  * @param {BanditState} state
  * @param {number} t
+ * @param {Function | null} [train]
  * @returns {Array<any>}
  */
-export function expire(state, t) {
+export function expire(state, t, train) {
     _assertClass(state, BanditState);
-    const ret = wasm.expire(state.__wbg_ptr, t);
-    return ret;
+    const ret = wasm.expire(state.__wbg_ptr, t, isLikeNone(train) ? 0 : addToExternrefTable0(train));
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**
  * The resolution object, or null if the id is unknown or already resolved.
+ * `train` is the BYO training tap (spec/byo.md): it replaces the built-in
+ * update and fires after the resolution commits, exactly once, with the
+ * record object and the reward.
  * @param {BanditState} state
  * @param {string} decision_id
  * @param {number} reward
+ * @param {Function | null} [train]
  * @returns {any}
  */
-export function learn(state, decision_id, reward) {
+export function learn(state, decision_id, reward, train) {
     _assertClass(state, BanditState);
     const ptr0 = passStringToWasm0(decision_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.learn(state.__wbg_ptr, ptr0, len0, reward);
-    return ret;
+    const ret = wasm.learn(state.__wbg_ptr, ptr0, len0, reward, isLikeNone(train) ? 0 : addToExternrefTable0(train));
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
 }
 
 /**
@@ -197,6 +213,10 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_344f42d3211c4765: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
+        __wbg_call_e3b662382210db98: function() { return handleError(function (arg0, arg1, arg2, arg3) {
+            const ret = arg0.call(arg1, arg2, arg3);
+            return ret;
+        }, arguments); },
         __wbg_entries_015dc610cd81ede0: function(arg0) {
             const ret = Object.entries(arg0);
             return ret;

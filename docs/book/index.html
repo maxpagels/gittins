@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gittins</title>
-<meta name="description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta name="description" content="Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands…">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Gittins">
-<meta property="og:description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta property="og:description" content="Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands…">
 <meta property="og:image" content="https://docs.getgittins.dev/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -267,7 +267,7 @@
 <li><strong>Choose your own complexity.</strong> The same model needs to be able to run (a) ephemerally in memory, (b) persisted to a flat file, or (c) used via a shared service. There should be no need for databases; indeed, the model weights should be possible to check in to version control and deploy as part of normal deployment workflows.</li>
 </ol>
 <p>These concepts are discussed throughout this document, which serves both as an introduction to bandits and as technical documentation for Gittins. I encourage the reader to read the whole document once; once you have understood the concepts on a broad level, use the table of contents below to jump to sections you need to reference.</p>
-<nav class="toc"><h2>Table of Contents</h2><ol><li><a href="#the-contextual-bandit-problem">The Contextual Bandit Problem</a></li><li><a href="#your-first-decision">Your First Decision</a></li><li><a href="#anatomy-of-a-decision">Anatomy of a Decision</a></li><li><a href="#learning-to-forget">Learning to Forget</a></li><li><a href="#what-would-have-happened">What Would Have Happened?</a></li><li><a href="#bring-your-own-model">Bring Your Own Model</a></li><li><a href="#fast-and-the-same-everywhere">Fast, and the Same Everywhere</a></li><li><a href="#choose-your-own-complexity">Choose Your Own Complexity</a></li><li><a href="#stupid-gittins-tricks">Stupid? Gittins Tricks</a></li></ol></nav>
+<nav class="toc"><h2>Table of Contents</h2><ol><li><a href="#the-contextual-bandit-problem">The Contextual Bandit Problem</a></li><li><a href="#your-first-decision">Your First Decision</a></li><li><a href="#anatomy-of-a-decision">Anatomy of a Decision</a></li><li><a href="#learning-to-forget">Learning to Forget</a></li><li><a href="#what-would-have-happened">What Would Have Happened?</a></li><li><a href="#bring-your-own-algorithms">Bring Your Own Algorithms</a></li><li><a href="#fast-and-the-same-everywhere">Fast, and the Same Everywhere</a></li><li><a href="#choose-your-own-complexity">Choose Your Own Complexity</a></li><li><a href="#stupid-gittins-tricks">Stupid? Gittins Tricks</a></li></ol></nav>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="the-contextual-bandit-problem">The Contextual Bandit Problem</h2>
 <p>In the contextual bandit setting, you (repeatedly):</p>
@@ -418,8 +418,86 @@ state = gittins.deserialize(localStorage.getItem(<span class="tok-str">&quot;ban
 <h2 id="what-would-have-happened">What Would Have Happened?</h2>
 <div class="wip-note" role="note">under construction</div>
 <div class="fleuron" role="separator">ε</div>
-<h2 id="bring-your-own-model">Bring Your Own Model</h2>
-<div class="wip-note" role="note">under construction</div>
+<h2 id="bring-your-own-algorithms">Bring Your Own Algorithms</h2>
+<p>Both of Gittins' built-in algorithms, ridge regression and epsilon-greedy, are deliberately simple, and effective in practice for many problems. However, if your problem outgrows them, you can swap in your own model and/or exploration and keep everything else. Perhaps you want a gradient-boosted model served over the network, a neural network, or a fancier exploration rule from a paper. Gittins fully supports this, and crucially, does not make you rebuild the plumbing that actually makes bandits hard: the feature encoding, the deterministic sampling, the decision records with logged propensities, the exactly-once reward ledger, and offline evaluation will all keep working.</p>
+<p>The entire surface for bring-your-own use is three optional callbacks, passed per call and never stored. Two are parameters passed to <code>decide</code>: <code>score</code>, which receives the exact <code>context</code> and <code>candidates</code> you passed in and returns one estimated reward per candidate (replacing the built-in model's predictions), and <code>explore</code>, which receives those estimates plus the configured <code>epsilon</code> if needed and returns one probability per candidate (replacing epsilon-greedy). The third parameter is passed to <code>learn</code> and <code>expire</code>: <code>train</code>, which receives a resolved decision's record and its reward. The engine has already matched the reward to the right decision, exactly once, in place of the built-in model's update.</p>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="js">WASM (JavaScript)</button></div>
+<pre data-lang="python"><code class="language-python">model = MyModel()  <span class="tok-com"># anything with a predict and an update</span>
+
+<span class="tok-kw">def</span> score(context, candidates):
+    <span class="tok-kw">return</span> [model.predict(context, action) <span class="tok-kw">for</span> _, action <span class="tok-kw">in</span> candidates]
+
+<span class="tok-kw">def</span> train(record, reward):
+    <span class="tok-com"># key your own bookkeeping by record.decision_id, or train</span>
+    <span class="tok-com"># directly on record.features if your model lives in the</span>
+    <span class="tok-com"># hashed space</span>
+    model.update(record.decision_id, reward)
+
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(), salt=<span class="tok-str">&quot;bandit-1&quot;</span>,
+    score=score,
+)
+
+gittins.learn(state, record.decision_id, reward=<span class="tok-num">1.0</span>, train=train)
+
+<span class="tok-com"># give expire the same callback, so timed-out decisions</span>
+<span class="tok-com"># train your model too</span>
+gittins.expire(state, t=time.time(), train=train)</code></pre>
+<pre data-lang="js" hidden><code class="language-js"><span class="tok-kw">const</span> model = <span class="tok-kw">new</span> MyModel(); <span class="tok-com">// anything with a predict and an update</span>
+
+<span class="tok-kw">const</span> score = (context, candidates) =&gt;
+  candidates.map(([_, action]) =&gt; model.predict(context, action));
+
+<span class="tok-kw">const</span> train = (record, reward) =&gt; {
+  <span class="tok-com">// key your own bookkeeping by record.decision_id, or train</span>
+  <span class="tok-com">// directly on record.features if your model lives in the</span>
+  <span class="tok-com">// hashed space</span>
+  model.update(record.decision_id, reward);
+};
+
+<span class="tok-kw">const</span> record = gittins.decide(
+  state, context, candidates,
+  Date.now() / <span class="tok-num">1000</span>, <span class="tok-str">&quot;browser-1&quot;</span>,
+  score,
+);
+
+gittins.learn(state, record.decision_id, <span class="tok-num">1.0</span>, train);
+
+<span class="tok-com">// give expire the same callback, so timed-out decisions</span>
+<span class="tok-com">// train your model too</span>
+gittins.expire(state, Date.now() / <span class="tok-num">1000</span>, train);</code></pre>
+</div>
+<p>Swapping the exploration rule looks the same. Note that your callback only produces the <em>distribution</em>; the random draw stays inside the engine, on the decision's own counter-based RNG stream, and the record's propensity is your distribution's value at the chosen index. This is what keeps custom decisions exactly as replayable and log-worthy as built-in ones.</p>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="js">WASM (JavaScript)</button></div>
+<pre data-lang="python"><code class="language-python"><span class="tok-kw">import</span> math
+
+<span class="tok-kw">def</span> explore(estimates, epsilon):  <span class="tok-com"># e.g. softmax instead of epsilon-greedy</span>
+    weights = [math.exp(v) <span class="tok-kw">for</span> v <span class="tok-kw">in</span> estimates]
+    total = sum(weights)
+    <span class="tok-kw">return</span> [w / total <span class="tok-kw">for</span> w <span class="tok-kw">in</span> weights]
+
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(), salt=<span class="tok-str">&quot;bandit-1&quot;</span>,
+    explore=explore,
+)</code></pre>
+<pre data-lang="js" hidden><code class="language-js"><span class="tok-kw">const</span> explore = (estimates, epsilon) =&gt; { <span class="tok-com">// e.g. softmax instead of epsilon-greedy</span>
+  <span class="tok-kw">const</span> weights = estimates.map(Math.exp);
+  <span class="tok-kw">const</span> total = weights.reduce((a, b) =&gt; a + b, <span class="tok-num">0</span>);
+  <span class="tok-kw">return</span> weights.map((w) =&gt; w / total);
+};
+
+<span class="tok-kw">const</span> record = gittins.decide(
+  state, context, candidates,
+  Date.now() / <span class="tok-num">1000</span>, <span class="tok-str">&quot;browser-1&quot;</span>,
+  <span class="tok-kw">undefined</span>, <span class="tok-com">// score: keep the built-in model</span>
+  explore,
+);</code></pre>
+</div>
+<p>A few rules safety guarantees intact. First, the engine validates what your callbacks return. There must be one finite estimate per candidate, and probabilities must be nonnegative and sum to 1. Anything is is outright rejected, because a malformed distribution would silently poison every logged propensity, and with it the possibility for offline evaluation. Second, <code>train</code> fires <em>after</em> the decision is marked resolved: if your callback crashes, that one observation is lost. Third, your model's state is your own: the handle serializes only the engine's state (the ledger, the counters, and the untouched built-in model), so you must persist your model alongside it unless it is intentionally ephemeral. Finally, the engine's own arithmetic stays bit-identical across platforms, but your callbacks might not: a <code>score</code> that calls a network, or an <code>explore</code> using transcendentals, may not work deterministically from platform to platform, depending on how you implemented it. Gittins places the responsibility for bit-identical results on you if you bring your own algorithms. The same goes for performance: make slow predictions and updates and Gittins won't magically speed them up.</p>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="fast-and-the-same-everywhere">Fast, and the Same Everywhere</h2>
 <p>Gittins is built by implementing a relatively slow Python reference, that is used to create golden example outputs. The reference has then been ported to a fast Rust-based core, which is interfaced with via WASM or Python bindings. The bindings and the core recreate the reference examples (bit-identically) exactly.</p>
@@ -432,7 +510,10 @@ state = gittins.deserialize(localStorage.getItem(<span class="tok-str">&quot;ban
 <div class="wip-note" role="note">under construction</div>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="stupid-gittins-tricks">Stupid? Gittins Tricks</h2>
-<div class="wip-note" role="note">under construction</div>
+<p>Some interesting implications fall out of the Gittins design. Some are mere curiousities, others may be genuinely useful. Wrapping up the guide, here are the ones I could think of, in no particular order.</p>
+<p><strong>Hierarchical bandits</strong>. Since Gittins returns handles to bandits, it becomes simple to create <em>hierarchical bandits</em> where you make a top-level decision, that itself is a choice of bandit. Make a second decision, receive feedback, and roll the reward up the chain.</p>
+<p><strong>Ensembles for uncertainty</strong>. Hold N handles with different salts on the same traffic. They see the same data but will explore differently, so <em>disagreement between them</em> is a low-cost uncertainty signal. Route this a human when the committee splits, act confidently when it is unanimous. N bandits cost N small states and no extra machinery.</p>
+<p><strong>One bandit per user</strong>. An 8-bit state is a few KB in size. It fits a KV-store row, a cookie, or localStorage. You could build a completely stateless service per user: load state, decide, learn, save state. This flips the personalisation on its head: if every user has their own bandit, the learned decisions are personalised by default, even if you supply no context.</p>
 <div class="fleuron" role="separator">ε</div>
 <div class="fleuron">ε ε ε</div>
 <script>

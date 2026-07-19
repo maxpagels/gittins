@@ -56,22 +56,24 @@ fn drive(
     let mut state = api::create(bits, 1e9, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
     for i in 0..5 {
         let record =
-            api::decide(&mut state, &contexts[i % contexts.len()], catalog, i as f64, "warm")
+            api::decide(&mut state, &contexts[i % contexts.len()], catalog, i as f64, "warm", None, None)
                 .unwrap();
-        api::learn(&mut state, &record.decision_id, 1.0);
+        api::learn(&mut state, &record.decision_id, 1.0, None).unwrap();
     }
     let mut rounds = 0;
     let start = Instant::now();
     while rounds < max_rounds {
         let i = rounds;
         let record =
-            api::decide(&mut state, &contexts[i % contexts.len()], catalog, i as f64, "bench")
+            api::decide(&mut state, &contexts[i % contexts.len()], catalog, i as f64, "bench", None, None)
                 .unwrap();
         api::learn(
             &mut state,
             &record.decision_id,
             if i % 3 != 0 { 1.0 } else { 0.0 },
-        );
+            None,
+        )
+        .unwrap();
         rounds += 1;
         if start.elapsed().as_secs_f64() >= min_seconds {
             break;

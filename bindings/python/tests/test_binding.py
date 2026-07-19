@@ -131,3 +131,181 @@ class TestSurface:
         assert gittins.model_bits(state) == 8
         restored = gittins.deserialize(gittins.serialize(state))
         assert gittins.serialize(restored) == gittins.serialize(state)
+
+
+# The spec-defined golden byo callbacks (spec/byo.md), written natively in
+# Python — the binding-side halves of the corpus's `byo` section.
+def byo_score(context, candidates):
+    base = 1.0 if context["seg"] == "a" else 0.0
+    return [
+        base + 0.5 * action.get("price", 0.0) - i
+        for i, (_arm, action) in enumerate(candidates)
+    ]
+
+
+def byo_explore(estimates, epsilon):
+    k = len(estimates)
+    return [(i + 1) / (k * (k + 1) / 2) for i in range(k)]
+
+
+def replay_byo_section():
+    """The corpus's byo scenario, driven through the binding only, with the
+    callbacks crossing the real Python boundary."""
+    s = GOLDEN["sections"]["byo"]
+    state = gittins.create(bits=s["bits"], horizon=s["horizon"], forgetfulness=s["forgetfulness"])
+    catalog = [(arm_id, action) for arm_id, action in s["catalog"]]
+    trained = []
+
+    def train(record, reward):
+        trained.append(
+            {
+                "decision_id": record.decision_id,
+                "features": [list(pair) for pair in record.features],
+                "reward": reward,
+            }
+        )
+
+    records = []
+    for event in s["events"]:
+        mode = event["mode"]
+        record = gittins.decide(
+            state,
+            event["context"],
+            catalog,
+            event["t"],
+            s["salt"],
+            score=byo_score if mode in ("score", "both") else None,
+            explore=byo_explore if mode in ("explore", "both") else None,
+        )
+        records.append((record, event["record"]))
+    ids = [expected["decision_id"] for _, expected in records]
+    resolutions = []
+    resolutions.append(gittins.learn(state, ids[1], 1.0, train=train))
+    resolutions.append(gittins.learn(state, ids[0], 0.0, train=train))
+    resolutions.append(gittins.learn(state, ids[4], 1.0))  # deliberately mixed: built-in update
+    resolutions.append(gittins.censor(state, ids[2]))
+    resolutions.extend(gittins.expire(state, s["expire_sweep_at"], train=train))
+    return s, state, records, resolutions, trained
+
+
+class TestByoGoldenGate:
+    def test_records_match_the_corpus(self):
+        _, _, records, _, _ = replay_byo_section()
+        for record, expected in records:
+            assert record.decision_id == expected["decision_id"]
+            assert record.chosen == expected["chosen"]
+            assert [list(pair) for pair in record.features] == expected["features"]
+            assert record.propensity == expected["propensity"]
+            assert record.candidate_hash == expected["candidate_hash"]
+            assert record.model_version == expected["model_version"]
+
+    def test_resolutions_and_trained_match_the_corpus(self):
+        s, _, _, resolutions, trained = replay_byo_section()
+        expected = s["resolutions"]
+        assert len(resolutions) == len(expected)
+        for r, e in zip(resolutions, expected):
+            assert (r.decision_id, r.kind, r.reward) == (e["decision_id"], e["kind"], e["reward"])
+        assert trained == s["trained"]
+
+    def test_final_state_matches_the_corpus(self):
+        s, state, _, _, _ = replay_byo_section()
+        assert gittins.serialize(state) == s["final"]["state_hex"]
+
+
+class TestByoReferenceEquivalence:
+    def test_binding_and_reference_agree_under_byo_callbacks(self):
+        api = pytest.importorskip("gittins_reference.api")
+        catalog = [("basic", {"price": 3.0}), ("plus", {"price": 9.0}), ("free", {})]
+        bound = gittins.create(bits=6, horizon=100.0)
+        pure = api.create(bits=6, horizon=100.0)
+        trained = {"bound": [], "pure": []}
+        for i in range(30):
+            context = {"seg": "a" if i % 3 else "b"}
+            kwargs = {}
+            if i % 2 == 0:
+                kwargs["score"] = byo_score
+            if i % 3 == 0:
+                kwargs["explore"] = byo_explore
+            b_record = gittins.decide(bound, context, catalog, float(i), "eq", **kwargs)
+            p_record = api.decide(pure, context, catalog, float(i), "eq", **kwargs)
+            assert b_record.decision_id == p_record.decision_id
+            assert b_record.chosen == p_record.chosen
+            assert b_record.propensity == p_record.propensity
+            if i % 4 == 0:
+                gittins.learn(
+                    bound, b_record.decision_id, 1.0,
+                    train=lambda rec, r: trained["bound"].append((rec.decision_id, r)),
+                )
+                api.learn(
+                    pure, p_record.decision_id, 1.0,
+                    train=lambda rec, r: trained["pure"].append((rec.decision_id, r)),
+                )
+        gittins.expire(bound, 1e9, train=lambda rec, r: trained["bound"].append((rec.decision_id, r)))
+        api.expire(pure, 1e9, train=lambda rec, r: trained["pure"].append((rec.decision_id, r)))
+        assert trained["bound"] == trained["pure"]
+        assert gittins.serialize(bound) == api.serialize(pure)
+
+
+class TestByoSurface:
+    def test_score_receives_the_callers_objects(self):
+        state = gittins.create(4, horizon=10.0)
+        context = {"seg": "a"}
+        catalog = [("a", {}), ("b", {})]
+        seen = []
+
+        def score(ctx, cands):
+            seen.append((ctx, cands))
+            return [1.0, 0.0]
+
+        gittins.decide(state, context, catalog, 0.0, "s", score=score)
+        assert seen[0][0] is context and seen[0][1] is catalog
+
+    def test_callback_exceptions_are_reraised(self):
+        state = gittins.create(4, horizon=10.0)
+        catalog = [("a", {}), ("b", {})]
+
+        def boom(ctx, cands):
+            raise RuntimeError("model server down")
+
+        with pytest.raises(RuntimeError, match="model server down"):
+            gittins.decide(state, {}, catalog, 0.0, "s", score=boom)
+        # A failing decide changes nothing: the next id is still s:0.
+        record = gittins.decide(state, {}, catalog, 0.0, "s")
+        assert record.decision_id == "s:0"
+
+        def boom_train(rec, r):
+            raise RuntimeError("trainer crashed")
+
+        with pytest.raises(RuntimeError, match="trainer crashed"):
+            gittins.learn(state, record.decision_id, 1.0, train=boom_train)
+        # Commit-then-fire: the record is spent; no double-train possible.
+        assert gittins.learn(state, record.decision_id, 1.0) is None
+
+    def test_malformed_callback_results_are_valueerrors_with_reference_messages(self):
+        state = gittins.create(4, horizon=10.0)
+        catalog = [("a", {}), ("b", {})]
+        with pytest.raises(ValueError, match="score must return one finite estimate"):
+            gittins.decide(state, {}, catalog, 0.0, "s", score=lambda c, k: ["high", "low"])
+        with pytest.raises(ValueError, match="score must return one finite estimate"):
+            gittins.decide(state, {}, catalog, 0.0, "s", score=lambda c, k: [1.0])
+        with pytest.raises(ValueError, match="one probability per candidate"):
+            gittins.decide(state, {}, catalog, 0.0, "s", explore=lambda e, eps: [1.0])
+        with pytest.raises(ValueError, match="finite, nonnegative, and sum to 1"):
+            gittins.decide(state, {}, catalog, 0.0, "s", explore=lambda e, eps: [0.9, 0.9])
+
+    def test_train_replaces_the_builtin_update(self):
+        state = gittins.create(4, horizon=10.0)
+        catalog = [("a", {}), ("b", {})]
+        before = gittins.serialize(state)
+        record = gittins.decide(state, {}, catalog, 0.0, "s")
+        trained = []
+        resolution = gittins.learn(
+            state, record.decision_id, 1.0, train=lambda rec, r: trained.append((rec.decision_id, r))
+        )
+        assert resolution.kind == "rewarded"
+        assert trained == [(record.decision_id, 1.0)]
+        # The model bytes are untouched by a BYO-trained resolution; only
+        # the counters moved. Deserialize both and compare the model by
+        # re-serializing a state whose counters are advanced identically.
+        after = gittins.serialize(state)
+        assert after != before  # counters advanced

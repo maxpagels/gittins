@@ -198,3 +198,99 @@ class TestPinnedVectors:
             salt="pepper",
         )
         assert s2.next_seq == 8
+
+
+class TestByoCallbacks:
+    # The BYO surface at the layered level (spec/byo.md): score replaces
+    # the built-in estimates, explore replaces epsilon-greedy, and
+    # everything downstream — the RNG draw, the record, the propensity —
+    # is shared with the built-in path.
+
+    def test_score_replaces_the_builtin_estimates(self):
+        # The trained model strongly prefers the feature-0 arm; a score
+        # callback that ranks the last candidate highest overrides it.
+        state = trained_state()
+        record, _ = decide(
+            state, CANDS, T0, "s", score=lambda cands: [float(i) for i in range(len(cands))]
+        )
+        assert record.chosen == 2
+        assert record.propensity == 1.0 - DEFAULT_EPSILON + DEFAULT_EPSILON / 3
+
+    def test_score_receives_the_candidates(self):
+        seen = []
+        decide(new_bandit(2, horizon=DAY), CANDS, T0, "s", score=lambda c: seen.append(c) or [0.0] * len(c))
+        assert seen == [CANDS]
+
+    def test_explore_distribution_is_sampled_and_logged(self):
+        # The logged propensity must be the user's distribution at the
+        # chosen index, whatever the built-in rule would have said.
+        p = [0.25, 0.25, 0.5]
+        record, _ = decide(
+            new_bandit(2, horizon=DAY), CANDS, T0, "s", explore=lambda est, eps: p
+        )
+        assert record.propensity == p[record.chosen]
+
+    def test_explore_receives_estimates_and_epsilon(self):
+        seen = []
+        state = trained_state()
+
+        def explore(estimates, epsilon):
+            seen.append((estimates, epsilon))
+            return [1.0, 0.0, 0.0]
+
+        decide(state, CANDS, T0, "s", explore=explore)
+        (estimates, epsilon), = seen
+        assert epsilon == state.epsilon
+        assert len(estimates) == len(CANDS) and estimates[0] > estimates[1]
+
+    def test_byo_explore_reproducing_the_builtin_rule_is_bit_identical(self):
+        # A callback that computes exactly the built-in distribution must
+        # yield the identical record and state: the draw, the record, and
+        # the ledger append are one shared path.
+        state = trained_state()
+        builtin_record, builtin_state = decide(state, CANDS, T0, "s")
+        byo_record, byo_state = decide(
+            state, CANDS, T0, "s",
+            explore=lambda est, eps: epsilon_greedy_probabilities(est, eps),
+        )
+        assert byo_record == builtin_record
+        assert byo_state == builtin_state
+
+    def test_score_output_validation(self):
+        state = new_bandit(2, horizon=DAY)
+        for bad in ([0.0, 0.0], [0.0] * 4, [0.0, 0.0, float("nan")],
+                    [0.0, 0.0, float("inf")], [0.0, 0.0, "high"], None, 7):
+            with pytest.raises(ValueError, match="score must return one finite estimate"):
+                decide(state, CANDS, T0, "s", score=lambda c, bad=bad: bad)
+
+    def test_explore_output_validation(self):
+        state = new_bandit(2, horizon=DAY)
+        for bad, match in [
+            ([0.5, 0.5], "one probability per candidate"),
+            (None, "one probability per candidate"),
+            ([0.5, 0.6, -0.1], "finite, nonnegative"),
+            ([0.5, 0.5, float("nan")], "finite, nonnegative"),
+            ([0.3, 0.3, 0.3], "sum to 1"),
+        ]:
+            with pytest.raises(ValueError, match=match):
+                decide(state, CANDS, T0, "s", explore=lambda e, eps, bad=bad: bad)
+
+    def test_explore_sum_tolerance(self):
+        # A few ulps of rounding pass; a real error does not.
+        ok = [0.1, 0.2, 0.7 + 1e-10]
+        record, _ = decide(new_bandit(2, horizon=DAY), CANDS, T0, "s",
+                           explore=lambda e, eps: ok)
+        assert record.propensity in ok
+
+    def test_callback_errors_propagate_before_any_state_change(self):
+        state = new_bandit(2, horizon=DAY)
+
+        def boom(_):
+            raise RuntimeError("model server down")
+
+        with pytest.raises(RuntimeError, match="model server down"):
+            decide(state, CANDS, T0, "s", score=boom)
+        # Pure layer: the caller's state value is untouched by construction;
+        # the next decision still gets seq 0.
+        record, _ = decide(state, CANDS, T0, "s")
+        assert record.decision_id == "s:0"

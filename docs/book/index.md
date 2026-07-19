@@ -294,9 +294,96 @@ How quickly to forget is a question without a fixed answer. It depends on the pr
 
 ---
 
-## Bring Your Own Model
+## Bring Your Own Algorithms
 
-[WIP]
+Both of Gittins' built-in algorithms, ridge regression and epsilon-greedy, are deliberately simple, and effective in practice for many problems. However, if your problem outgrows them, you can swap in your own model and/or exploration and keep everything else. Perhaps you want a gradient-boosted model served over the network, a neural network, or a fancier exploration rule from a paper. Gittins fully supports this, and crucially, does not make you rebuild the plumbing that actually makes bandits hard: the feature encoding, the deterministic sampling, the decision records with logged propensities, the exactly-once reward ledger, and offline evaluation will all keep working.
+
+The entire surface for bring-your-own use is three optional callbacks, passed per call and never stored. Two are parameters passed to `decide`: `score`, which receives the exact `context` and `candidates` you passed in and returns one estimated reward per candidate (replacing the built-in model's predictions), and `explore`, which receives those estimates plus the configured `epsilon` if needed and returns one probability per candidate (replacing epsilon-greedy). The third parameter is passed to `learn` and `expire`: `train`, which receives a resolved decision's record and its reward. The engine has already matched the reward to the right decision, exactly once, in place of the built-in model's update.
+
+```python
+model = MyModel()  # anything with a predict and an update
+
+def score(context, candidates):
+    return [model.predict(context, action) for _, action in candidates]
+
+def train(record, reward):
+    # key your own bookkeeping by record.decision_id, or train
+    # directly on record.features if your model lives in the
+    # hashed space
+    model.update(record.decision_id, reward)
+
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(), salt="bandit-1",
+    score=score,
+)
+
+gittins.learn(state, record.decision_id, reward=1.0, train=train)
+
+# give expire the same callback, so timed-out decisions
+# train your model too
+gittins.expire(state, t=time.time(), train=train)
+```
+
+```js
+const model = new MyModel(); // anything with a predict and an update
+
+const score = (context, candidates) =>
+  candidates.map(([_, action]) => model.predict(context, action));
+
+const train = (record, reward) => {
+  // key your own bookkeeping by record.decision_id, or train
+  // directly on record.features if your model lives in the
+  // hashed space
+  model.update(record.decision_id, reward);
+};
+
+const record = gittins.decide(
+  state, context, candidates,
+  Date.now() / 1000, "browser-1",
+  score,
+);
+
+gittins.learn(state, record.decision_id, 1.0, train);
+
+// give expire the same callback, so timed-out decisions
+// train your model too
+gittins.expire(state, Date.now() / 1000, train);
+```
+
+Swapping the exploration rule looks the same. Note that your callback only produces the *distribution*; the random draw stays inside the engine, on the decision's own counter-based RNG stream, and the record's propensity is your distribution's value at the chosen index. This is what keeps custom decisions exactly as replayable and log-worthy as built-in ones.
+
+```python
+import math
+
+def explore(estimates, epsilon):  # e.g. softmax instead of epsilon-greedy
+    weights = [math.exp(v) for v in estimates]
+    total = sum(weights)
+    return [w / total for w in weights]
+
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(), salt="bandit-1",
+    explore=explore,
+)
+```
+
+```js
+const explore = (estimates, epsilon) => { // e.g. softmax instead of epsilon-greedy
+  const weights = estimates.map(Math.exp);
+  const total = weights.reduce((a, b) => a + b, 0);
+  return weights.map((w) => w / total);
+};
+
+const record = gittins.decide(
+  state, context, candidates,
+  Date.now() / 1000, "browser-1",
+  undefined, // score: keep the built-in model
+  explore,
+);
+```
+
+A few rules safety guarantees intact. First, the engine validates what your callbacks return. There must be one finite estimate per candidate, and probabilities must be nonnegative and sum to 1. Anything is is outright rejected, because a malformed distribution would silently poison every logged propensity, and with it the possibility for offline evaluation. Second, `train` fires *after* the decision is marked resolved: if your callback crashes, that one observation is lost. Third, your model's state is your own: the handle serializes only the engine's state (the ledger, the counters, and the untouched built-in model), so you must persist your model alongside it unless it is intentionally ephemeral. Finally, the engine's own arithmetic stays bit-identical across platforms, but your callbacks might not: a `score` that calls a network, or an `explore` using transcendentals, may not work deterministically from platform to platform, depending on how you implemented it. Gittins places the responsibility for bit-identical results on you if you bring your own algorithms. The same goes for performance: make slow predictions and updates and Gittins won't magically speed them up.
 
 ---
 
@@ -320,6 +407,20 @@ As you can see, and I'll hope you agree, these are high performance numbers. Hig
 
 ## Stupid? Gittins Tricks
 
-[WIP]
+Some interesting implications fall out of the Gittins design. Some are mere curiousities, others may be genuinely useful. Wrapping up the guide,
+here are the ones I could think of, in no particular order.
 
+**Hierarchical bandits**. Since Gittins returns handles to bandits, it becomes simple to create _hierarchical bandits_ where you make a top-level decision, that
+itself is a choice of bandit. Make a second decision, receive feedback, and roll the reward up the chain.
+
+**Ensembles for uncertainty**. Hold N handles with different salts on the same traffic. They see the same
+data but will explore differently, so *disagreement between them* is a low-cost
+uncertainty signal. Route this a human when the committee splits, act confidently when it is
+unanimous. N bandits cost N small states and no extra machinery.
+
+**One bandit per user**. An 8-bit state is a few KB in size. It fits a KV-store row, a cookie, or
+localStorage. You could build a completely stateless service per user: load state, decide, learn,
+save state. This flips the personalisation on its head: if every user has their own bandit, the learned
+decisions are personalised by default, even if you supply no context.
+  
 ---

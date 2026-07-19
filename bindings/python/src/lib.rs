@@ -7,7 +7,12 @@
 //! The one performance rule (PROGRESS, PR 20): one boundary crossing per
 //! decision. `decide` takes the context dict and the whole candidate list
 //! and encode → score → sample all happen inside Rust; nothing calls back
-//! into Python per candidate or per feature.
+//! into Python per candidate or per feature. The BYO callbacks
+//! (spec/byo.md) keep that rule: `score`/`explore`/`train` each cross the
+//! boundary once per call — with all candidates, all estimates, or the one
+//! resolved record — never per candidate. A callback's own Python
+//! exception is re-raised as itself; a malformed callback *result* raises
+//! ValueError with the reference's message.
 //!
 //! State handling, the uniform convention across every implementation
 //! (spec/api.md): the state is an opaque handle, updated in place — calls
@@ -15,11 +20,14 @@
 //! every alias of the handle observes the current state. Snapshot or
 //! persist it with `serialize`.
 
+use std::cell::RefCell;
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple};
 
 use gittins_core::api;
+use gittins_core::encoding::Features;
 use gittins_core::decide::{BanditState as CoreState, DecisionRecord as CoreRecord};
 use gittins_core::encoding::Value;
 use gittins_core::error::Error;
@@ -148,28 +156,115 @@ fn model_bits(state: &Bound<'_, BanditState>) -> PyResult<u32> {
     api::model_bits(&state.borrow().inner).map_err(value_error)
 }
 
+/// A stash for the one Python exception a callback may raise while Rust is
+/// on the stack: the core sees an `Error` (so it unwinds cleanly with no
+/// state half-changed), and the original exception — traceback intact — is
+/// re-raised at the boundary.
+struct Caught(RefCell<Option<PyErr>>);
+
+impl Caught {
+    fn new() -> Caught {
+        Caught(RefCell::new(None))
+    }
+
+    fn stash(&self, e: PyErr, what: &str) -> Error {
+        *self.0.borrow_mut() = Some(e);
+        Error::new(&format!("{what} callback raised"))
+    }
+
+    fn rethrow<T>(&self, result: Result<T, Error>) -> PyResult<T> {
+        if let Some(e) = self.0.borrow_mut().take() {
+            return Err(e);
+        }
+        result.map_err(value_error)
+    }
+}
+
+/// The BYO train callback (spec/byo.md) as the core's shape: called with
+/// the resolved decision's record and the reward, once per resolution.
+fn train_callback<'a>(
+    py: Python<'a>,
+    f: &'a Bound<'a, PyAny>,
+    caught: &'a Caught,
+) -> impl FnMut(&CoreRecord, f64) -> Result<(), Error> + 'a {
+    move |record: &CoreRecord, reward: f64| {
+        Py::new(py, DecisionRecord::from(record.clone()))
+            .and_then(|rec| f.call1((rec, reward)).map(|_| ()))
+            .map_err(|e| caught.stash(e, "train"))
+    }
+}
+
 #[pyfunction]
+#[pyo3(signature = (state, context, candidates, t, salt, score=None, explore=None))]
 fn decide(
     state: &Bound<'_, BanditState>,
     context: &Bound<'_, PyDict>,
-    candidates: Vec<(String, Bound<'_, PyDict>)>,
+    candidates: &Bound<'_, PyAny>,
     t: f64,
     salt: &str,
+    score: Option<&Bound<'_, PyAny>>,
+    explore: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<DecisionRecord> {
-    let context = features(context)?;
-    let candidates: Vec<(String, Vec<(String, Value)>)> = candidates
+    let raw: Vec<(String, Bound<'_, PyDict>)> = candidates.extract()?;
+    let parsed_context = features(context)?;
+    let parsed: Vec<(String, Vec<(String, Value)>)> = raw
         .into_iter()
         .map(|(arm_id, action)| Ok((arm_id, features(&action)?)))
         .collect::<PyResult<_>>()?;
-    let record = api::decide(&mut state.borrow_mut().inner, &context, &candidates, t, salt)
-        .map_err(value_error)?;
-    Ok(record.into())
+    let caught = Caught::new();
+    // The callbacks receive the very objects the caller passed (spec/byo.md);
+    // the encoded candidates the core offers are not re-surfaced to Python.
+    let mut score_cb = score.map(|f| {
+        |_: &[Features]| -> Result<Vec<f64>, Error> {
+            let result = f.call1((context, candidates)).map_err(|e| caught.stash(e, "score"))?;
+            result.extract::<Vec<f64>>().map_err(|_| {
+                Error::new("score must return one finite estimate per candidate")
+            })
+        }
+    });
+    let mut explore_cb = explore.map(|f| {
+        |estimates: &[f64], epsilon: f64| -> Result<Vec<f64>, Error> {
+            let result = f
+                .call1((estimates.to_vec(), epsilon))
+                .map_err(|e| caught.stash(e, "explore"))?;
+            result.extract::<Vec<f64>>().map_err(|_| {
+                Error::new("explore must return one probability per candidate")
+            })
+        }
+    });
+    let result = api::decide(
+        &mut state.borrow_mut().inner,
+        &parsed_context,
+        &parsed,
+        t,
+        salt,
+        score_cb.as_mut().map(|c| c as _),
+        explore_cb.as_mut().map(|c| c as _),
+    );
+    caught.rethrow(result).map(Into::into)
 }
 
 /// The resolution, or None if the id is unknown or already resolved.
+/// `train` is the BYO training tap (spec/byo.md): it replaces the built-in
+/// update and fires after the resolution commits, exactly once.
 #[pyfunction]
-fn learn(state: &Bound<'_, BanditState>, decision_id: &str, reward: f64) -> Option<Resolution> {
-    api::learn(&mut state.borrow_mut().inner, decision_id, reward).map(Resolution::from)
+#[pyo3(signature = (state, decision_id, reward, train=None))]
+fn learn(
+    py: Python<'_>,
+    state: &Bound<'_, BanditState>,
+    decision_id: &str,
+    reward: f64,
+    train: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<Resolution>> {
+    let caught = Caught::new();
+    let mut train_cb = train.map(|f| train_callback(py, f, &caught));
+    let result = api::learn(
+        &mut state.borrow_mut().inner,
+        decision_id,
+        reward,
+        train_cb.as_mut().map(|c| c as _),
+    );
+    caught.rethrow(result).map(|o| o.map(Resolution::from))
 }
 
 /// The resolution, or None if the id is unknown or already resolved.
@@ -179,14 +274,23 @@ fn censor(state: &Bound<'_, BanditState>, decision_id: &str) -> Option<Resolutio
 }
 
 /// Every decision past its horizon at time `t`, resolved as expired, in
-/// ledger order.
+/// ledger order. `train` as on `learn`, fired per due record (spec/byo.md).
 #[pyfunction]
+#[pyo3(signature = (state, t, train=None))]
 fn expire<'py>(
     py: Python<'py>,
     state: &Bound<'py, BanditState>,
     t: f64,
+    train: Option<&Bound<'py, PyAny>>,
 ) -> PyResult<Bound<'py, PyTuple>> {
-    let resolutions = api::expire(&mut state.borrow_mut().inner, t);
+    let caught = Caught::new();
+    let mut train_cb = train.map(|f| train_callback(py, f, &caught));
+    let result = api::expire(
+        &mut state.borrow_mut().inner,
+        t,
+        train_cb.as_mut().map(|c| c as _),
+    );
+    let resolutions = caught.rethrow(result)?;
     PyTuple::new(py, resolutions.into_iter().map(Resolution::from))
 }
 

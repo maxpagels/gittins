@@ -7,6 +7,15 @@
 //! joining the ledger of open decisions. Decision IDs are `"{salt}:{seq}"`
 //! — uniqueness is structural. This core mutates the state in place; the
 //! record returned is a clone of the one the ledger holds.
+//!
+//! Bring your own model / exploration (R7, spec/byo.md): `decide` takes
+//! two optional callbacks, each replacing exactly one built-in component —
+//! `score(candidates)` the built-in estimates, `explore(estimates,
+//! epsilon)` epsilon-greedy. Outputs are validated here (the reference's
+//! rules and messages, exactly); the draw, the record, the propensity, and
+//! the ledger are the shared path, so a BYO decision is as deterministic
+//! and replayable as a built-in one. A callback error propagates before
+//! any state change.
 
 use crate::encoding::Features;
 use crate::error::Error;
@@ -82,13 +91,58 @@ pub fn candidate_set_hash(candidates: &[Features], dim: usize) -> u64 {
     fnv1a_64(&data)
 }
 
+/// A BYO score callback: the candidates' estimates, in candidate order
+/// (spec/byo.md). The `Err` side carries a binding's failure across the
+/// boundary; validation of the `Ok` side happens in `decide`.
+pub type Score<'a> = &'a mut dyn FnMut(&[Features]) -> Result<Vec<f64>, Error>;
+
+/// A BYO explore callback: (estimates, epsilon) to one probability per
+/// candidate; the engine draws from it (spec/byo.md).
+pub type Explore<'a> = &'a mut dyn FnMut(&[f64], f64) -> Result<Vec<f64>, Error>;
+
+/// How far a BYO explore distribution's sum may sit from 1.0 before it is
+/// rejected: generous against benign rounding, unforgiving of real errors
+/// — a wrong sum poisons every logged propensity (spec/byo.md).
+pub const PROBABILITY_TOLERANCE: f64 = 1e-9;
+
+fn validated_estimates(estimates: Vec<f64>, k: usize) -> Result<Vec<f64>, Error> {
+    if estimates.len() != k || estimates.iter().any(|v| !v.is_finite()) {
+        return Err(Error::new("score must return one finite estimate per candidate"));
+    }
+    Ok(estimates)
+}
+
+fn validated_probabilities(p: Vec<f64>, k: usize) -> Result<Vec<f64>, Error> {
+    if p.len() != k {
+        return Err(Error::new("explore must return one probability per candidate"));
+    }
+    let mut total = 0.0;
+    for &v in &p {
+        if !(v.is_finite() && v >= 0.0) {
+            return Err(Error::new(
+                "explore probabilities must be finite, nonnegative, and sum to 1",
+            ));
+        }
+        total += v;
+    }
+    if !((total - 1.0).abs() <= PROBABILITY_TOLERANCE) {
+        return Err(Error::new(
+            "explore probabilities must be finite, nonnegative, and sum to 1",
+        ));
+    }
+    Ok(p)
+}
+
 /// Score, explore, choose, and record one decision. The model is untouched
-/// (learning happens only through the ledger's resolutions).
+/// (learning happens only through the ledger's resolutions). `score` and
+/// `explore` are the BYO callbacks (module docs, spec/byo.md).
 pub fn decide(
     state: &mut BanditState,
     candidates: &[Features],
     t: f64,
     salt: &str,
+    score: Option<Score>,
+    explore: Option<Explore>,
 ) -> Result<DecisionRecord, Error> {
     if candidates.is_empty() {
         return Err(Error::new("need at least one candidate"));
@@ -110,14 +164,24 @@ pub fn decide(
         }
     }
 
-    // The weights depend on the model only, so they are solved once and
-    // shared by every candidate.
-    let mut factored = factorize(&state.model);
-    let estimates: Vec<f64> = candidates
-        .iter()
-        .map(|x| estimate_factored(&mut factored, x))
-        .collect();
-    let p = epsilon_greedy_probabilities(&estimates, state.epsilon)?;
+    let estimates: Vec<f64> = match score {
+        None => {
+            // The weights depend on the model only, so they are solved
+            // once and shared by every candidate.
+            let mut factored = factorize(&state.model);
+            candidates
+                .iter()
+                .map(|x| estimate_factored(&mut factored, x))
+                .collect()
+        }
+        Some(score) => validated_estimates(score(candidates)?, candidates.len())?,
+    };
+    let p = match explore {
+        None => epsilon_greedy_probabilities(&estimates, state.epsilon)?,
+        Some(explore) => {
+            validated_probabilities(explore(&estimates, state.epsilon)?, candidates.len())?
+        }
+    };
 
     let decision_id = format!("{salt}:{}", state.next_seq);
     let key = derive_key(&decision_id, salt);
@@ -136,4 +200,84 @@ pub fn decide(
     state.next_seq += 1;
     state.ledger.push(record.clone());
     Ok(record)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::exploration::DEFAULT_EPSILON;
+    use crate::model::DEFAULT_FORGETTING;
+
+    fn state() -> BanditState {
+        new_bandit(4, 10.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap()
+    }
+
+    fn cands() -> Vec<Features> {
+        vec![vec![(0, 1.0)], vec![(1, 1.0)], vec![(2, 1.0)]]
+    }
+
+    /// A BYO explore callback that computes exactly the built-in
+    /// distribution must yield the identical record and state: the draw,
+    /// the record, and the ledger append are one shared path.
+    #[test]
+    fn byo_explore_reproducing_the_builtin_rule_is_bit_identical() {
+        let mut builtin = state();
+        let mut byo = state();
+        let builtin_record = decide(&mut builtin, &cands(), 0.0, "s", None, None).unwrap();
+        let mut explore = |estimates: &[f64], epsilon: f64| {
+            epsilon_greedy_probabilities(estimates, epsilon)
+        };
+        let byo_record =
+            decide(&mut byo, &cands(), 0.0, "s", None, Some(&mut explore)).unwrap();
+        assert!(byo_record == builtin_record);
+        assert!(byo == builtin);
+    }
+
+    #[test]
+    fn byo_score_and_explore_flow_into_the_record() {
+        let mut s = state();
+        let mut score = |candidates: &[Features]| {
+            Ok((0..candidates.len()).map(|i| i as f64).collect())
+        };
+        let mut explore = |_: &[f64], _: f64| Ok(vec![0.25, 0.25, 0.5]);
+        let record =
+            decide(&mut s, &cands(), 0.0, "s", Some(&mut score), Some(&mut explore)).unwrap();
+        assert!(record.propensity == [0.25, 0.25, 0.5][record.chosen]);
+        // Score alone: the greedy mass lands on the callback's maximum.
+        let record = decide(&mut s, &cands(), 1.0, "s", Some(&mut score), None).unwrap();
+        assert!(record.chosen == 2 || record.propensity == DEFAULT_EPSILON / 3.0);
+    }
+
+    #[test]
+    fn byo_outputs_are_validated_and_leave_the_state_unchanged() {
+        let mut s = state();
+        let before = s.clone();
+        let cases: Vec<(Vec<f64>, &str)> = vec![
+            (vec![0.0, 0.0], "score must return one finite estimate per candidate"),
+            (vec![0.0, 0.0, f64::NAN], "score must return one finite estimate per candidate"),
+        ];
+        for (bad, message) in cases {
+            let mut score = |_: &[Features]| Ok(bad.clone());
+            let err = decide(&mut s, &cands(), 0.0, "s", Some(&mut score), None).unwrap_err();
+            assert!(err.message() == message, "got {:?}", err.message());
+        }
+        let cases: Vec<(Vec<f64>, &str)> = vec![
+            (vec![0.5, 0.5], "explore must return one probability per candidate"),
+            (vec![0.6, 0.5, -0.1], "explore probabilities must be finite, nonnegative, and sum to 1"),
+            (vec![0.5, 0.5, f64::NAN], "explore probabilities must be finite, nonnegative, and sum to 1"),
+            (vec![0.3, 0.3, 0.3], "explore probabilities must be finite, nonnegative, and sum to 1"),
+        ];
+        for (bad, message) in cases {
+            let mut explore = |_: &[f64], _: f64| Ok(bad.clone());
+            let err = decide(&mut s, &cands(), 0.0, "s", None, Some(&mut explore)).unwrap_err();
+            assert!(err.message() == message, "got {:?}", err.message());
+        }
+        // A callback error propagates before any state change.
+        let mut boom = |_: &[Features]| Err(Error::new("model server down"));
+        assert!(decide(&mut s, &cands(), 0.0, "s", Some(&mut boom), None).is_err());
+        assert!(s == before, "a rejected BYO decision moved the state");
+        // Within tolerance passes.
+        let mut close = |_: &[f64], _: f64| Ok(vec![0.1, 0.2, 0.7 + 1e-10]);
+        assert!(decide(&mut s, &cands(), 0.0, "s", None, Some(&mut close)).is_ok());
+    }
 }
