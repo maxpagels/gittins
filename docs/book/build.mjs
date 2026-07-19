@@ -186,7 +186,7 @@ function render(md) {
     // [VERSION]: the engine version, read from core/Cargo.toml at build time.
     if (/^\[VERSION\]\s*$/.test(line)) {
       flush();
-      html.push(`<div class="version">covering version ${version}</div>`);
+      html.push(`<div class="version">${version}</div>`);
       continue;
     }
 
