@@ -240,7 +240,7 @@ fn replay_episode(s: &Json) -> (BanditState, BanditState) {
             candidate_set_hash(&candidates, 1 << bits) == event.get("candidate_hash").u64_(),
             "event candidate_hash at t={t}"
         );
-        let record = decide(state, &candidates, t, "fleet-a").unwrap();
+        let record = decide(state, &candidates, t, "fleet-a", None, None).unwrap();
         assert_record(&record, event.get("record"), &record.decision_id.clone());
         let reward = if (arms[record.chosen] == "x") == (seg == "a") { 1.0 } else { 0.0 };
         (record, reward)
@@ -396,6 +396,8 @@ fn api_section() {
             &catalog,
             event.get("t").f64_(),
             salt,
+            None,
+            None,
         )
         .unwrap();
         assert_record(&record, event.get("record"), &record.decision_id.clone());
@@ -403,10 +405,10 @@ fn api_section() {
     }
 
     let mut resolutions = Vec::new();
-    resolutions.push(api::learn(&mut state, &records[1].decision_id, 1.0).unwrap());
-    resolutions.push(api::learn(&mut state, &records[0].decision_id, 0.0).unwrap());
+    resolutions.push(api::learn(&mut state, &records[1].decision_id, 1.0, None).unwrap().unwrap());
+    resolutions.push(api::learn(&mut state, &records[0].decision_id, 0.0, None).unwrap().unwrap());
     resolutions.push(api::censor(&mut state, &records[2].decision_id).unwrap());
-    resolutions.extend(api::expire(&mut state, s.get("expire_sweep_at").f64_()));
+    resolutions.extend(api::expire(&mut state, s.get("expire_sweep_at").f64_(), None).unwrap());
     assert_resolutions(&resolutions, s.get("resolutions"));
 
     let fin = s.get("final");
@@ -418,6 +420,108 @@ fn api_section() {
         "final state hex differs from corpus"
     );
     assert!(api::deserialize(expected).unwrap() == state);
+}
+
+/// The BYO section (spec/byo.md): the corpus scenario replayed through the
+/// public facade with the spec-defined score/explore/train callbacks
+/// written natively — exactly what each binding's acceptance test does in
+/// its own language.
+#[test]
+fn byo_section() {
+    let s = section("byo");
+    let bits = s.get("bits").u64_() as u32;
+    let horizon = s.get("horizon").f64_();
+    let forgetting = s.get("forgetfulness").f64_();
+    let salt = s.get("salt").str_();
+    let catalog: Vec<(String, Vec<(String, Value)>)> = s
+        .get("catalog")
+        .arr()
+        .iter()
+        .map(|pair| (pair.arr()[0].str_().to_string(), values(&pair.arr()[1])))
+        .collect();
+    let prices: Vec<f64> = catalog
+        .iter()
+        .map(|(_, action)| {
+            action.iter().find(|(name, _)| name == "price").map_or(0.0, |(_, v)| match v {
+                Value::Num(x) => *x,
+                _ => 0.0,
+            })
+        })
+        .collect();
+
+    let mut state = api::create(bits, horizon, 0.0, DEFAULT_EPSILON, forgetting).unwrap();
+    let mut records = Vec::new();
+    let mut trained: Vec<(String, Features, f64)> = Vec::new();
+
+    for event in s.get("events").arr() {
+        let context = values(event.get("context"));
+        let seg_a = context
+            .iter()
+            .any(|(name, v)| name == "seg" && matches!(v, Value::Str(x) if x == "a"));
+        let mode = event.get("mode").str_();
+        // The spec's score rule: (base + (0.5 * price)) - i.
+        let mut score = |_: &[Features]| -> Result<Vec<f64>, gittins_core::error::Error> {
+            let base = if seg_a { 1.0 } else { 0.0 };
+            Ok(prices
+                .iter()
+                .enumerate()
+                .map(|(i, &price)| base + 0.5 * price - i as f64)
+                .collect())
+        };
+        // The spec's explore rule: p[i] = (i + 1) / (k * (k + 1) / 2).
+        let mut explore = |estimates: &[f64], _: f64| -> Result<Vec<f64>, gittins_core::error::Error> {
+            let k = estimates.len();
+            let denominator = (k * (k + 1) / 2) as f64;
+            Ok((0..k).map(|i| (i as f64 + 1.0) / denominator).collect())
+        };
+        let record = api::decide(
+            &mut state,
+            &context,
+            &catalog,
+            event.get("t").f64_(),
+            salt,
+            if matches!(mode, "score" | "both") { Some(&mut score) } else { None },
+            if matches!(mode, "explore" | "both") { Some(&mut explore) } else { None },
+        )
+        .unwrap();
+        assert_record(&record, event.get("record"), &record.decision_id.clone());
+        records.push(record);
+    }
+
+    let mut train = |r: &DecisionRecord, reward: f64| -> Result<(), gittins_core::error::Error> {
+        trained.push((r.decision_id.clone(), r.features.clone(), reward));
+        Ok(())
+    };
+    let mut resolutions = Vec::new();
+    resolutions.push(
+        api::learn(&mut state, &records[1].decision_id, 1.0, Some(&mut train)).unwrap().unwrap(),
+    );
+    resolutions.push(
+        api::learn(&mut state, &records[0].decision_id, 0.0, Some(&mut train)).unwrap().unwrap(),
+    );
+    // Deliberately mixed: the plain learn trains the built-in model.
+    resolutions.push(api::learn(&mut state, &records[4].decision_id, 1.0, None).unwrap().unwrap());
+    resolutions.push(api::censor(&mut state, &records[2].decision_id).unwrap());
+    resolutions.extend(
+        api::expire(&mut state, s.get("expire_sweep_at").f64_(), Some(&mut train)).unwrap(),
+    );
+    assert_resolutions(&resolutions, s.get("resolutions"));
+
+    let expected_trained = s.get("trained").arr();
+    assert!(trained.len() == expected_trained.len(), "trained count");
+    for ((id, features, reward), e) in trained.iter().zip(expected_trained) {
+        assert!(id == e.get("decision_id").str_(), "trained id {id}");
+        assert_pairs(features, e.get("features"), &format!("trained features for {id}"));
+        assert_bits(*reward, e.get("reward"), &format!("trained reward for {id}"));
+    }
+
+    let fin = s.get("final");
+    assert!(state.model_version == fin.get("model_version").u64_(), "final model_version");
+    assert!(state.next_seq == fin.get("next_seq").u64_(), "final next_seq");
+    assert!(
+        api::serialize(&state) == fin.get("state_hex").str_(),
+        "final state hex differs from corpus"
+    );
 }
 
 fn unhex(text: &str) -> Vec<u8> {

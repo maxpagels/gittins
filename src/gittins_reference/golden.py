@@ -312,6 +312,95 @@ def api_vectors():
     }
 
 
+def byo_vectors():
+    """The BYO plumbing (spec/byo.md) pinned through the public surface:
+    decides under a spec-defined score callback, explore callback, both,
+    and neither on one shared state; out-of-order rewards through a train
+    callback, one deliberately mixed built-in learn, a censor, and an
+    exact-horizon expiry with train. `trained` is the exact sequence of
+    (record, reward) observations the train callback received. Every
+    implementation replays this with the callbacks written natively in its
+    own language (the rules below, exact arithmetic in spec/byo.md)."""
+    bits = 4
+    forgetting = 0.9
+    horizon = HOUR
+    salt = "byo-golden"
+    catalog = [("basic", {"price": 3.0}), ("plus", {"price": 9.0}), ("free", {})]
+
+    def score(context, candidates):
+        base = 1.0 if context["seg"] == "a" else 0.0
+        return [
+            base + 0.5 * action.get("price", 0.0) - i
+            for i, (_arm, action) in enumerate(candidates)
+        ]
+
+    def explore(estimates, epsilon):
+        k = len(estimates)
+        return [(i + 1) / (k * (k + 1) / 2) for i in range(k)]
+
+    trained = []
+
+    def train(record, reward):
+        trained.append(
+            {
+                "decision_id": record.decision_id,
+                "features": pairs_json(record.features),
+                "reward": reward,
+            }
+        )
+
+    state = api.create(bits, horizon=horizon, forgetfulness=forgetting)
+    modes = ["score", "explore", "both", "builtin", "score"]
+    events = []
+    records = []
+    for i, mode in enumerate(modes):
+        context = {"seg": "a" if i % 2 == 0 else "b"}
+        record = api.decide(
+            state,
+            context,
+            catalog,
+            T0 + i * 900.0,
+            salt,
+            score=score if mode in ("score", "both") else None,
+            explore=explore if mode in ("explore", "both") else None,
+        )
+        events.append(
+            {"t": record.t, "context": context, "mode": mode, "record": record_json(record)}
+        )
+        records.append(record)
+    resolutions = []
+    resolutions.append(
+        resolution_json(api.learn(state, records[1].decision_id, 1.0, train=train))
+    )
+    resolutions.append(
+        resolution_json(api.learn(state, records[0].decision_id, 0.0, train=train))
+    )
+    # Deliberately mixed: one plain learn trains the built-in model, so the
+    # final state pins both that train *replaces* the update and that its
+    # absence still applies it.
+    resolutions.append(resolution_json(api.learn(state, records[4].decision_id, 1.0)))
+    resolutions.append(resolution_json(api.censor(state, records[2].decision_id)))
+    sweep_t = T0 + 3 * 900.0 + horizon  # the one open decision is exactly due
+    resolutions.extend(resolution_json(r) for r in api.expire(state, sweep_t, train=train))
+    assert not state._state.ledger, "byo scenario must end with nothing open"
+    return {
+        "bits": bits, "forgetfulness": forgetting, "horizon": horizon,
+        "salt": salt,
+        "catalog": [[arm_id, action] for arm_id, action in catalog],
+        "score_rule": "(1.0 if seg == 'a' else 0.0) + 0.5 * price - i, price 0.0 if absent",
+        "explore_rule": "p[i] = (i + 1) / (k * (k + 1) / 2), estimates and epsilon ignored",
+        "events": events,
+        "resolutions": resolutions,
+        "trained": trained,
+        "expire_sweep_at": sweep_t,
+        "final": {
+            "model_version": state._state.model_version,
+            "next_seq": state._state.next_seq,
+            "state_hex": api.serialize(state),
+        },
+    }
+
+
 def generate() -> dict:
     episode, mid_state, final_state = run_episode()
     return {
@@ -324,6 +413,7 @@ def generate() -> dict:
             "episode": episode,
             "serialization": serialization_vectors(mid_state, final_state),
             "api": api_vectors(),
+            "byo": byo_vectors(),
         },
     }
 

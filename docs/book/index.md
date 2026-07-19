@@ -320,6 +320,20 @@ As you can see, and I'll hope you agree, these are high performance numbers. Hig
 
 ## Stupid? Gittins Tricks
 
-[WIP]
+Some interesting implications fall out of the Gittins design. Some are mere curiousities, others may be genuinely useful. Wrapping up the guide,
+here are the ones I could think of, in no particular order.
 
+**Hierarchical bandits**. Since Gittins returns handles to bandits, it becomes simple to create _hierarchical bandits_ where you make a top-level decision, that
+itself is a choice of bandit. Make a second decision, receive feedback, and roll the reward up the chain.
+
+**Ensembles for uncertainty**. Hold N handles with different salts on the same traffic. They see the same
+data but will explore differently, so *disagreement between them* is a low-cost
+uncertainty signal. Route this a human when the committee splits, act confidently when it is
+unanimous. N bandits cost N small states and no extra machinery.
+
+**One bandit per user**. An 8-bit state is a few KB in size. It fits a KV-store row, a cookie, or
+localStorage. You could build a completely stateless service per user: load state, decide, learn,
+save state. This flips the personalisation on its head: if every user has their own bandit, the learned
+decisions are personalised by default, even if you supply no context.
+  
 ---

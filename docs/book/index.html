@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gittins</title>
-<meta name="description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta name="description" content="Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands…">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Gittins">
-<meta property="og:description" content="Gittins is an opinionated, highly optimised contextual bandit engine.">
+<meta property="og:description" content="Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands…">
 <meta property="og:image" content="https://docs.getgittins.dev/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -432,7 +432,10 @@ state = gittins.deserialize(localStorage.getItem(<span class="tok-str">&quot;ban
 <div class="wip-note" role="note">under construction</div>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="stupid-gittins-tricks">Stupid? Gittins Tricks</h2>
-<div class="wip-note" role="note">under construction</div>
+<p>Some interesting implications fall out of the Gittins design. Some are mere curiousities, others may be genuinely useful. Wrapping up the guide, here are the ones I could think of, in no particular order.</p>
+<p><strong>Hierarchical bandits</strong>. Since Gittins returns handles to bandits, it becomes simple to create <em>hierarchical bandits</em> where you make a top-level decision, that itself is a choice of bandit. Make a second decision, receive feedback, and roll the reward up the chain.</p>
+<p><strong>Ensembles for uncertainty</strong>. Hold N handles with different salts on the same traffic. They see the same data but will explore differently, so <em>disagreement between them</em> is a low-cost uncertainty signal. Route this a human when the committee splits, act confidently when it is unanimous. N bandits cost N small states and no extra machinery.</p>
+<p><strong>One bandit per user</strong>. An 8-bit state is a few KB in size. It fits a KV-store row, a cookie, or localStorage. You could build a completely stateless service per user: load state, decide, learn, save state. This flips the personalisation on its head: if every user has their own bandit, the learned decisions are personalised by default, even if you supply no context.</p>
 <div class="fleuron" role="separator">ε</div>
 <div class="fleuron">ε ε ε</div>
 <script>

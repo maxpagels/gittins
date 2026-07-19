@@ -106,9 +106,9 @@ mod tests {
     fn resolutions_are_exactly_once() {
         let mut state = new_bandit(4, 10.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
         let candidates = vec![vec![(0, 1.0)], vec![(1, 1.0)]];
-        let a = decide(&mut state, &candidates, 0.0, "test").unwrap();
-        let b = decide(&mut state, &candidates, 1.0, "test").unwrap();
-        let c = decide(&mut state, &candidates, 2.0, "test").unwrap();
+        let a = decide(&mut state, &candidates, 0.0, "test", None, None).unwrap();
+        let b = decide(&mut state, &candidates, 1.0, "test", None, None).unwrap();
+        let c = decide(&mut state, &candidates, 2.0, "test", None, None).unwrap();
 
         assert!(learn(&mut state, &a.decision_id, 1.0).is_some());
         assert!(censor(&mut state, &b.decision_id).is_some());

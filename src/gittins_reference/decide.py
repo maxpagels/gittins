@@ -48,8 +48,27 @@ gamma schedule here — see exploration.py for the reasoning and the price.
 
 RNG counter allocation: counter 0 of the decision's stream is the sampling
 draw. Later counters are reserved for future per-decision randomness.
+
+**Bring your own model / exploration (R7, spec/byo.md).** `decide` takes
+two optional callbacks, each replacing exactly one built-in component and
+inheriting everything else unchanged:
+
+    score(candidates)          -> one reward estimate per candidate
+    explore(estimates, epsilon) -> one probability per candidate
+
+`score` replaces the built-in model's estimates; `explore` replaces
+epsilon-greedy. The engine validates each callback's output (see
+`spec/byo.md` for the exact rules) and everything downstream — the
+inverse-CDF draw on the decision's RNG stream, the record, the logged
+propensity, the ledger — is unchanged, so a BYO decision is exactly as
+deterministic, replayable, and OPE-ready as a built-in one. Callbacks are
+per-call values, never stored: the state stays plain data and serialization
+is untouched. A callback that raises propagates before any state change.
+The training side of a BYO model is the `train` callback on the public
+API's learn/expire (api.py).
 """
 
+import math
 import struct
 from dataclasses import dataclass
 
@@ -141,8 +160,54 @@ def candidate_set_hash(candidates: "list[Features]", dim: int) -> int:
     return fnv1a_64(bytes(data))
 
 
+# How far a BYO explore distribution's sum may sit from 1.0 before it is
+# rejected: generous against benign rounding (the built-in rule lands
+# within a few ulps), unforgiving of real errors — a wrong sum poisons
+# every logged propensity (spec/byo.md).
+PROBABILITY_TOLERANCE = 1e-9
+
+
+def validated_estimates(raw, k: int) -> list[float]:
+    """A BYO score result as k floats, or ValueError (spec/byo.md)."""
+    message = "score must return one finite estimate per candidate"
+    try:
+        estimates = list(raw)
+    except TypeError:
+        raise ValueError(message) from None
+    if len(estimates) != k or not all(
+        isinstance(v, (int, float)) and math.isfinite(v) for v in estimates
+    ):
+        raise ValueError(message)
+    return [float(v) for v in estimates]
+
+
+def validated_probabilities(raw, k: int) -> list[float]:
+    """A BYO explore result as a k-candidate distribution, or ValueError
+    (spec/byo.md): every entry finite and nonnegative, the index-order sum
+    within PROBABILITY_TOLERANCE of 1."""
+    try:
+        p = list(raw)
+    except TypeError:
+        raise ValueError("explore must return one probability per candidate") from None
+    if len(p) != k:
+        raise ValueError("explore must return one probability per candidate")
+    total = 0.0
+    for v in p:
+        if not (isinstance(v, (int, float)) and math.isfinite(v) and v >= 0.0):
+            raise ValueError("explore probabilities must be finite, nonnegative, and sum to 1")
+        total += v
+    if not (abs(total - 1.0) <= PROBABILITY_TOLERANCE):
+        raise ValueError("explore probabilities must be finite, nonnegative, and sum to 1")
+    return [float(v) for v in p]
+
+
 def decide(
-    state: BanditState, candidates: "list[Features]", t: float, salt: str
+    state: BanditState,
+    candidates: "list[Features]",
+    t: float,
+    salt: str,
+    score=None,
+    explore=None,
 ) -> tuple[DecisionRecord, BanditState]:
     """Score, explore, choose, and record one decision. Each candidate is
     sparse (index, value) pairs in strictly increasing index order, values
@@ -151,6 +216,11 @@ def decide(
     The model is untouched (learning happens only through the ledger's
     resolutions, see ledger.py); the state changes are the decision counter
     advancing and the record joining the ledger of open decisions.
+
+    `score` and `explore` are the BYO callbacks (module docstring,
+    spec/byo.md): `score(candidates)` replaces the built-in estimates,
+    `explore(estimates, epsilon)` replaces epsilon-greedy; each output is
+    validated here and everything else is unchanged.
     """
     if len(candidates) < 1:
         raise ValueError("need at least one candidate")
@@ -167,11 +237,17 @@ def decide(
                 raise ValueError("candidate feature values must be nonzero")
             prev = j
 
-    # The weights depend on the model only, so they are solved once and
-    # shared by every candidate.
-    factored = factorize(state.model)
-    estimates = [estimate_factored(factored, x) for x in candidates]
-    p = epsilon_greedy_probabilities(estimates, state.epsilon)
+    if score is None:
+        # The weights depend on the model only, so they are solved once
+        # and shared by every candidate.
+        factored = factorize(state.model)
+        estimates = [estimate_factored(factored, x) for x in candidates]
+    else:
+        estimates = validated_estimates(score(candidates), len(candidates))
+    if explore is None:
+        p = epsilon_greedy_probabilities(estimates, state.epsilon)
+    else:
+        p = validated_probabilities(explore(estimates, state.epsilon), len(candidates))
 
     decision_id = f"{salt}:{state.next_seq}"
     key = derive_key(decision_id, salt)

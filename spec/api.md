@@ -19,10 +19,10 @@ The surface is eight names:
 | function | returns | is |
 |---|---|---|
 | `create(bits, horizon, default_reward=0.0, epsilon=0.05, forgetfulness=0.999)` | a state handle | `new_bandit` with `bits` (the one encoding declaration) in place of a raw dimension: the model spans the 2^bits hashed space |
-| `decide(state, context, candidates, t, salt)` | the decision record | encode each `(arm_id, action dict)` candidate against the context dict, in candidate order, then `decide.py`'s decide |
-| `learn(state, decision_id, reward)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
+| `decide(state, context, candidates, t, salt, score=None, explore=None)` | the decision record | encode each `(arm_id, action dict)` candidate against the context dict, in candidate order, then `decide.py`'s decide; `score`/`explore` are the BYO callbacks (byo.md) |
+| `learn(state, decision_id, reward, train=None)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged; with `train`, the BYO training tap replaces the built-in update (byo.md) |
 | `censor(state, decision_id)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
-| `expire(state, t)` | the resolutions, in ledger order | ledger.py, unchanged |
+| `expire(state, t, train=None)` | the resolutions, in ledger order | ledger.py, unchanged; `train` as on `learn`, fired per due record (byo.md) |
 | `serialize(state)` | the state as one hex string | the canonical byte layout (serialization.md), hex-encoded |
 | `deserialize(data)` | a state handle | the inverse; rejects anything malformed |
 | `model_bits(state)` | the `bits` declaration | recovered from the model dimension |
@@ -67,6 +67,14 @@ text form, identical across implementations (the golden `api` section's
   a state whose dimension is not a power of two in that range was built
   against the layered API and is rejected with ValueError (the core's
   `Error`).
+
+## Bring your own model / exploration
+
+The three optional callback parameters — `score` and `explore` on
+`decide`, `train` on `learn`/`expire` — are the whole BYO surface (R7),
+specified in `byo.md` and pinned by the golden `byo` section. They are
+per-call values, never stored; passed as `None`/omitted, every function
+is the pre-existing path bit for bit.
 
 ## No new state format, no new semantics
 

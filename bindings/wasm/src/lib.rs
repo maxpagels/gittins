@@ -18,8 +18,16 @@
 //!   bits — a JS number would silently round it).
 //! - one boundary crossing per decision: `decide` takes the whole
 //!   candidate list, and encode → score → sample run inside the module.
+//! - the BYO callbacks (spec/byo.md) are plain JS functions: `score` and
+//!   `explore` on `decide`, `train` on `learn`/`expire`. Each crosses the
+//!   boundary once per call — with the caller's own context/candidates,
+//!   all estimates, or the one resolved record — never per candidate. A
+//!   callback's own thrown value is rethrown as itself; a malformed
+//!   callback *result* throws an Error with the reference's message.
 
-use js_sys::{Array, BigInt, Object, Reflect};
+use std::cell::RefCell;
+
+use js_sys::{Array, BigInt, Function, Object, Reflect};
 use wasm_bindgen::prelude::*;
 
 use gittins_core::api;
@@ -34,6 +42,59 @@ use gittins_core::model::DEFAULT_FORGETTING;
 // with the same message.
 fn js_error(e: Error) -> JsError {
     JsError::new(e.message())
+}
+
+/// A stash for the one value a JS callback may throw while Rust is on the
+/// stack: the core sees an `Error` (so it unwinds cleanly with no state
+/// half-changed), and the original thrown value is rethrown, as itself, at
+/// the boundary.
+struct Caught(RefCell<Option<JsValue>>);
+
+impl Caught {
+    fn new() -> Caught {
+        Caught(RefCell::new(None))
+    }
+
+    fn stash(&self, e: JsValue, what: &str) -> Error {
+        *self.0.borrow_mut() = Some(e);
+        Error::new(format!("{what} callback raised"))
+    }
+
+    fn rethrow<T>(&self, result: Result<T, Error>) -> Result<T, JsValue> {
+        if let Some(e) = self.0.borrow_mut().take() {
+            return Err(e);
+        }
+        result.map_err(|e| js_error(e).into())
+    }
+}
+
+/// A callback result as a list of doubles, or the reference's rejection
+/// message; the core validates lengths, finiteness, and sums.
+fn number_list(value: &JsValue, message: &str) -> Result<Vec<f64>, Error> {
+    let array: &Array = value.dyn_ref().ok_or_else(|| Error::new(message))?;
+    let mut out = Vec::with_capacity(array.length() as usize);
+    for v in array.iter() {
+        out.push(v.as_f64().ok_or_else(|| Error::new(message))?);
+    }
+    Ok(out)
+}
+
+/// The BYO train callback (spec/byo.md) as the core's shape: called with
+/// the resolved decision's record (a plain object) and the reward, once
+/// per resolution.
+fn train_callback<'a>(
+    f: &'a Function,
+    caught: &'a Caught,
+) -> impl FnMut(&DecisionRecord, f64) -> Result<(), Error> + 'a {
+    move |record: &DecisionRecord, reward: f64| {
+        f.call2(
+            &JsValue::NULL,
+            &record_to_js(record.clone()),
+            &JsValue::from_f64(reward),
+        )
+        .map(|_| ())
+        .map_err(|e| caught.stash(e, "train"))
+    }
 }
 
 /// A feature object as the core's (name, Value) pairs — the reference's
@@ -154,6 +215,9 @@ pub fn model_bits(state: &BanditState) -> Result<u32, JsError> {
     api::model_bits(&state.inner).map_err(js_error)
 }
 
+/// `score` and `explore` are the BYO callbacks (spec/byo.md):
+/// `score(context, candidates)` — called with the very values passed here —
+/// and `explore(estimates, epsilon)`; each returns an array of numbers.
 #[wasm_bindgen]
 pub fn decide(
     state: &mut BanditState,
@@ -161,21 +225,65 @@ pub fn decide(
     candidates: &JsValue,
     t: f64,
     salt: &str,
-) -> Result<JsValue, JsError> {
-    let context = features(context)?;
-    let candidates = candidate_list(candidates)?;
-    let record =
-        api::decide(&mut state.inner, &context, &candidates, t, salt).map_err(js_error)?;
-    Ok(record_to_js(record))
+    score: Option<Function>,
+    explore: Option<Function>,
+) -> Result<JsValue, JsValue> {
+    let parsed_context = features(context).map_err(JsValue::from)?;
+    let parsed = candidate_list(candidates).map_err(JsValue::from)?;
+    let caught = Caught::new();
+    let caught_ref = &caught;
+    let mut score_cb = score.as_ref().map(|f| {
+        move |_: &[gittins_core::encoding::Features]| -> Result<Vec<f64>, Error> {
+            let result = f
+                .call2(&JsValue::NULL, context, candidates)
+                .map_err(|e| caught_ref.stash(e, "score"))?;
+            number_list(&result, "score must return one finite estimate per candidate")
+        }
+    });
+    let mut explore_cb = explore.as_ref().map(|f| {
+        move |estimates: &[f64], epsilon: f64| -> Result<Vec<f64>, Error> {
+            let list: Array = estimates.iter().map(|&v| JsValue::from_f64(v)).collect();
+            let result = f
+                .call2(&JsValue::NULL, &list, &JsValue::from_f64(epsilon))
+                .map_err(|e| caught_ref.stash(e, "explore"))?;
+            number_list(&result, "explore must return one probability per candidate")
+        }
+    });
+    let result = api::decide(
+        &mut state.inner,
+        &parsed_context,
+        &parsed,
+        t,
+        salt,
+        score_cb.as_mut().map(|c| c as _),
+        explore_cb.as_mut().map(|c| c as _),
+    );
+    Ok(record_to_js(caught.rethrow(result)?))
 }
 
 /// The resolution object, or null if the id is unknown or already resolved.
+/// `train` is the BYO training tap (spec/byo.md): it replaces the built-in
+/// update and fires after the resolution commits, exactly once, with the
+/// record object and the reward.
 #[wasm_bindgen]
-pub fn learn(state: &mut BanditState, decision_id: &str, reward: f64) -> JsValue {
-    match api::learn(&mut state.inner, decision_id, reward) {
+pub fn learn(
+    state: &mut BanditState,
+    decision_id: &str,
+    reward: f64,
+    train: Option<Function>,
+) -> Result<JsValue, JsValue> {
+    let caught = Caught::new();
+    let mut train_cb = train.as_ref().map(|f| train_callback(f, &caught));
+    let result = api::learn(
+        &mut state.inner,
+        decision_id,
+        reward,
+        train_cb.as_mut().map(|c| c as _),
+    );
+    Ok(match caught.rethrow(result)? {
         Some(resolution) => resolution_to_js(resolution),
         None => JsValue::NULL,
-    }
+    })
 }
 
 /// The resolution object, or null if the id is unknown or already resolved.
@@ -188,14 +296,21 @@ pub fn censor(state: &mut BanditState, decision_id: &str) -> JsValue {
 }
 
 /// Every decision past its horizon at time `t`, resolved as expired, in
-/// ledger order.
+/// ledger order. `train` as on `learn`, fired per due record (spec/byo.md).
 #[wasm_bindgen]
-pub fn expire(state: &mut BanditState, t: f64) -> Array {
+pub fn expire(
+    state: &mut BanditState,
+    t: f64,
+    train: Option<Function>,
+) -> Result<Array, JsValue> {
+    let caught = Caught::new();
+    let mut train_cb = train.as_ref().map(|f| train_callback(f, &caught));
+    let result = api::expire(&mut state.inner, t, train_cb.as_mut().map(|c| c as _));
     let out = Array::new();
-    for resolution in api::expire(&mut state.inner, t) {
+    for resolution in caught.rethrow(result)? {
         out.push(&resolution_to_js(resolution));
     }
-    out
+    Ok(out)
 }
 
 #[wasm_bindgen]

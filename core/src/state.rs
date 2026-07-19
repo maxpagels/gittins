@@ -230,7 +230,7 @@ mod tests {
             new_bandit(16, 120.0, -0.25, 0.1, DEFAULT_FORGETTING).unwrap();
         let candidates = vec![vec![(0, 1.0), (3, -0.5)], vec![(1, 2.0)]];
         for i in 0..3 {
-            let record = decide(&mut state, &candidates, 1000.0 + i as f64, "salty").unwrap();
+            let record = decide(&mut state, &candidates, 1000.0 + i as f64, "salty", None, None).unwrap();
             if i == 0 {
                 crate::ledger::learn(&mut state, &record.decision_id, 1.0);
             }
@@ -310,7 +310,7 @@ mod tests {
         // 2*dim sums + 5 bandit scalars + ledger count + id (8 + 3 bytes) +
         // t + hash + chosen + feature count.
         let mut state = new_bandit(4, 1.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
-        decide(&mut state, &[vec![(0, 1.0)], vec![(1, 1.0)]], 0.0, "s").unwrap();
+        decide(&mut state, &[vec![(0, 1.0)], vec![(1, 1.0)]], 0.0, "s", None, None).unwrap();
         let offset = 8 * 6 + 16 * 4 + 8 * 5 + 8 + (8 + 3) + 8 * 4;
         let mut data = serialize(&state);
         data.truncate(data.len() - 8);
