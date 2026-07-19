@@ -57,12 +57,12 @@ pub fn create(
     horizon: f64,
     default_reward: f64,
     epsilon: f64,
-    forgetting: f64,
+    forgetfulness: f64,
 ) -> Result<BanditState, Error> {
     if !(1..=24).contains(&bits) {
         return Err(Error::new("bits must be between 1 and 24"));
     }
-    new_bandit(1usize << bits, horizon, default_reward, epsilon, forgetting)
+    new_bandit(1usize << bits, horizon, default_reward, epsilon, forgetfulness)
 }
 
 /// The `bits` declaration recovered from the model dimension. States built

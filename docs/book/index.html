@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gittins</title>
+<style>
+  @font-face {
+    font-family: "Linux Libertine";
+    src: local("Linux Libertine O"), local("Linux Libertine"),
+         url("fonts/LinLibertine_Rah.ttf") format("truetype");
+    font-weight: normal;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "Linux Libertine";
+    src: local("Linux Libertine O Bold"),
+         url("fonts/LinLibertine_RBah.ttf") format("truetype");
+    font-weight: bold;
+    font-style: normal;
+  }
+  @font-face {
+    font-family: "Linux Libertine";
+    src: local("Linux Libertine O Italic"),
+         url("fonts/LinLibertine_RIah.ttf") format("truetype");
+    font-weight: normal;
+    font-style: italic;
+  }
+  @font-face {
+    font-family: "Linux Libertine";
+    src: local("Linux Libertine O Bold Italic"),
+         url("fonts/LinLibertine_RBIah.ttf") format("truetype");
+    font-weight: bold;
+    font-style: italic;
+  }
+  html { background: #fff; }
+  body {
+    font: large/1.567 "Linux Libertine", Georgia, serif;
+    color: #1a1a1a;
+    max-width: 42em;
+    margin: 0 auto;
+    padding: 3em 1.5em 6em;
+    text-rendering: optimizeLegibility;
+  }
+  header { text-align: center; margin: 2em 0 0; }
+  h1 {
+    font-size: 5em;
+    font-weight: normal;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    line-height: 1.05;
+    margin: 0 0 0.15em;
+  }
+
+  /* The byline: the h2 directly after the masthead. */
+  header + h2 { margin: 2em 0 4.5em; }
+  .subtitle { font-style: italic; color: #555; margin: 0; }
+  h2 {
+    font-size: 1.7em;
+    font-weight: normal;
+    text-align: center;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 2.5em 0 1em;
+  }
+  h3 {
+    font-size: 1.2em;
+    font-weight: normal;
+    font-style: italic;
+    margin: 2em 0 0.75em;
+  }
+  p { margin: 0 0 3em; text-align: justify; hyphens: auto; }
+
+  a {
+    color: #900;
+    text-decoration: underline dotted;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+  a:visited { color: #600; }
+  a:hover { color: #c00; }
+  u {
+    text-decoration: underline dotted;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
+
+  blockquote {
+    margin: 1.5em 2em;
+    font-style: italic;
+    color: #444;
+  }
+  blockquote p { text-align: left; }
+
+  code {
+    font: 0.68em/1.45 "SF Mono", Menlo, Consolas, monospace;
+    background: #f4f0e8;
+    padding: 0.1em 0.25em;
+  }
+  pre {
+    background: #f4f0e8;
+    border: 1px solid #e0d8c8;
+    padding: 1em 1.25em;
+    overflow-x: auto;
+    margin: 0 0 3em;
+  }
+  pre code { background: none; padding: 0; }
+
+  .tok-com { color: #8a8577; font-style: italic; }
+  .tok-str { color: #7a5230; }
+  .tok-kw { color: #900; }
+  .tok-num { color: #1e5a8a; }
+
+  .codetabs { margin: 0 0 3em; }
+  .codetabs pre { margin: 0; }
+  .codetabs-nav button {
+    font-family: inherit;
+    font-size: 0.8em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    padding: 0.3em 0.9em;
+    color: #777;
+    cursor: pointer;
+  }
+  .codetabs-nav button.active { color: #900; border-bottom-color: #900; }
+  .codetabs-nav button:hover { color: #c00; }
+
+  ul, ol { margin: 0 0 3em; padding-left: 2.5em; padding-right: 2em; }
+  ol { list-style: upper-roman; }
+  ol li::marker { color: #900; }
+  li { margin-bottom: 0.25em; }
+
+  .fleuron {
+    text-align: center;
+    font-size: 1.6em;
+    font-style: italic;
+    color: #900;
+    margin: 2em 0;
+    user-select: none;
+  }
+
+  .bandit-sim .table-wrap { margin-bottom: 0.75em; }
+  .bench-table { margin: 0 auto; font-size: 0.8em; }
+  .bench-table td:not(:first-child), .bench-table th:not(:first-child) {
+    text-align: right;
+  }
+  .sim-btn:disabled { color: #aaa; cursor: default; }
+
+  .wip-note {
+    text-align: center;
+    font-style: italic;
+    color: #999;
+    font-size: 0.85em;
+    margin: 0 0 1.5em;
+  }
+  /* The blur is on an inner wrapper and clipped by the outer one: Safari
+     paints filter output beyond the element's box, smearing neighbors. The
+     negative margins push the clip edge outward and the padding pulls the
+     text back, leaving room for the blur to feather before it is clipped. */
+  .wip {
+    overflow: hidden;
+    margin: 0 -1.5em;
+    padding: 0.75em 1.5em 0;
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+  }
+  .wip-inner { filter: blur(9px); }
+
+  .demo-fallback {
+    font-style: italic;
+    color: #555;
+    border: 1px dashed #ccc;
+    padding: 1em 1.25em;
+  }
+
+  .bandit-sim { margin: 0 0 3em; text-align: center; }
+  .sim-canvas {
+    display: block;
+    width: 100%;
+    height: 240px;
+    margin: 0 0 0.5em;
+  }
+  .sim-line {
+    font-size: 0.85em;
+    color: #555;
+    text-align: center;
+    margin: 0;
+  }
+  .sim-nowrap { white-space: nowrap; }
+  .sim-btn {
+    font: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: #900;
+    text-decoration: underline dotted;
+    text-underline-offset: 0.15em;
+    cursor: pointer;
+  }
+  .sim-btn:hover { color: #c00; }
+  .sim-read { color: #777; }
+  .sim-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 0.35em;
+    vertical-align: baseline;
+  }
+  .sim-swatch-line {
+    height: 2px;
+    background: #777;
+    vertical-align: middle;
+  }
+
+  .toc { margin: 3em 0; }
+  .toc h2 { margin-top: 0; }
+  .toc ol {
+    list-style: upper-roman;
+    padding: 0;
+    margin: 0 auto;
+    width: fit-content;
+  }
+  .toc li { margin: 0.4em 0; padding-left: 0.5em; }
+  .toc a { text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  .table-wrap { overflow-x: auto; margin: 0 0 3em; }
+  table { border-collapse: collapse; margin: 0 auto; }
+  th, td { border: 1px solid #ccc; padding: 0.4em 0.9em; text-align: left; }
+  th {
+    font-weight: normal;
+    font-variant: small-caps;
+    letter-spacing: 0.03em;
+    background: #f4f0e8;
+  }
+
+  img { max-width: 100%; }
+  hr { border: 0; }
+</style>
+</head>
+<body>
+<header><h1>Gittins</h1></header>
+<h2 id="by-max-pagels">By Max Pagels</h2>
+<div id="bandit-sim" class="bandit-sim"><noscript>The live simulation requires JavaScript.</noscript></div>
+<script type="module" src="sim.js"></script>
+<p>Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands on the shoulders of giants, in particular <a href="https://vowpalwabbit.org/">Vowpal Wabbit</a>, and adheres strictly to a design in support of real-world production use. Gittins is not a research tool.</p>
+<ol>
+<li><strong>Online by nature</strong>. Gittins learns one observation at a time, in O(1) work, and in fixed memory as long as open decisions are regularly resolved.</li>
+<li><strong>Non-stationarity is expected</strong>. For many real-world problems, the relationship between context and feedback drifts over time. A contextual bandit engine must learn to adapt over time, and never learn something it cannot eventually unlearn.</li>
+<li><strong>Dynamic actions and context.</strong> If you want to choose what banner to display on your website, and the set changes each day, an engine must accept this, and clean up after itself. There should never be a case where you must specify the number of actions beforehand.</li>
+<li><strong>Simple algorithms, bring-your-own models.</strong> The built-in algorithms should be readable by any competent programmer, and work in practice. Sophistication lives in the layering and the API, not in any single component. Users can swap in their own prediction model and/or exploration algorithm, and inherit everything else.</li>
+<li><strong>Safe reward handling</strong>. Rewards in bandits may arrive late, or not at all. Constructing invalid training data from logs or external sources must be nigh on impossible by design, not merely discouraged.</li>
+<li><strong>Speed and determinism</strong>. Fast decision cycles allow for unexpected use cases. Gittins must have best-in-class single core performance, and rely on few to zero dependencies. Bit-identical results across platforms and language bindings must be guaranteed and enforced by a golden test corpus. Code changes must be validated by tens of thousands of simulations and a large test battery.</li>
+<li><strong>Multislot and large action sets.</strong> Many problems are ranking / multi-position problems; therefore problems with thousands of candidate actions must be practical, fast, and robust.</li>
+<li><strong>Offline policy evaluation.</strong> It must be possible to estimate how a new policy <em>would have</em> performed using only logged decisions from an old policy.</li>
+<li><strong>Choose your own complexity.</strong> The same model needs to be able to run (a) ephemerally in memory, (b) persisted to a flat file, or (c) used via a shared service. There should be no need for databases; indeed, the model weights should be possible to check in to version control and deploy as part of normal deployment workflows.</li>
+</ol>
+<p>These concepts are discussed throughout this document, which serves both as an introduction to bandits and as technical documentation for Gittins. I encourage the reader to read the whole document once; once you have understood the concepts on a broad level, use the table of contents below to jump to sections you need to reference.</p>
+<nav class="toc"><h2>Table of Contents</h2><ol><li><a href="#the-contextual-bandit-problem">The Contextual Bandit Problem</a></li><li><a href="#your-first-decision">Your First Decision</a></li><li><a href="#anatomy-of-a-decision">Anatomy of a Decision</a></li><li><a href="#learning-to-forget">Learning to Forget</a></li><li><a href="#what-would-have-happened">What Would Have Happened?</a></li><li><a href="#bring-your-own-model">Bring Your Own Model</a></li><li><a href="#fast-and-the-same-everywhere">Fast, and the Same Everywhere</a></li><li><a href="#choose-your-own-complexity">Choose Your Own Complexity</a></li></ol></nav>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="the-contextual-bandit-problem">The Contextual Bandit Problem</h2>
+<p>In the contextual bandit setting, you (repeatedly):</p>
+<ol>
+<li>Observe a <strong>context</strong></li>
+<li>Choose an <strong>action</strong></li>
+<li>Receive a <strong>reward</strong> for the action you chose</li>
+</ol>
+<p>The objective is to learn to select the best action for any given context such that you <strong>maximise total reward over time</strong>. From this problem setting, it follows that contextual bandit algorithms must try out different actions to learn what context/action pairs lead to the best rewards; they must <em>explore</em> the action space using some exploration algorithm, and also exploit their knowledge using some learned model.</p>
+<p>Some bandit algorithms explore first, then exploit. Some learn to explore less over time, converging at some point on the optimal action for a given context. Gittins uses a simple algorithm known as epsilon-greedy, where exploration always happens for a small portion of decisions, regardless of how long the bandit has been running. This is a deliberate choice to tackle non-stationarity, an issue I revisit later in this document.</p>
+<p>You may be thinking to yourself, &quot;why not use supervised learning instead of bandits?&quot;. That is a fair question, and for some problems, it works well. But consider a case of topic recommendation on social media. If you use supervised learning to choose the best topic from a handful of candidates, you must a) have enough cover in your training data to learn the optimal relationships, however obscure, snd b) have some way of being able to recommend entirely new topics that you don't have history for. Bandits offer a natural way of introducing new actions by virtue of its explorative design.</p>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="your-first-decision">Your First Decision</h2>
+<p>Gittins comes in three flavours: a (slow) reference Python implementation, which is not packaged and not recommended outside development of the system; Python bindings, for most data science workflows; and WASM bindings, for in-browser decisions. The bindings call a core written in Rust for performance reasons.</p>
+<p>Whichever flavour you pick, the interface is the same eight functions with the same names and the same semantics. A state saved by one loads in the others, bit for bit. The examples in this document default to Python; use the toggle above any code block to switch to the WASM (JavaScript) API, and the whole page follows.</p>
+<p>All you need resides in one module, <code>gittins</code>. There is no schema to define, nothing to register, and no background machinery. Start by creating a bandit. What you get back is a handle: <code>decide</code>, <code>learn</code>, and <code>expire</code> update it in place and return just their results. The module holds no state of its own — the handle <em>is</em> the bandit, so you can hold several, snapshot one, or ship one across languages. Passing a handle costs nothing (it is a reference to the one bandit in memory); only <code>serialize</code> ever copies the bandit state.</p>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="js">WASM (JavaScript)</button></div>
+<pre data-lang="python"><code class="language-python"><span class="tok-kw">import</span> gittins
+<span class="tok-kw">import</span> time
+
+state = gittins.create(bits=<span class="tok-num">8</span>, horizon=<span class="tok-num">3600.0</span>)</code></pre>
+<pre data-lang="js" hidden><code class="language-js"><span class="tok-kw">import</span> init, * as gittins <span class="tok-kw">from</span> <span class="tok-str">&quot;./pkg/gittins_wasm.js&quot;</span>;
+<span class="tok-kw">await</span> init();
+
+<span class="tok-kw">let</span> state = gittins.create(<span class="tok-num">8</span>, <span class="tok-num">3600.0</span>); <span class="tok-com">// bits, horizon in seconds</span></code></pre>
+</div>
+<p><code>bits</code> sets how much room the model has for features: it learns in a space of 2^bits slots (here 256), and every feature and action is hashed into it. Nothing needs registering: an action or feature the model has never seen before will be processed without error, and both may vary from decision to decision. <code>horizon</code> answers the question <em>how long do we wait for a reward?</em> — a decision that gets no reward within <code>horizon</code> seconds is treated as having earned <code>default_reward</code> (0.0 unless you say otherwise). There are two more optional settings, <code>epsilon</code> (how much to explore) and <code>forgetfulness</code> (how fast old evidence fades); the defaults are sensible, but tunable with off-policy evaluation.</p>
+<p>To make your first decision, describe what you know right now (the context), list what you could do (the candidates: an action id and that action's features), and supply the time. The engine never reads a clock itself — you pass your own <code>t</code> — so any run can be replayed exactly.</p>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="js">WASM (JavaScript)</button></div>
+<pre data-lang="python"><code class="language-python">context = {<span class="tok-str">&quot;device&quot;</span>: <span class="tok-str">&quot;mobile&quot;</span>, <span class="tok-str">&quot;hour&quot;</span>: <span class="tok-num">14</span>}
+candidates = [
+    (<span class="tok-str">&quot;banner-sale&quot;</span>, {<span class="tok-str">&quot;discount&quot;</span>: <span class="tok-num">0.2</span>}),
+    (<span class="tok-str">&quot;banner-new&quot;</span>, {<span class="tok-str">&quot;discount&quot;</span>: <span class="tok-num">0.0</span>}),
+    (<span class="tok-str">&quot;banner-plain&quot;</span>, {}),
+]
+
+<span class="tok-com"># ask the bandit which banner to show, right now</span>
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(),
+    salt=<span class="tok-str">&quot;bandit-1&quot;</span>,
+)
+
+chosen_action_id = candidates[record.chosen][<span class="tok-num">0</span>]   <span class="tok-com"># act on this</span></code></pre>
+<pre data-lang="js" hidden><code class="language-js"><span class="tok-kw">const</span> context = { device: <span class="tok-str">&quot;mobile&quot;</span>, hour: <span class="tok-kw">new</span> Date().getHours() };
+<span class="tok-kw">const</span> candidates = [
+  [<span class="tok-str">&quot;banner-sale&quot;</span>, { discount: <span class="tok-num">0.2</span> }],
+  [<span class="tok-str">&quot;banner-new&quot;</span>, { discount: <span class="tok-num">0.0</span> }],
+  [<span class="tok-str">&quot;banner-plain&quot;</span>, {}],
+];
+
+<span class="tok-com">// ask the bandit which banner to show, right now</span>
+<span class="tok-kw">const</span> record = gittins.decide(
+  state,
+  context,
+  candidates,
+  Date.now() / <span class="tok-num">1000</span>, <span class="tok-com">// t</span>
+  <span class="tok-str">&quot;browser-1&quot;</span>,       <span class="tok-com">// salt</span>
+);
+
+<span class="tok-kw">const</span> chosenActionId = candidates[record.chosen][<span class="tok-num">0</span>]; <span class="tok-com">// act on this</span></code></pre>
+</div>
+<p>Feature values are strings for categories, numbers for quantities (booleans count as 1/0), and null for &quot;not available this time&quot;. The <code>salt</code> is the bandit's name; if you run several bandits, give each its own so their decision ids never collide. Note the return value: a <strong>record</strong> of the decision, not just a pick: its id, which candidate was chosen including features, and the probability the candidate was chosen with. Gittins will keep this information in a ledger in memory pending for open decisions, but the record is returned to the you in case you wish to inspect it or construct an experience log for offline training.</p>
+<p>Gittins learns only when you resolve a decision, and each decision can be resolved exactly once. When the reward arrives simply report it by id.</p>
+<p>In addition to submitting rewards, remember to call <code>expire</code> regularly with the current time so that decisions which waited past the horizon are trained as <code>default_reward</code>. If you fail to call expire regularly, the memory usage will continue to grow. It is a deliberate choice to pass the expiration responsibility to you, as your application may have reasons not to expire unresolved records at regular intervals. However, for most applications, you will usually want to call expire inside a timer to ensure the records in memory never grow too large.</p>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="js">WASM (JavaScript)</button></div>
+<pre data-lang="python"><code class="language-python"><span class="tok-kw">import</span> threading
+
+<span class="tok-com"># the user clicked the banner we showed — report the</span>
+<span class="tok-com"># outcome as a reward for that decision, by its id</span>
+resolution = gittins.learn(
+    state, record.decision_id, reward=<span class="tok-num">1.0</span>
+)
+
+<span class="tok-kw">def</span> sweep():
+    <span class="tok-com"># resolve every decision that has waited past the</span>
+    <span class="tok-com"># horizon with no reward; each one is trained with</span>
+    <span class="tok-com"># default_reward (here: 0.0)</span>
+    resolutions = gittins.expire(state, t=time.time())
+    <span class="tok-com"># sweep again in a minute</span>
+    threading.Timer(<span class="tok-num">60.0</span>, sweep).start()
+
+sweep()</code></pre>
+<pre data-lang="js" hidden><code class="language-js"><span class="tok-com">// the user clicked the banner we showed — report the</span>
+<span class="tok-com">// outcome as a reward for that decision, by its id</span>
+<span class="tok-kw">const</span> resolution = gittins.learn(
+  state, record.decision_id, <span class="tok-num">1.0</span>
+);
+
+setInterval(() =&gt; {
+  <span class="tok-com">// resolve every decision that has waited past the</span>
+  <span class="tok-com">// horizon with no reward; each one is trained with</span>
+  <span class="tok-com">// default_reward (here: 0.0)</span>
+  <span class="tok-kw">const</span> resolutions = gittins.expire(state, Date.now() / <span class="tok-num">1000</span>);
+}, <span class="tok-num">60_000</span>); <span class="tok-com">// sweep again every minute</span></code></pre>
+</div>
+<p>That is the whole loop: create once, then decide, act, and resolve, forever. The bandit is learning from the very first decision. To keep what it has learned across restarts (or browser reloads), snapshot the state — the whole thing is one plain string, identical on every platform, small enough for a file, a database column, localStorage, or version control:</p>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="js">WASM (JavaScript)</button></div>
+<pre data-lang="python"><code class="language-python"><span class="tok-kw">from</span> pathlib <span class="tok-kw">import</span> Path
+
+Path(<span class="tok-str">&quot;bandit.state&quot;</span>).write_text(gittins.serialize(state))
+<span class="tok-com"># ... later, or on another machine:</span>
+state = gittins.deserialize(Path(<span class="tok-str">&quot;bandit.state&quot;</span>).read_text())</code></pre>
+<pre data-lang="js" hidden><code class="language-js">localStorage.setItem(<span class="tok-str">&quot;bandit&quot;</span>, gittins.serialize(state));
+<span class="tok-com">// ... later, or after a reload:</span>
+state = gittins.deserialize(localStorage.getItem(<span class="tok-str">&quot;bandit&quot;</span>));</code></pre>
+</div>
+<p><code>deserialize</code> validates everything and refuses to load anything corrupt, and the format is shared across implementations: a state saved in the browser will load in Python, and vice versa.</p>
+<p>The rest of this document unpacks what each of these calls is actually doing, and introduces the remaining functions as they become relevant.</p>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="anatomy-of-a-decision">Anatomy of a Decision</h2>
+<p>The previous chapter gave you a brief overview on how to make simple decisions with Gittins, but it is worth knowing what is happening under the hood. Gittins makes deliberate choices to offer a high degree of flexibility. For a decision, this is the internal workflow:</p>
+<p><strong>Feature processing.</strong> The context dictionary and each candidate's feature dict are first broken into tokens: one token is created per (name, value) pair, and tagged by a namespace: <code>c</code> for context or <code>a</code> for action. Each token is then hashed into the model's space of 2^<code>bits</code> dimensions. This is why nothing is ever registered up front: a feature's position in the model <em>is</em> its hash, so a brand-new feature name or action simply hashes somewhere and starts accumulating evidence. Pay attention to your feature names: <code>Afternoon</code> and <code>afternoon</code> will hash into two different indices, learning separate weights inside the model.</p>
+<p>There is one additional subtlety worth understanding. With a linear model, a feature derived from the context alone would add the same amount to <em>every</em> candidate's score, and so could never change which candidate wins. Context can only matter through its <em>interaction</em> with the actions. Gittins encodes each candidate as a hashed outer product: every context token is crossed with every action token, plus main effects for each. &quot;Mobile user&quot; and &quot;discount banner&quot; each get their own dimension, and <em>mobile-user-seeing-a-discount-banner</em> gets a third. It is precisely this third dimension that lets the model learn that discounts work on mobile even if they fail on average.</p>
+<p><strong>Scoring.</strong> Each candidate's feature vector is scored by the built-in reward model, which is a ridge regression variant: recursive least squares with a forgetting factor, kept diagonal (forgetting is important for non-stationary problems; diagonality is for performance). Here is the whole model. Each dimension <code>j</code> carries two running sums: <code>xx_j</code>, the sum of that feature's squared values, and <code>xy_j</code>, the sum of that feature's value times the observed reward. On every update, both sums are first multiplied by the <code>forgetfulness</code> factor, so recent observations always outweigh old ones. A dimension's weight is then</p>
+<pre><code class="language-text">weight_j = xy_j / (xx_j + ridge)</code></pre>
+<p>which you can read as <em>the reward observed alongside this feature, divided by how much evidence we have for it</em>: a running average of reward per unit of feature, one per dimension. The <code>ridge</code> constant in the denominator acts as a prior: a dimension nobody has seen has <code>xy_j = 0</code> and so predicts exactly 0.0, and a dimension with little evidence is shrunk toward 0.0 because <code>ridge</code> dominates its small <code>xx_j</code>. Only as evidence accumulates does the data term drown out the prior and the weight approach the plain running average.</p>
+<p>The word <em>diagonal</em> is doing quiet but important work here. Full ridge regression would also track how every feature co-varies with every other, a <code>dim x dim</code> matrix, and solve a linear system to untangle correlated features at prediction time. Gittins keeps only the matrix's diagonal, so each weight is computed from that dimension's two sums alone, independent of all others. That is why there is nothing to solve: scoring a candidate is just the dot product of its features with the weights, one multiply-add per nonzero feature. There are no matrix inversions, making the engine perfomant with high throughput. The cost of this shortcut is that features which always fire together each take full credit for the same reward rather than splitting it; disentangling combinations is therefore the encoder's job (the interaction dimensions above), not the model's.</p>
+<p><strong>From scores to probabilities.</strong> Scores are fed through the epsilon-greedy algorithm: the best-scoring candidate gets the lion's share of the probability, and every candidate, including the best, gets an equal slice of the <code>epsilon</code> mass. The result is a full probability distribution over the candidates, and this distribution, not just the winner, is what the engine works with. Exact ties split evenly, which is why a fresh bandit (every estimate 0.0) starts out choosing uniformly at random.</p>
+<p><strong>Exploration.</strong> The choice is sampled from that distribution using a custom random number generator, keyed on decision id and your <code>salt</code>. There is no hidden global random state: the same state, the same inputs, and the same salt produce the same choice, bit for bit, on every platform and in every binding. This is what makes a production incident replayable, and is a core design consideration of Gittins. Subtle differences in math libraries across platforms will not cause issues; if Gittins chooses <code>a</code> in the browser for a given model state <code>s</code>, it will make the same decision in Python if you load that same model.</p>
+<p>Following this internal workflow, what you get back from Gittins after calling <code>decide</code> is the decision record, and every field in it is there for a reason:</p>
+<div class="table-wrap"><table>
+<tr><th>field</th><th>why it exists</th></tr>
+<tr><td><code>decision_id</code></td><td><code>&quot;{salt}:{seq}&quot;</code>, the id you resolve this decision with later; unique by construction, no collisions to reason about.</td></tr>
+<tr><td><code>t</code></td><td>the time you supplied, which starts the horizon clock.</td></tr>
+<tr><td><code>chosen</code></td><td>the index of the winning candidate.</td></tr>
+<tr><td><code>features</code></td><td>the chosen candidate's hashed features. The engine keeps its own copy in memory until expiration, which is why <code>learn</code> needs only an id and a reward; this copy is returned so you can save the decision log for offline training.</td></tr>
+<tr><td><code>propensity</code></td><td>the probability the choice was made with; the key that unlocks offline policy evaluation.</td></tr>
+<tr><td><code>candidate_hash</code></td><td>a fingerprint of the whole candidate set, proving what the alternatives were.</td></tr>
+<tr><td><code>model_version</code></td><td>how many observations the model had absorbed; it identifies exactly which policy made this decision.</td></tr>
+<tr><td><code>salt</code></td><td>the RNG key that makes the draw itself replayable.</td></tr>
+</table></div>
+<p>Notice what the record makes unnecessary. Because <code>features</code> is stored at decision time, and never passed back when calling <code>learn</code> there is no API for hand-assembling training data, and so no way to construct invalid training data post-decision. Because <code>propensity</code> is always recorded, if you save your decision records to file, this log is already an offline-evaluation dataset, with no extra instrumentation; that is the subject of <a href="#what-would-have-happened">What Would Have Happened?</a>.</p>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="learning-to-forget">Learning to Forget</h2>
+<p>Consider a toy environment where a checkout button has a click-through rate of 6% if the cart is over 50 euros, and 5% otherwise. It is always 6%, regardless of any other factor, save for random noise. Such a problem is, conditional on a simple boolean that states if the cart is valued over 50 euros or not, <em>stationary</em>. It doesn't matter what device shoppers use or what time of day it is – next tuesday, <code>P(click|cart_over_50_euros)</code> is still 0.06.</p>
+<p>Most problems are not that simple. Purchasing behaviour depends on tons of other factors. <code>P(click|cart_over_50_euros)</code> will drift over time, making it a non-stationary problem. We can attempt to fix this problem by adding more features we believe to be associated with click-through rate. Indeed, theoretically, if we conditioned on <em>everything in the universe</em>, this problem, and all other problems, become stationary.</p>
+<p>In practice, it is unfeasible to control for every eventuality. Non-stationary learning algorithms work on the principle of controlled forgetting: given enough time, old training data is discounted, and its contribution to model weights approaches zero.</p>
+<p>Gittins works on non-stationary problems by default. Its online learning setting provides a natural foundation: examples are learned on once, and the core model has a forgetfulness factor that discounts old data. Coupled with exploration that never stops, Gittins will eventually retry an action that was previously learned to be poor, and if recent data suggests otherwise, it will learn to resurface it. You can watch the unlearning happen: the simulation below is the same multi-context, multi-action problem as before, with one addition, a button that makes the world do a 180.</p>
+<div id="bandit-sim-forget" class="bandit-sim"><noscript>The live simulation requires JavaScript.</noscript></div>
+<script type="module" src="sim-forget.js"></script>
+<p>How quickly to forget is a question without a fixed answer. It depends on the problem at hand, and must be evaluated using data generated by your bandit, as shown in the next chapter.</p>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="what-would-have-happened">What Would Have Happened?</h2>
+<div class="wip-note" role="note">under construction</div>
+<div class="wip" aria-hidden="true"><div class="wip-inner">
+<p>Donec ullamcorper nulla non metus auctor fringilla. Maecenas faucibus mollis interdum, sed posuere consectetur est at lobortis. Nullam id dolor id nibh ultricies vehicula ut id elit. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Aenean lacinia bibendum nulla sed consectetur. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor. Cras justo odio, dapibus ac facilisis in, egestas eget quam.</p>
+<p>Etiam porta sem malesuada magna mollis euismod. Praesent commodo cursus magna, vel scelerisque nisl consectetur et. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Sed posuere consectetur est at lobortis. Donec ullamcorper nulla non metus auctor fringilla. Maecenas faucibus mollis interdum, sed posuere consectetur est at lobortis.</p>
+<p>Nullam quis risus eget urna mollis ornare vel eu leo. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Duis mollis, est non commodo luctus, nisi erat porttitor ligula, eget lacinia odio sem nec elit. Vestibulum id ligula porta felis euismod semper. Morbi leo risus, porta ac consectetur ac, vestibulum at eros.</p>
+</div></div>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="bring-your-own-model">Bring Your Own Model</h2>
+<div class="wip-note" role="note">under construction</div>
+<div class="wip" aria-hidden="true"><div class="wip-inner">
+<p>Curabitur blandit tempus porttitor. Morbi leo risus, porta ac consectetur ac, vestibulum at eros. Maecenas sed diam eget risus varius blandit sit amet non magna. Donec id elit non mi porta gravida at eget metus. Integer posuere erat a ante venenatis dapibus posuere velit aliquet. Nulla vitae elit libero, a pharetra augue. Cras mattis consectetur purus sit amet fermentum.</p>
+<p>Aenean eu leo quam. Pellentesque ornare sem lacinia quam venenatis vestibulum. Sed posuere consectetur est at lobortis. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor. Maecenas faucibus mollis interdum, sed posuere consectetur est at lobortis.</p>
+<p>Nullam id dolor id nibh ultricies vehicula ut id elit. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Cras justo odio, dapibus ac facilisis in, egestas eget quam. Vestibulum id ligula porta felis euismod semper.</p>
+</div></div>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="fast-and-the-same-everywhere">Fast, and the Same Everywhere</h2>
+<p>Gittins is built by implementing a relatively slow Python reference, that is used to create golden example outputs. The reference has then been ported to a fast Rust-based core, which is interfaced with via WASM or Python bindings. The bindings and the core recreate the reference examples (bit-identically) exactly.</p>
+<p>Simply put, this means you can save a model in Python, load it in JavaScript, and be confident that given the exact same input, it will make the exact same decision. And thanks to the Rust core, it will make those decisions incredibly fast, on one core, with fixed memory (assuming the ledger's open decisions are expired). Full benchmark information is available on GitHub, but to give you a sense of the throughput, here is an example simulation for the WASM bindings. One cycle is not just a decision, but a decision <em>and</em> a <code>learn</code> call.</p>
+<div id="bandit-bench" class="bandit-sim"><noscript>The live benchmark requires JavaScript.</noscript></div>
+<script type="module" src="bench.js"></script>
+<p>As you can see, and I'll hope you agree, these are high performance numbers. High throughput enables architectures not always apparent; for example, if your use case is ephemeral, you can run Gittins single-threaded in one small virtual machine and serve far more users than the server software in front of it is likely to be able to handle, assuming a typical amount of actions.</p>
+<div class="fleuron" role="separator">ε</div>
+<h2 id="choose-your-own-complexity">Choose Your Own Complexity</h2>
+<p>Aenean lacinia bibendum nulla sed consectetur. Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor. Sed posuere consectetur est at lobortis. Donec sed odio dui.</p>
+<div class="fleuron" role="separator">ε</div>
+<div class="fleuron">ε ε ε</div>
+<script>
+for (const btn of document.querySelectorAll(".codetabs-nav button")) {
+  btn.addEventListener("click", () => {
+    const lang = btn.dataset.lang;
+    for (const group of document.querySelectorAll(".codetabs")) {
+      if (!group.querySelector('pre[data-lang="' + lang + '"]')) continue;
+      for (const p of group.querySelectorAll("pre[data-lang]")) p.hidden = p.dataset.lang !== lang;
+      for (const b of group.querySelectorAll(".codetabs-nav button")) {
+        b.classList.toggle("active", b.dataset.lang === lang);
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
