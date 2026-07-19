@@ -14,7 +14,7 @@ Gittins is an opinionated, highly optimised contextual bandit engine that aims t
 9. **Choose your own complexity.** The same model needs to be able to run (a) ephemerally in memory, (b) persisted to a flat file, or (c) used via a shared service. There should be no need for databases; indeed, the model weights should be possible to check in to version control and deploy as part of normal deployment workflows.
 
 Live documentation and user guide:
-[docs.getgettings.dev](https://docs.getgettings.dev).
+[docs.getgittins.dev](https://docs.getgittins.dev).
 
 Named after John Gittins, whose index (1974) established that exploration has a precise, computable value.
 
