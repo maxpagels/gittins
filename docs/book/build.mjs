@@ -96,26 +96,17 @@ function highlight(code, lang) {
   return out + escapeHtml(code.slice(last));
 }
 
-// Markdown stripped to plain text, for meta descriptions.
-const plainText = (s) =>
-  s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_`]|\+\+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
 function render(md) {
   const lines = md.split(/\r?\n/);
   const html = [];
   const chapters = []; // { id, title } from ## headings, for the TOC
   let title = "Untitled";
   let subtitle = "";
-  let firstPara = ""; // the book's opening paragraph, for og:description
   let para = [];
   let list = null; // { tag, items }
 
   const flushPara = () => {
     if (para.length) {
-      if (!firstPara) firstPara = plainText(para.join(" "));
       html.push(`<p>${inline(para.join(" "))}</p>`);
       para = [];
     }
@@ -299,11 +290,7 @@ function render(md) {
     : "";
 
   const body = html.join("\n").replace("\u0000TOC\u0000", toc);
-  let description = firstPara;
-  if (description.length > 200) {
-    description = description.slice(0, 200).replace(/\s+\S*$/, "") + "…";
-  }
-  return { title, body, description };
+  return { title, body };
 }
 
 const css = `
@@ -540,7 +527,11 @@ const css = `
   hr { border: 0; }
 `;
 
-const { title, body, description } = render(readFileSync(inFile, "utf8"));
+const { title, body } = render(readFileSync(inFile, "utf8"));
+
+// Pinned OG/meta description — never derive this from page content.
+const description =
+  "Gittins is an opinionated, highly optimised contextual bandit engine.";
 
 // Open Graph URLs must be absolute or link scrapers reject them. The
 // deployed origin is the default; BOOK_URL overrides it (e.g. previews).

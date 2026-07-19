@@ -5,7 +5,7 @@
 
 [SIM]
 
-Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands on the shoulders of giants, in particular
+Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based on my experience working with bandit problems. It stands on the shoulders of giants, in particular
 [Vowpal Wabbit](https://vowpalwabbit.org/), and adheres strictly to a design in support of real-world production use. Gittins is not a research tool.
 
 1. **Online by nature**. Gittins learns one observation at a time, in O(1) work, and in fixed memory as long as open decisions are regularly resolved.
