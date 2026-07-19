@@ -21,7 +21,7 @@ class TestCreate:
                 api.create(bits, horizon=10.0)
 
     def test_passes_through_expert_overrides(self):
-        state = api.create(4, horizon=7.0, default_reward=-1.0, epsilon=0.2, forgetting=0.5)
+        state = api.create(4, horizon=7.0, default_reward=-1.0, epsilon=0.2, forgetfulness=0.5)
         inner = state._state
         assert (inner.horizon, inner.default_reward, inner.epsilon) == (7.0, -1.0, 0.2)
         assert inner.model.forgetting == 0.5
@@ -94,7 +94,7 @@ class TestFullCycle:
         # Same salt and context, deterministic replay: after strong rewards
         # for one arm, the greedy mass should move to it. Train through the
         # facade only, then check the trained model prefers the arm.
-        state = api.create(6, horizon=10.0, forgetting=1.0)
+        state = api.create(6, horizon=10.0, forgetfulness=1.0)
         for i in range(30):
             record = api.decide(state, {}, CATALOG, float(i), "train")
             reward = 1.0 if CATALOG[record.chosen][0] == "plus" else 0.0

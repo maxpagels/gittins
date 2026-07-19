@@ -135,7 +135,7 @@ pub fn create(
     horizon: f64,
     default_reward: Option<f64>,
     epsilon: Option<f64>,
-    forgetting: Option<f64>,
+    forgetfulness: Option<f64>,
 ) -> Result<BanditState, JsError> {
     Ok(BanditState {
         inner: api::create(
@@ -143,7 +143,7 @@ pub fn create(
             horizon,
             default_reward.unwrap_or(0.0),
             epsilon.unwrap_or(DEFAULT_EPSILON),
-            forgetting.unwrap_or(DEFAULT_FORGETTING),
+            forgetfulness.unwrap_or(DEFAULT_FORGETTING),
         )
         .map_err(js_error)?,
     })

@@ -282,7 +282,7 @@ def api_vectors():
         ("plus", {"price": 9.0, "trial": True}),
         ("free", {}),
     ]
-    state = api.create(bits, horizon=horizon, forgetting=forgetting)
+    state = api.create(bits, horizon=horizon, forgetfulness=forgetting)
     events = []
     records = []
     resolutions = []

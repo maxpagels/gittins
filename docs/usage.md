@@ -34,7 +34,7 @@ never seen before just works the first time it shows up.
 `horizon` answers "how long do we wait for a reward?". If a decision gets
 no reward within `horizon` seconds, it's treated as having earned
 `default_reward` (0.0 unless you say otherwise). There are two more
-optional settings, `epsilon` (how much it explores) and `forgetting` (how
+optional settings, `epsilon` (how much it explores) and `forgetfulness` (how
 fast old evidence fades); the defaults are meant to be left alone.
 
 ## Making a decision

@@ -129,16 +129,16 @@ impl From<CoreResolution> for Resolution {
 }
 
 #[pyfunction]
-#[pyo3(signature = (bits, horizon, default_reward = 0.0, epsilon = DEFAULT_EPSILON, forgetting = DEFAULT_FORGETTING))]
+#[pyo3(signature = (bits, horizon, default_reward = 0.0, epsilon = DEFAULT_EPSILON, forgetfulness = DEFAULT_FORGETTING))]
 fn create(
     bits: u32,
     horizon: f64,
     default_reward: f64,
     epsilon: f64,
-    forgetting: f64,
+    forgetfulness: f64,
 ) -> PyResult<BanditState> {
     Ok(BanditState {
-        inner: api::create(bits, horizon, default_reward, epsilon, forgetting)
+        inner: api::create(bits, horizon, default_reward, epsilon, forgetfulness)
             .map_err(value_error)?,
     })
 }

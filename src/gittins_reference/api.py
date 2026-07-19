@@ -81,7 +81,7 @@ def create(
     horizon: float,
     default_reward: float = 0.0,
     epsilon: float = DEFAULT_EPSILON,
-    forgetting: float = DEFAULT_FORGETTING,
+    forgetfulness: float = DEFAULT_FORGETTING,
 ) -> BanditState:
     """A fresh bandit whose model spans the 2**bits hashed feature space —
     `bits` is the one encoding declaration (encoding.py); every other
@@ -94,7 +94,7 @@ def create(
             horizon=horizon,
             default_reward=default_reward,
             epsilon=epsilon,
-            forgetting=forgetting,
+            forgetting=forgetfulness,
         )
     )
 

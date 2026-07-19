@@ -3,21 +3,20 @@
 
 [SIM]
 
-Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based on the author's years of experience working with bandit problems. It stands on the shoulders of giants, in particular
-[Vowpal Wabbit](https://vowpalwabbit.org/), and adheres strictly to a design in support of real-world production use.
+Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based my experience working with bandit problems. It stands on the shoulders of giants, in particular
+[Vowpal Wabbit](https://vowpalwabbit.org/), and adheres strictly to a design in support of real-world production use. Gittins is not a research tool.
 
 1. **Online by nature**. Gittins learns one observation at a time, in O(1) work, and in fixed memory as long as open decisions are regularly resolved.
 2. **Non-stationarity is expected**. For many real-world problems, the relationship between context and feedback drifts over time. A contextual bandit engine must learn to adapt over time, and never learn something it cannot eventually unlearn.
-3. **Dynamic actions and context.** If you want to choose what banner to display on your website, and the set changes each day, an engine must accept this, and clean up after itself.
-4. **Simple algorithms, bring-your-own models.** The built-in algorithms should be readable by any competent programmer. Sophistication lives in the layering and the API, not in any single component. Users can swap in their own prediction model and inherit everything else.
+3. **Dynamic actions and context.** If you want to choose what banner to display on your website, and the set changes each day, an engine must accept this, and clean up after itself. There should never be a case where you must specify the number of actions beforehand.
+4. **Simple algorithms, bring-your-own models.** The built-in algorithms should be readable by any competent programmer, and work in practice. Sophistication lives in the layering and the API, not in any single component. Users can swap in their own prediction model and/or exploration algorithm, and inherit everything else.
 5. **Safe reward handling**. Rewards in bandits may arrive late, or not at all. Constructing invalid training data from logs or external sources must be nigh on impossible by design, not merely discouraged.
-6. **Speed and determinism**. Fast decision cycles. Few to zero dependencies. Bit-identical results across platforms and language bindings, enforced by a golden test corpus. Every code change must be validated by tens of thousands of simulations in CI.
-7. **Multislot and large action sets.** Ranking / multi-position problems and problems with thousands of candidate actions must be practical, fast, and robust. Not all problems are single-choice problems.
+6. **Speed and determinism**. Fast decision cycles allow for unexpected use cases. Gittins must have best-in-class single core performance, and rely on few to zero dependencies. Bit-identical results across platforms and language bindings must be guaranteed and enforced by a golden test corpus. Code changes must be validated by tens of thousands of simulations and a large test battery.
+7. **Multislot and large action sets.** Many problems are ranking / multi-position problems; therefore problems with thousands of candidate actions must be practical, fast, and robust.
 8. **Offline policy evaluation.** It must be possible to estimate how a new policy *would have* performed using only logged decisions from an old policy.
-9. **Choose your own complexity.** The same model needs to be able to run (a) ephemerally in memory, (b) persisted to a flat file, (c) as a shared service, or (d) as many bandits whose decision logs are periodically merged into one shared experience log, from which a pooled model is rebuilt offline and redeployed. There should be no need for databases; indeed, the model weights should be possible to check in to version control and deploy as part of normal deployment workflows.
+9. **Choose your own complexity.** The same model needs to be able to run (a) ephemerally in memory, (b) persisted to a flat file, or (c) used via a shared service. There should be no need for databases; indeed, the model weights should be possible to check in to version control and deploy as part of normal deployment workflows.
 
 These concepts are discussed throughout this document, which serves both as an introduction to bandits and as technical documentation for Gittins. I encourage the reader to read the whole document once; once you have understood the concepts on a broad level, use the table of contents below to jump to sections you need to reference.
-
 
 [TOC]
 
@@ -31,11 +30,11 @@ In the contextual bandit setting, you (repeatedly):
 2. Choose an **action**
 3. Receive a **reward** for the action you chose
 
-The objective is to learn to select the best action for any given context such that you ++maximise total reward over time++. It follows from the setting that context bandit algorithms must try out different actions to learn what context/action pairs lead to the best rewards; in other words, they must explore the action space using some exploration algorithm and also exploit their knowledge using some learned model.
+The objective is to learn to select the best action for any given context such that you **maximise total reward over time**. From this problem setting, it follows that contextual bandit algorithms must try out different actions to learn what context/action pairs lead to the best rewards; they must _explore_ the action space using some exploration algorithm, and also exploit their knowledge using some learned model.
 
-Some bandit algorithms explore first, then exploit. Some learn to explore less over time, converging at some point on the optimal action for a given context. Gittins uses a simple algorithm known as epsilon-greedy, where exploration always happens for a small portion of decisions, regardless of how long the bandit has been running. This is a deliberate choice to tackle non-stationary problems, which we will discuss later.
+Some bandit algorithms explore first, then exploit. Some learn to explore less over time, converging at some point on the optimal action for a given context. Gittins uses a simple algorithm known as epsilon-greedy, where exploration always happens for a small portion of decisions, regardless of how long the bandit has been running. This is a deliberate choice to tackle non-stationarity, an issue I revisit later in this document.
 
-You may be thinking to yourself, "why not use supervised learning instead of bandits?". That is a fair question, and for some problems, it works well. But consider a case of topic recommendation on social media. If you use supervised learning to choose the best topic from a handful of candidates, you must a) have enough cover in your training data to learn the optimal topics, and b) have some way of being able to recommend entirely new topics that you don't have history for. Bandits offer a natural way of introducing new actions by virtue of its explorative design.
+You may be thinking to yourself, "why not use supervised learning instead of bandits?". That is a fair question, and for some problems, it works well. But consider a case of topic recommendation on social media. If you use supervised learning to choose the best topic from a handful of candidates, you must a) have enough cover in your training data to learn the optimal relationships, however obscure, snd b) have some way of being able to recommend entirely new topics that you don't have history for. Bandits offer a natural way of introducing new actions by virtue of its explorative design.
 
 ---
 
@@ -43,15 +42,18 @@ You may be thinking to yourself, "why not use supervised learning instead of ban
 
 Gittins comes in three flavours: a (slow) reference Python implementation, which is not packaged and not recommended outside development of the system; Python bindings, for most data science workflows; and WASM bindings, for in-browser decisions. The bindings call a core written in Rust for performance reasons.
 
-Whichever flavour you pick, the API is the same eight functions with the same
-names and the same semantics, so a state saved by one loads in the others,
+Whichever flavour you pick, the interface is the same eight functions with the same
+names and the same semantics. A state saved by one loads in the others,
 bit for bit. The examples in this document default to Python; use the toggle
 above any code block to switch to the WASM (JavaScript) API, and the whole
 page follows.
 
-Everything goes through one module, `gittins`. There is no schema to
+All you need resides in one module, `gittins`. There is no schema to
 define, nothing to register, and no background machinery. Start by creating a
-bandit. What you get back is a handle: `decide`, `learn`, and `expire` update it in place and return just their results. The module holds no state of its own — the handle *is* the bandit, so you can hold several, snapshot one, or ship one across languages. Passing it costs nothing (it is a reference to the one bandit in memory); only `serialize` ever copies it.
+bandit. What you get back is a handle: `decide`, `learn`, and `expire` update it in place
+and return just their results. The module holds no state of its own — the handle *is* the bandit,
+so you can hold several, snapshot one, or ship one across languages.
+Passing a handle costs nothing (it is a reference to the one bandit in memory); only `serialize` ever copies the bandit state.
 
 ```python
 import gittins
@@ -68,13 +70,13 @@ let state = gittins.create(8, 3600.0); // bits, horizon in seconds
 ```
 
 `bits` sets how much room the model has for features: it learns in a space of
-2^bits slots (here 256), and every feature and action is hashed into it. That is
-why nothing needs registering — an action or feature the model has never seen
-before just works the first time it shows up. `horizon` answers the question
+2^bits slots (here 256), and every feature and action is hashed into it. Nothing needs registering: an action or feature the model has never seen
+before will be processed without error, and both may vary from decision to decision. `horizon` answers the question
 *how long do we wait for a reward?* — a decision that gets no reward within
 `horizon` seconds is treated as having earned `default_reward` (0.0 unless
 you say otherwise). There are two more optional settings, `epsilon` (how much
-to explore) and `forgetting` (how fast old evidence fades); the defaults are sensible, but tunable with off-policy evaluation.
+to explore) and `forgetfulness` (how fast old evidence fades); the defaults are sensible,
+but tunable with off-policy evaluation.
 
 To make your first decision, describe what you know right now (the context),
 list what you could do (the candidates: an action id and that action's features),
@@ -210,7 +212,7 @@ reward model, which is a ridge regression variant: recursive least squares
 with a forgetting factor, kept diagonal (forgetting is important for non-stationary problems; diagonality is for performance). Here is the whole model. Each dimension `j` carries two running sums:
 `xx_j`, the sum of that feature's squared values, and `xy_j`, the sum of
 that feature's value times the observed reward. On every update, both sums
-are first multiplied by the `forgetting` factor, so recent observations
+are first multiplied by the `forgetfulness` factor, so recent observations
 always outweigh old ones. A dimension's weight is then
 
 ```text

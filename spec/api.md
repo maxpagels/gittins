@@ -18,7 +18,7 @@ The surface is eight names:
 
 | function | returns | is |
 |---|---|---|
-| `create(bits, horizon, default_reward=0.0, epsilon=0.05, forgetting=0.999)` | a state handle | `new_bandit` with `bits` (the one encoding declaration) in place of a raw dimension: the model spans the 2^bits hashed space |
+| `create(bits, horizon, default_reward=0.0, epsilon=0.05, forgetfulness=0.999)` | a state handle | `new_bandit` with `bits` (the one encoding declaration) in place of a raw dimension: the model spans the 2^bits hashed space |
 | `decide(state, context, candidates, t, salt)` | the decision record | encode each `(arm_id, action dict)` candidate against the context dict, in candidate order, then `decide.py`'s decide |
 | `learn(state, decision_id, reward)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |
 | `censor(state, decision_id)` | the resolution, or None/null if it was a no-op | ledger.py, unchanged |

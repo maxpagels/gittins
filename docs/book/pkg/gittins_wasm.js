@@ -43,11 +43,11 @@ export function censor(state, decision_id) {
  * @param {number} horizon
  * @param {number | null} [default_reward]
  * @param {number | null} [epsilon]
- * @param {number | null} [forgetting]
+ * @param {number | null} [forgetfulness]
  * @returns {BanditState}
  */
-export function create(bits, horizon, default_reward, epsilon, forgetting) {
-    const ret = wasm.create(bits, horizon, !isLikeNone(default_reward), isLikeNone(default_reward) ? 0 : default_reward, !isLikeNone(epsilon), isLikeNone(epsilon) ? 0 : epsilon, !isLikeNone(forgetting), isLikeNone(forgetting) ? 0 : forgetting);
+export function create(bits, horizon, default_reward, epsilon, forgetfulness) {
+    const ret = wasm.create(bits, horizon, !isLikeNone(default_reward), isLikeNone(default_reward) ? 0 : default_reward, !isLikeNone(epsilon), isLikeNone(epsilon) ? 0 : epsilon, !isLikeNone(forgetfulness), isLikeNone(forgetfulness) ? 0 : forgetfulness);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
