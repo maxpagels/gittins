@@ -37,7 +37,7 @@ function drive(contexts, catalog) {
   const state = gittins.create(config.bits, 1e9);
   for (let i = 0; i < 5; i++) {
     const record = gittins.decide(state, contexts[i % contexts.length], catalog, i, "warm");
-    gittins.learn(state, record.decision_id, 1.0);
+    gittins.learn(state, record.decision_id, 1.0, i);
   }
   let rounds = 0;
   const start = process.hrtime.bigint();
@@ -45,7 +45,7 @@ function drive(contexts, catalog) {
   while (rounds < config.max_rounds) {
     const i = rounds;
     const record = gittins.decide(state, contexts[i % contexts.length], catalog, i, "bench");
-    gittins.learn(state, record.decision_id, i % 3 ? 1.0 : 0.0);
+    gittins.learn(state, record.decision_id, i % 3 ? 1.0 : 0.0, i);
     rounds += 1;
     if (process.hrtime.bigint() - start >= budget) break;
   }

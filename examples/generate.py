@@ -1,8 +1,8 @@
 """Regenerates decisions.jsonl: a deterministic 1000-decision example
 experience log, written the way an app writes one —
 `api.log_line` output, verbatim, in arrival order. Rewards arrive three
-decisions late, every 97th outcome is censored, some rewards never
-arrive (the regular expiry sweep resolves them), and the reward rule is
+decisions late, some rewards never arrive (the regular expiry sweep
+resolves them), and the reward rule is
 learnable: segment "a" converts on the sale banner, segment "b" on the
 plain banner in the evening.
 
@@ -47,10 +47,8 @@ for i in range(1000):
     pending.append((record, context))
     if len(pending) > 3:  # rewards arrive three decisions late
         due, due_context = pending.pop(0)
-        if i % 97 == 0:  # an outage corrupted this outcome
-            lines.append(api.log_line(api.censor(state, due.decision_id)))
-        elif i % 11 != 0:  # and some rewards never arrive at all
-            resolution = api.learn(state, due.decision_id, reward_for(due, due_context))
+        if i % 11 != 0:  # some rewards never arrive at all
+            resolution = api.learn(state, due.decision_id, reward_for(due, due_context), t)
             lines.append(api.log_line(resolution))
     if i % 50 == 49:  # the regular expiry sweep
         lines.extend(api.log_line(r) for r in api.expire(state, t))

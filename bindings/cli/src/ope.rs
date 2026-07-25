@@ -26,7 +26,6 @@ use gittins_core::model::{estimate_factored, factorize, new_model, update};
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 const REWARDED: &str = "rewarded";
 const EXPIRED: &str = "expired";
-const CENSORED: &str = "censored";
 
 /// Feature dicts stay raw JSON until an encode site needs them: the
 /// reference parses shapes strictly but leaves feature *values* to the
@@ -63,7 +62,6 @@ pub enum Event {
 pub struct OpeReport {
     pub decisions: u64,
     pub resolved: u64,
-    pub censored: u64,
     pub unresolved: u64,
     pub logged_mean: Option<f64>,
     pub ips: Option<f64>,
@@ -284,15 +282,8 @@ where
                     ));
                     continue;
                 }
-                if !(e.kind == REWARDED || e.kind == EXPIRED || e.kind == CENSORED) {
+                if !(e.kind == REWARDED || e.kind == EXPIRED) {
                     problems.push(format!("{at} {}: unknown kind '{}'", e.decision_id, e.kind));
-                } else if e.kind == CENSORED {
-                    if e.reward.is_some() {
-                        problems.push(format!(
-                            "{at} {}: censored resolutions carry no reward",
-                            e.decision_id
-                        ));
-                    }
                 } else if !e.reward.is_some_and(f64::is_finite) {
                     problems.push(format!("{at} {}: reward must be a finite number", e.decision_id));
                 }
@@ -320,7 +311,7 @@ where
     let mut model =
         new_model(1usize << bits, forgetfulness, 1.0).map_err(|e| e.message().to_string())?;
     let mut pending: HashMap<String, (Features, f64)> = HashMap::new();
-    let (mut decisions, mut resolved, mut censored) = (0u64, 0u64, 0u64);
+    let (mut decisions, mut resolved) = (0u64, 0u64);
     let (mut sum_r, mut sum_w, mut sum_wr, mut sum_w2) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
     let mut max_weight = 0.0f64;
     for event in events {
@@ -351,10 +342,6 @@ where
                 let Some((x, w)) = pending.remove(&e.decision_id) else {
                     continue;
                 };
-                if e.kind == CENSORED {
-                    censored += 1;
-                    continue;
-                }
                 if !(e.kind == REWARDED || e.kind == EXPIRED) {
                     return Err(format!("line {}: unknown resolution kind", e.line));
                 }
@@ -377,7 +364,6 @@ where
         return Ok(OpeReport {
             decisions,
             resolved: 0,
-            censored,
             unresolved: pending.len() as u64,
             logged_mean: None,
             ips: None,
@@ -389,7 +375,6 @@ where
     Ok(OpeReport {
         decisions,
         resolved,
-        censored,
         unresolved: pending.len() as u64,
         logged_mean: Some(sum_r / resolved as f64),
         ips: Some(sum_wr / resolved as f64),
@@ -441,9 +426,6 @@ where
                 let Some(x) = pending.remove(&e.decision_id) else {
                     continue;
                 };
-                if e.kind == CENSORED {
-                    continue;
-                }
                 if !(e.kind == REWARDED || e.kind == EXPIRED) {
                     return Err(format!("line {}: unknown resolution kind", e.line));
                 }

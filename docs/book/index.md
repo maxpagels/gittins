@@ -36,7 +36,7 @@ The objective is to learn to select the best action for any given context such t
 
 Some bandit algorithms explore first, then exploit. Some learn to explore less over time, converging at some point on the optimal action for a given context. Gittins uses a simple algorithm known as epsilon-greedy, where exploration always happens for a small portion of decisions, regardless of how long the bandit has been running. This is a deliberate choice to tackle non-stationarity, an issue I revisit later in this document. It is also a practical choice: epsilon-greedy is [surprisingly hard to beat in practice](https://arxiv.org/abs/1802.04064).
 
-You may be thinking to yourself, "why not use supervised learning instead of bandits?". That is a fair question, and for some problems, it works well. But consider a case of topic recommendation on social media. If you use supervised learning to choose the best topic from a handful of candidates, you must a) have enough cover in your training data to learn the optimal relationships, however obscure, snd b) have some way of being able to recommend entirely new topics that you don't have history for. Bandits offer a natural way of introducing new actions by virtue of its explorative design.
+You may be thinking to yourself, "why not use supervised learning instead of bandits?". That is a fair question, and for some problems, it works well. But consider a case of topic recommendation on social media. If you use supervised learning to choose the best topic from a handful of candidates, you must a) have enough cover in your training data to learn the optimal relationships, however obscure, and b) have some way of being able to recommend entirely new topics that you don't have history for. Bandits offer a natural way of introducing new actions by virtue of its explorative design.
 
 ---
 
@@ -44,7 +44,7 @@ You may be thinking to yourself, "why not use supervised learning instead of ban
 
 Gittins comes in three flavours: a (slow) reference Python implementation, which is not packaged and not recommended outside development of the system; Python bindings, for most data science workflows; and WASM bindings, for in-browser decisions. The bindings call a core written in Rust for performance reasons.
 
-Whichever flavour you pick, the interface is the same nine functions with the same
+Whichever flavour you pick, the interface is the same eight functions with the same
 names and the same semantics. A state saved by one loads in the others,
 bit for bit. The examples in this document default to Python; use the toggle
 above any code block to switch to the WASM (JavaScript) API, and the whole
@@ -128,10 +128,13 @@ count as 1/0), and null for "not available this time". The `salt` is the
 bandit's name; if you run several bandits, give each its own so their decision
 ids never collide. Note the return value: a **record** of the decision,
 not just a pick: its id, which candidate was chosen including features, and the probability the candidate
-was chosen with. Gittins will keep this information in a ledger in memory pending for open decisions, but the record is returned to the you in case you wish to inspect it or construct an experience log for offline training.
+was chosen with. Gittins will keep this information in a ledger in memory pending for open decisions, but the record is returned to you in case you wish to inspect it or construct an experience log for offline training.
 
 Gittins learns only when you resolve a decision, and each decision can be
-resolved exactly once. When the reward arrives simply report it by id.
+resolved exactly once. When the reward arrives simply report it by id, along
+with the current time: the engine checks your `t` against the decision's own,
+so a reward that shows up at or past the horizon is not quietly accepted — it
+resolves as expired and trains as `default_reward`.
 
 In addition to submitting rewards, remember to call `expire` regularly with the current time so that decisions which waited past the horizon are trained as `default_reward`. If you fail to call expire regularly, the memory usage will continue to grow. It is a deliberate choice to pass the expiration responsibility to you, as your application may have reasons not to expire unresolved records at regular intervals. However, for most applications, you will usually want to call expire inside a timer or directly after every `decide` call to ensure the records in memory never grow too large.
 
@@ -141,7 +144,7 @@ import threading
 # the user clicked the banner we showed — report the
 # outcome as a reward for that decision, by its id
 resolution = gittins.learn(
-    state, record.decision_id, reward=1.0
+    state, record.decision_id, reward=1.0, t=time.time()
 )
 
 def sweep():
@@ -159,7 +162,7 @@ sweep()
 // the user clicked the banner we showed — report the
 // outcome as a reward for that decision, by its id
 const resolution = gittins.learn(
-  state, record.decision_id, 1.0
+  state, record.decision_id, 1.0, Date.now() / 1000
 );
 
 setInterval(() => {
@@ -196,9 +199,63 @@ will load in Python, and vice versa.
 
 ---
 
+## The Experience Log
+
+The loop above built learns online, and the snapshot saved carries everything the model knows. But a running bandit produces something else of value along the way: a trace of every decision it made, what it chose from, and what happened next. Written down properly, this trace is an _experience log_. This (optional) log is a dataset that lets you answer questions offline, after the fact. Was `epsilon` too high? Would forgetting more slowly have earned more reward? How would a different configuration have done on this exact traffic? Answering these questions is the subject of [What Would Have Happened?](#what-would-have-happened); this chapter is about building a log that such evaluation needs.
+
+A common failure mode of bandits in production settings is that their logs are _assembled_ rather than _recorded_; typically, a "what we chose" table joined to a "what reward we got" table, with the candidate set reconstructed from a catalogue that has since changed, and the probability of each choice re-derived from a model that has since been retrained. Every join is a place to be subtly wrong, and a subtly wrong log poisons every conclusion drawn from it. Gittins takes the position that an experience log should never be assembled, only appended to: every call in the decision loop already returns exactly what belongs in the log, and `log_line` turns it into one canonical line. Log the record `decide` returns, log the resolution `learn` returns, log what `expire` returns, and you are done:
+
+```python
+log = open("decisions.jsonl", "a")
+
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(), salt="bandit-1",
+)
+log.write(gittins.log_line(record) + "\n")
+
+# ...when the reward arrives:
+resolution = gittins.learn(state, record.decision_id, reward=1.0, t=time.time())
+log.write(gittins.log_line(resolution) + "\n")
+
+# ...and on every sweep:
+for r in gittins.expire(state, t=time.time()):
+    log.write(gittins.log_line(r) + "\n")
+```
+
+```js
+const log = []; // ship to wherever your logs live
+
+const record = gittins.decide(
+  state, context, candidates,
+  Date.now() / 1000, "browser-1",
+);
+log.push(gittins.log_line(record));
+
+// ...when the reward arrives:
+const resolution = gittins.learn(state, record.decision_id, 1.0, Date.now() / 1000);
+log.push(gittins.log_line(resolution));
+
+// ...and on every sweep:
+for (const r of gittins.expire(state, Date.now() / 1000)) {
+  log.push(gittins.log_line(r));
+}
+```
+
+Each line is one compact JSON object, in canonical field order, so the log is plain text: you can grep it, split it by line, gzip it, and diff it. It contains two types of records, decisions and resolutions (rewards), and if you've implemented it correctly, it should be ordered in time, with the latest observation at the end of the file. Note that following the bit-identical design philosophy of Gittins, logs written by a browser bandit and a Python bandit can be used to train each other, as there are no cross-platform differences.
+
+One rule follows from the design, and it is worth internalising: **log decisions when you make them**. The record `decide` returns is the only object that carries the full inputs — the context, the candidates, and the encoding declaration, attached at the only moment they all exist. The engine's own memory deliberately keeps a compact form (that is what keeps it fixed-size), so the inputs are not in the state and cannot be recovered from it later. The log, not the state, is where inputs persist.
+
+Notice also what you are *not* logging: your feature pipeline's raw inputs, the model's scores, or anything you compute yourself. Every decision line carries the probability the choice was made with and a fingerprint of the whole candidate set — the two facts offline evaluation depends on and after-the-fact assembly cannot faithfully recover. Because the engine wrote them, they can also be *verified*: the offline tooling recomputes what every line claims and refuses logs that do not check out, a guarantee covered in [What Would Have Happened?](#what-would-have-happened).
+
+Logging is optional — the bandit learns online either way, and an ephemeral use case may not care what would have happened. But an appended line per call is about as cheap as insurance gets, and the day you want to tune `epsilon` or `forgetfulness` against reality rather than intuition, the log is the only place those answers can come from.
+
+_"Isn't constant writing to disk bad for performance?"_, you may ask. Indeed, in some instances, it can be. Feel free to batch resultions to an array and write to the log in batches; however, remember that the resolutions must be in the order they were made.
+---
+
 ## Anatomy of a Decision
 
-The previous chapter gave you a brief overview on how to make simple decisions with Gittins, but it is worth knowing what is happening under the hood. Gittins makes deliberate choices to offer a high degree of flexibility. For a decision, this is the internal workflow:
+The previous chapters gave you a brief overview on how to make simple decisions with Gittins, but it is worth knowing what is happening under the hood. Gittins makes deliberate choices to offer a high degree of flexibility. For a decision, this is the internal workflow:
 
 **Feature processing.** The context dictionary and each candidate's feature
 dict are first broken into tokens: one token is created per (name, value) pair, and tagged by a namespace: `c` for context or `a` for action. Each token is then hashed into the model's space of 2^`bits` dimensions. This is why nothing is ever registered up front: a feature's position in the model *is* its hash, so a brand-new feature name or action simply hashes somewhere and starts accumulating evidence. Pay attention to your feature names: `Afternoon` and `afternoon` will hash into two different indices, learning separate weights inside the model.
@@ -234,7 +291,7 @@ features at prediction time. Gittins keeps only the matrix's diagonal, so
 each weight is computed from that dimension's two sums alone, independent of
 all others. That is why there is nothing to solve: scoring a candidate is
 just the dot product of its features with the weights, one multiply-add per
-nonzero feature. There are no matrix inversions, making the engine perfomant with high throughput. The cost of this shortcut is that
+nonzero feature. There are no matrix inversions, making the engine performant with high throughput. The cost of this shortcut is that
 features which always fire together each take full credit for the same
 reward rather than splitting it; disentangling combinations is therefore the
 encoder's job (the interaction dimensions above), not the model's.
@@ -254,7 +311,7 @@ a reason:
 | `decision_id` | `"{salt}:{seq}"`, the id you resolve this decision with later; unique by construction, no collisions to reason about. |
 | `t` | the time you supplied, which starts the horizon clock. |
 | `chosen` | the index of the winning candidate. |
-| `features` | the chosen candidate's hashed features. The engine keeps its own copy in memory until expiration, which is why `learn` needs only an id and a reward; this copy is returned so you can save the decision log for offline training. |
+| `features` | the chosen candidate's hashed features. The engine keeps its own copy in memory until expiration, which is why `learn` needs only an id, a reward, and the time; this copy is returned so you can save the decision log for offline training. |
 | `propensity` | the probability the choice was made with; the key that unlocks offline policy evaluation. |
 | `candidate_hash` | a fingerprint of the whole candidate set, proving what the alternatives were. |
 | `model_version` | how many observations the model had absorbed; it identifies exactly which policy made this decision. |
@@ -269,11 +326,11 @@ decision time, and never passed back when calling `learn`, constructing data for
 
 ## Learning to Forget
 
-Consider a toy environment where a checkout button has a click-through rate of 6% if the cart is over 50 euros, and 5% otherwise. It is always 6%, regardless of any other factor, save for random noise. Such a problem is, conditional on a simple boolean that states if the cart is valued over 50 euros or not, _stationary_. It doesn't matter what device shoppers use or what time of day it is – next tuesday, `P(click|cart_over_50_euros)` is still 0.06.
+Consider a toy environment where a checkout button has a click-through rate of 6% if the cart is over 50 euros, and 5% otherwise. It is always 6%, regardless of any other factor, save for random noise. Such a problem is, conditional on a simple boolean that states if the cart is valued over 50 euros or not, _stationary_. It doesn't matter what device shoppers use or what time of day it is – next Tuesday, `P(click|cart_over_50_euros)` is still 0.06.
 
 Most problems are not that simple. Purchasing behaviour depends on tons of other factors. `P(click|cart_over_50_euros)` will drift over time, making it a non-stationary problem. We can attempt to fix this problem by adding more features we believe to be associated with click-through rate. Indeed, theoretically, if we conditioned on _everything in the universe_, this problem, and all other problems, become stationary.
 
-In practice, it is unfeasible to control for every eventuality. Non-stationary learning algorithms work on the principle of controlled forgetting: given enough time, old training data is discounted, and its contribution to model weights approaches zero.
+In practice, it is infeasible to control for every eventuality. Non-stationary learning algorithms work on the principle of controlled forgetting: given enough time, old training data is discounted, and its contribution to model weights approaches zero.
 
 Gittins works on non-stationary problems by default. Its online learning setting provides a natural foundation: examples are learned on once, and the core model has a forgetfulness factor that discounts old data. Coupled with exploration that never stops, Gittins will eventually retry an action that was previously learned to be poor, and if recent data suggests otherwise, it will learn to resurface it. You can watch the unlearning happen: the simulation below is the same multi-context, multi-action problem as before, with one addition, a button that makes the world do a 180.
 
@@ -285,7 +342,36 @@ How quickly to forget is a question without a fixed answer. It depends on the pr
 
 ## What Would Have Happened?
 
-[WIP]
+Off-policy estimation aims to answer a seemingly simple question: what would have happened if a new candidate policy had been deployed in place of the current production policy, at the time the production policy was live? Do this properly and it allows you to do machine learning the "proper" way, where you deploy a policy, collect training data while it is live, assess new policies on said data, and deploy improvements. Think of it as running a series of A/B-tests, the system improving itself by picking the best configuration over and over again — without paying for every configuration with live traffic.
+
+Attaining this virtuous cycle requires you to correct for the bias in the data any deployed machine learning system generates; in the contextual bandit setting, for example, you will see far more reward data for good decisions than bad ones, which will yield a biased predictor if you train a model using supervised learning algorithms. By virtue of Gittins being stochastic — always exploring to some extent — we can use the propensities it provides to correct for such biases. Gittins provides two estimators: inverse-propensity weighting (IPS), which places more weight on rare examples, and self-normalising inverse-propensity weighting (SNIPS), which does the same but scales the rewards such that the importance weights average out to one. IPS is famously unbiased, but has large variance when propensities are small. Unbiasedness is a statement about expectation: if you magically had N parallel logs generated by the same policy on the same traffic (which you don't), the average of the IPS estimates across them would center on the candidate policy's true mean reward — but any single log's estimate can land far from it. SNIPS is biased, but that bias approaches zero as the log grows. It is recommended you look at both metrics when evaluating new policies; if both agree on what is best, there's a good chance it in fact is best.
+
+Off-policy evaluation in Gittins is done via the command-line tool, and for now, only supports internal learning and exploration algorithms. You don't need to run it via binding, or in a notebook. Pass it your experience log, either as plain text or gzipped for efficiency:
+
+```sh
+# is the log internally consistent? exits nonzero if not
+gittins verify --log decisions.jsonl.gz
+
+# how would this configuration have done on this exact traffic?
+gittins eval --log decisions.jsonl.gz --bits 8 --epsilon 0.05
+
+# compare a whole grid in one table
+gittins sweep --log decisions.jsonl.gz --bits 8 \
+  --epsilon 0.02,0.05,0.1 --forgetfulness 0.999,0.995
+```
+
+Run `verify` first, always. It recomputes everything the log claims: the candidate-set fingerprint, the chosen candidate's features, the propensity bounds, exactly-once resolution, time ordering, and _reports every violation rather than stopping at the first_. This is the payoff of the recorded-not-assembled rule from [The Experience Log](#the-experience-log): because the engine wrote the propensities and fingerprints itself, the tooling can refuse a log that does not check out, and an invalid evaluation becomes something you cannot run by accident, not merely something you are advised against. If you wish to have the command fail entirely on a misconfigured log, pass `--hard-fail` to `eval`, `sweep`, or `replay`: the same verification then runs first, and the command refuses to continue on any violation.
+
+`eval` reports the IPS and SNIPS estimates next to the logged policy's realised mean reward, and alongside them two diagnostics an estimate must never be read without: the effective sample size (how many decisions' worth of evidence actually backs the estimate, once the weights are accounted for) and the largest importance weight (how much the estimate leans on its single luckiest decision). Ideally, you want better IPS and SNIPS numbers than the current policy's expected reward, and an effective sample size that approaches the number of observations in the log. If the effective sample size is only a small fraction, only a handful of observations are dominating the policy's behaviour.
+
+The last command, `replay`, is not an estimator but a rebuild: the same walk over the log, training a fresh state on every logged outcome in order, and emitting it ready to deploy.
+
+```sh
+# rebuild a deployable state from the log
+gittins replay --log decisions.jsonl.gz --bits 8 --horizon 3600 > bandit.state
+```
+
+Replayed at the logging configuration, the result reproduces the logging bandit's model, bit for bit. This unlocks *fleet pooling*: run many small bandits (one per shop, per region, per user), merge their logs, replay, and ship one state that has absorbed everyone's experience. It is also how a `sweep` winner becomes real: rather than deploying the better configuration cold, replay the log at it, and it starts life already knowing everything the log has to teach.
 
 ---
 
@@ -313,7 +399,7 @@ record = gittins.decide(
     score=score,
 )
 
-gittins.learn(state, record.decision_id, reward=1.0, train=train)
+gittins.learn(state, record.decision_id, reward=1.0, t=time.time(), train=train)
 
 # give expire the same callback, so timed-out decisions
 # train your model too
@@ -339,7 +425,7 @@ const record = gittins.decide(
   score,
 );
 
-gittins.learn(state, record.decision_id, 1.0, train);
+gittins.learn(state, record.decision_id, 1.0, Date.now() / 1000, train);
 
 // give expire the same callback, so timed-out decisions
 // train your model too
@@ -378,7 +464,7 @@ const record = gittins.decide(
 );
 ```
 
-A few rules safety guarantees intact. First, the engine validates what your callbacks return. There must be one finite estimate per candidate, and probabilities must be nonnegative and sum to 1. Anything is is outright rejected, because a malformed distribution would silently poison every logged propensity, and with it the possibility for offline evaluation. Second, `train` fires *after* the decision is marked resolved: if your callback crashes, that one observation is lost. Third, your model's state is your own: the handle serializes only the engine's state (the ledger, the counters, and the untouched built-in model), so you must persist your model alongside it unless it is intentionally ephemeral. Finally, the engine's own arithmetic stays bit-identical across platforms, but your callbacks might not: a `score` that calls a network, or an `explore` using transcendentals, may not work deterministically from platform to platform, depending on how you implemented it. Gittins places the responsibility for bit-identical results on you if you bring your own algorithms. The same goes for performance: make slow predictions and updates and Gittins won't magically speed them up.
+A few rules keep safety guarantees intact. First, the engine validates what your callbacks return. There must be one finite estimate per candidate, and probabilities must be nonnegative and sum to 1. Anything else is outright rejected, because a malformed distribution would silently poison every logged propensity, and with it the possibility for offline evaluation. Second, `train` fires *after* the decision is marked resolved: if your callback crashes, that one observation is lost. Third, your model's state is your own: the handle serializes only the engine's state (the ledger, the counters, and the untouched built-in model), so you must persist your model alongside it unless it is intentionally ephemeral. Finally, the engine's own arithmetic stays bit-identical across platforms, but your callbacks might not: a `score` that calls a network, or an `explore` using transcendentals, may not work deterministically from platform to platform, depending on how you implemented it. Gittins places the responsibility for bit-identical results on you if you bring your own algorithms. The same goes for performance: make slow predictions and updates and Gittins won't magically speed them up.
 
 ---
 
@@ -394,15 +480,9 @@ As you can see, and I'll hope you agree, these are high performance numbers. Hig
 
 ---
 
-## Choose Your Own Complexity
-
-[WIP]
-
----
-
 ## Stupid? Gittins Tricks
 
-Some interesting implications fall out of the Gittins design. Some are mere curiousities, others may be genuinely useful. Wrapping up the guide,
+Some interesting implications fall out of the Gittins design. Some are mere curiosities, others may be genuinely useful. Wrapping up the guide,
 here are the ones I could think of, in no particular order.
 
 **Hierarchical bandits**. Since Gittins returns handles to bandits, it becomes simple to create _hierarchical bandits_ where you make a top-level decision, that
@@ -410,7 +490,7 @@ itself is a choice of bandit. Make a second decision, receive feedback, and roll
 
 **Ensembles for uncertainty**. Hold N handles with different salts on the same traffic. They see the same
 data but will explore differently, so *disagreement between them* is a low-cost
-uncertainty signal. Route this a human when the committee splits, act confidently when it is
+uncertainty signal. Route this to a human when the committee disagrees, act confidently when it is
 unanimous. N bandits cost N small states and no extra machinery.
 
 **One bandit per user**. An 8-bit state is a few KB in size. It fits a KV-store row, a cookie, or

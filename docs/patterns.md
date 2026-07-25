@@ -24,8 +24,8 @@ r1 = gittins.decide(router, context, category_candidates, t=t, salt="router")
 cat = category_candidates[r1.chosen][0]
 r2 = gittins.decide(leaves[cat], context, items_in(cat), t=t, salt=f"leaf-{cat}")
 # ...outcome arrives:
-gittins.learn(router, r1.decision_id, reward)
-gittins.learn(leaves[cat], r2.decision_id, reward)
+gittins.learn(router, r1.decision_id, reward, t=t)
+gittins.learn(leaves[cat], r2.decision_id, reward, t=t)
 ```
 
 The payoff is large action sets: 10,000 items via 100 categories times 100
@@ -71,8 +71,8 @@ commit" flows — none of which the API has to support explicitly.
 
 States are small strings, encouraged to live in version control. If a
 reward-pipeline bug poisons a day of learning: roll the state file back to
-yesterday's commit and replay today's log from the decision records,
-`censor`ing the poisoned resolutions. Model rollback becomes literally the
+yesterday's commit and replay today's log with the poisoned resolution
+lines filtered out. Model rollback becomes literally the
 same operation as code rollback — no ML infrastructure, just git and the
 log.
 
@@ -161,8 +161,9 @@ keeps re-probing, so a variant that recovers gets rediscovered — the
 
 ## Right-to-be-forgotten by architecture
 
-A user opts out mid-flight: `censor` their open decisions — an on-record
-exclusion that never trains. Their already-trained influence is not forever
+A user opts out mid-flight: stop reporting their outcomes, and their open
+decisions resolve at the horizon with the declared default rather than
+anything they did. Their already-trained influence is not forever
 either: forgetting decays every observation's weight geometrically, so one
 user's contribution is provably negligible after about one effective window
 (~1,000 updates at defaults). "The model forgets you, on a schedule, by

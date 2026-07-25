@@ -2,11 +2,9 @@ from collections import Counter
 
 from gittins_reference.decide import decide, new_bandit
 from gittins_reference.ledger import (
-    CENSORED,
     EXPIRED,
     REWARDED,
     Resolution,
-    censor,
     expire,
     learn,
     take,
@@ -45,7 +43,7 @@ class TestLearn:
     def test_resolves_and_trains_on_the_recorded_features(self):
         s0 = fresh()
         record, s1 = decide(s0, CANDS, T0, "pepper")
-        resolution, s2 = learn(s1, record.decision_id, 1.0)
+        resolution, s2 = learn(s1, record.decision_id, 1.0, T0 + 60.0)
         assert resolution == Resolution(record.decision_id, REWARDED, 1.0)
         assert s2.ledger == ()
         assert s2.model_version == s1.model_version + 1
@@ -62,10 +60,10 @@ class TestLearn:
         s = fresh()
         r1, s = decide(s, CANDS, T0, "pepper")
         r2, s = decide(s, CANDS, T0 + 9 * HOUR, "pepper")
-        _, a = learn(s, r1.decision_id, 1.0)
-        _, a = learn(a, r2.decision_id, -0.5)
-        _, b = learn(s, r2.decision_id, -0.5)
-        _, b = learn(b, r1.decision_id, 1.0)
+        _, a = learn(s, r1.decision_id, 1.0, T0 + 10 * HOUR)
+        _, a = learn(a, r2.decision_id, -0.5, T0 + 11 * HOUR)
+        _, b = learn(s, r2.decision_id, -0.5, T0 + 10 * HOUR)
+        _, b = learn(b, r1.decision_id, 1.0, T0 + 11 * HOUR)
         assert a.ledger == () and b.ledger == ()
         assert a.model_version == b.model_version == 2
         assert a.model != b.model
@@ -73,8 +71,8 @@ class TestLearn:
     def test_duplicate_report_is_ignored(self):
         s = fresh()
         record, s = decide(s, CANDS, T0, "pepper")
-        _, s1 = learn(s, record.decision_id, 1.0)
-        resolution, s2 = learn(s1, record.decision_id, 1.0)
+        _, s1 = learn(s, record.decision_id, 1.0, T0 + 60.0)
+        resolution, s2 = learn(s1, record.decision_id, 1.0, T0 + 120.0)
         assert resolution is None
         assert s2 == s1
 
@@ -83,35 +81,37 @@ class TestLearn:
         # value finds the decision already spent.
         s = fresh()
         record, s = decide(s, CANDS, T0, "pepper")
-        _, s1 = learn(s, record.decision_id, 1.0)
-        resolution, s2 = learn(s1, record.decision_id, 0.0)
+        _, s1 = learn(s, record.decision_id, 1.0, T0 + 60.0)
+        resolution, s2 = learn(s1, record.decision_id, 0.0, T0 + 120.0)
         assert resolution is None
         assert s2 == s1
 
     def test_unknown_id_is_a_no_op(self):
         s = fresh()
-        resolution, s2 = learn(s, "never-made:0", 1.0)
+        resolution, s2 = learn(s, "never-made:0", 1.0, T0)
         assert resolution is None
         assert s2 == s
 
-
-class TestCensor:
-    def test_excludes_from_training_but_logs_the_exclusion(self):
-        s = fresh()
+    def test_late_reward_resolves_as_expired(self):
+        # The horizon is enforced at learn time against the record's own
+        # decision t: a reward arriving at or past the cutoff is an expiry
+        # that hadn't been swept yet, and the supplied reward is ignored.
+        s = fresh(default_reward=0.25)
         record, s1 = decide(s, CANDS, T0, "pepper")
-        resolution, s2 = censor(s1, record.decision_id)
-        assert resolution == Resolution(record.decision_id, CENSORED, None)
+        resolution, s2 = learn(s1, record.decision_id, 1.0, T0 + DAY)
+        assert resolution == Resolution(record.decision_id, EXPIRED, 0.25)
         assert s2.ledger == ()
-        assert s2.model == s1.model  # nothing trained
-        assert s2.model_version == s1.model_version
+        assert s2.model_version == s1.model_version + 1
+        assert s2.model == update(s1.model, record.features, 0.25)
 
-    def test_censored_decision_cannot_be_rewarded_later(self):
-        s = fresh()
-        record, s = decide(s, CANDS, T0, "pepper")
-        _, s = censor(s, record.decision_id)
-        resolution, s2 = learn(s, record.decision_id, 1.0)
-        assert resolution is None
-        assert s2 == s
+    def test_reward_just_inside_the_horizon_is_rewarded(self):
+        # Same boundary as expire: due exactly at record.t + horizon, so
+        # one tick earlier still counts as a timely reward.
+        s = fresh(default_reward=0.25)
+        record, s1 = decide(s, CANDS, T0, "pepper")
+        resolution, _ = learn(s1, record.decision_id, 1.0, T0 + DAY - 1.0)
+        assert resolution == Resolution(record.decision_id, REWARDED, 1.0)
+
 
 
 class TestExpire:
@@ -159,7 +159,7 @@ class TestExpire:
         s = fresh()
         record, s = decide(s, CANDS, T0, "pepper")
         _, s = expire(s, T0 + 2 * DAY)
-        resolution, s2 = learn(s, record.decision_id, 1.0)
+        resolution, s2 = learn(s, record.decision_id, 1.0, T0 + 2 * DAY)
         assert resolution is None
         assert s2 == s
 
@@ -175,7 +175,7 @@ class TestFullLoop:
         for i in range(300):
             t = T0 + float(i)
             record, s = decide(s, CANDS, t, "loop")
-            _, s = learn(s, record.decision_id, 1.0 if record.chosen == 0 else 0.0)
+            _, s = learn(s, record.decision_id, 1.0 if record.chosen == 0 else 0.0, t)
             chosen.append(record.chosen)
         late = Counter(chosen[-100:])
         assert late[0] > 80
@@ -193,7 +193,7 @@ class TestPinnedVectors:
         r2, s = decide(s, CANDS, T0 + 600.0, "pepper")
         r3, s = decide(s, CANDS, T0 + 1200.0, "pepper")
         assert (r1.chosen, r2.chosen, r3.chosen) == (0, 0, 1)
-        resolution, s = learn(s, r2.decision_id, 1.0)
+        resolution, s = learn(s, r2.decision_id, 1.0, T0 + 1800.0)
         assert resolution == Resolution("pepper:1", REWARDED, 1.0)
         resolutions, s = expire(s, T0 + 600.0 + DAY)
         assert resolutions == (Resolution("pepper:0", EXPIRED, 0.25),)

@@ -21,7 +21,7 @@ use js_sys::{Array, BigInt, Function, Object, Reflect};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 
-use gittins_wasm::{create, decide, deserialize, expire, learn, censor, model_bits, serialize};
+use gittins_wasm::{create, decide, deserialize, expire, learn, model_bits, serialize};
 
 fn section(name: &str) -> Json {
     Json::parse(include_str!("../../../spec/golden.json"))
@@ -148,10 +148,10 @@ fn api_section_through_the_binding() {
         ids.push(get(&record, "decision_id").as_string().unwrap());
     }
 
+    let last_t = s.get("events").arr().last().unwrap().get("t").f64_();
     let mut resolutions = Vec::new();
-    resolutions.push(learn(&mut state, &ids[1], 1.0, None).unwrap());
-    resolutions.push(learn(&mut state, &ids[0], 0.0, None).unwrap());
-    resolutions.push(censor(&mut state, &ids[2]));
+    resolutions.push(learn(&mut state, &ids[1], 1.0, last_t, None).unwrap());
+    resolutions.push(learn(&mut state, &ids[0], 0.0, last_t, None).unwrap());
     for r in expire(&mut state, s.get("expire_sweep_at").f64_(), None).unwrap().iter() {
         resolutions.push(r);
     }
@@ -162,8 +162,8 @@ fn api_section_through_the_binding() {
     }
 
     // Second resolutions are no-ops, returning null.
-    assert!(learn(&mut state, &ids[0], 1.0, None).unwrap().is_null());
-    assert!(censor(&mut state, &ids[2]).is_null());
+    assert!(learn(&mut state, &ids[0], 1.0, last_t, None).unwrap().is_null());
+    assert!(learn(&mut state, &ids[2], 1.0, last_t, None).unwrap().is_null());
 
     let fin = s.get("final");
     let data = serialize(&state);
@@ -262,11 +262,12 @@ fn byo_section_through_the_binding() {
     let train_fn: Function = train.as_ref().unchecked_ref::<Function>().clone();
 
     let mut resolutions = Vec::new();
-    resolutions.push(learn(&mut state, &ids[1], 1.0, Some(train_fn.clone())).unwrap());
-    resolutions.push(learn(&mut state, &ids[0], 0.0, Some(train_fn.clone())).unwrap());
+    let events = s.get("events").arr();
+    let (t3, t4) = (events[3].get("t").f64_(), events[4].get("t").f64_());
+    resolutions.push(learn(&mut state, &ids[1], 1.0, t3, Some(train_fn.clone())).unwrap());
+    resolutions.push(learn(&mut state, &ids[0], 0.0, t3, Some(train_fn.clone())).unwrap());
     // Deliberately mixed: the plain learn trains the built-in model.
-    resolutions.push(learn(&mut state, &ids[4], 1.0, None).unwrap());
-    resolutions.push(censor(&mut state, &ids[2]));
+    resolutions.push(learn(&mut state, &ids[4], 1.0, t4, None).unwrap());
     for r in expire(&mut state, s.get("expire_sweep_at").f64_(), Some(train_fn.clone()))
         .unwrap()
         .iter()
@@ -340,8 +341,8 @@ fn byo_rejections() {
     let record = decide(&mut state, &context, &catalog, 0.0, "s", None, None).unwrap();
     let id = get(&record, "decision_id").as_string().unwrap();
     let bad_train = Function::new_with_args("record, reward", "throw new Error(\"trainer crashed\");");
-    assert!(learn(&mut state, &id, 1.0, Some(bad_train)).is_err());
-    assert!(learn(&mut state, &id, 1.0, None).unwrap().is_null());
+    assert!(learn(&mut state, &id, 1.0, 1.0, Some(bad_train)).is_err());
+    assert!(learn(&mut state, &id, 1.0, 1.0, None).unwrap().is_null());
 }
 
 /// Assembly-free logging: the record decide returns
@@ -379,7 +380,7 @@ fn log_line_emits_the_experience_log_format() {
     assert!(line.contains(&token), "hash token missing: {line}");
 
     let id = get(&record, "decision_id").as_string().unwrap();
-    let resolution = learn(&mut state, &id, 1.0, None).unwrap();
+    let resolution = learn(&mut state, &id, 1.0, 0.5, None).unwrap();
     let line = log_line(&resolution).unwrap();
     let parsed = js_sys::JSON::parse(&line).unwrap();
     assert!(get(&parsed, "event").as_string().as_deref() == Some("resolution"));
@@ -394,7 +395,7 @@ fn log_line_emits_the_experience_log_format() {
     let train = Closure::<dyn FnMut(JsValue, f64)>::new(move |rec: JsValue, _: f64| {
         *sink.borrow_mut() = Some(rec);
     });
-    learn(&mut state, &id, 1.0, Some(train.as_ref().unchecked_ref::<Function>().clone())).unwrap();
+    learn(&mut state, &id, 1.0, 1.5, Some(train.as_ref().unchecked_ref::<Function>().clone())).unwrap();
     let compact = seen.borrow().clone().unwrap();
     assert!(get(&compact, "bits").is_null());
     assert!(log_line(&compact).is_err());

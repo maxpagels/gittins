@@ -3,14 +3,14 @@
 The engine owns the join between decisions and rewards. The state's ledger
 holds every *open* decision record — made by `decide`, not yet resolved —
 and the only way to train the model is to resolve one of them. Every open
-decision resolves in exactly one of three ways, each a deliberate event
+decision resolves in exactly one of two ways, each a deliberate event
 returned to the caller for logging:
 
-    learn(state, decision_id, reward)  ->  rewarded(reward)
-    expire(state, t)                   ->  expired(default_reward), for every
-                                           decision past its horizon
-    censor(state, decision_id)         ->  censored (excluded from training,
-                                           but the exclusion is on record)
+    learn(state, decision_id, reward, t)  ->  rewarded(reward), or
+                                              expired(default_reward) when t
+                                              says the horizon already passed
+    expire(state, t)                      ->  expired(default_reward), for every
+                                              decision past its horizon
 
 Three properties, by construction rather than by discipline:
 
@@ -18,7 +18,7 @@ Three properties, by construction rather than by discipline:
   duplicate (or conflicting, or bogus) report finds nothing and is a no-op.
   There is one record per decision and it can be spent once.
 - **Late rewards are safe, in arrival order** — rewards may arrive late,
-  out of order, or never, and every case resolves through the same three
+  out of order, or never, and every case resolves through the same two
   paths with nothing lost or double-counted. Training applies at the
   *resolution's* position in the update sequence with the model's current
   forgetting weight (model.py has no notion of time), so a late reward
@@ -26,6 +26,12 @@ Three properties, by construction rather than by discipline:
   simply trained in the order the world reported outcomes. Replaying a
   model therefore requires the ordered resolution sequence, which the
   decision log provides.
+- **The horizon is enforced by the engine, not the sweep** — `learn`
+  receives the caller's time and checks it against the open record's own
+  decision time: a reward arriving at or past `record.t + horizon` is not
+  a reward at all but an expiry that hadn't been swept yet, and it trains
+  as `default_reward` exactly as `expire` would have. The declared cutoff
+  therefore holds even if the caller's sweep cadence lags.
 - **The classic silent bug is unrepresentable** — "reward hasn't arrived
   yet" cannot be read as "reward was zero", because an open decision is not
   training data and no code path learns from one. Absence becomes a zero (or
@@ -50,17 +56,16 @@ from gittins_reference.model import update
 
 REWARDED = "rewarded"
 EXPIRED = "expired"
-CENSORED = "censored"
 
 
 @dataclass(frozen=True)
 class Resolution:
     """One deliberate, loggable resolution event. `reward` is the value the
-    model trained with; None for censored (excluded from training)."""
+    model trained with."""
 
     decision_id: str
-    kind: str  # REWARDED | EXPIRED | CENSORED
-    reward: "float | None"
+    kind: str  # REWARDED | EXPIRED
+    reward: float
 
 
 def take(
@@ -74,29 +79,26 @@ def take(
 
 
 def learn(
-    state: BanditState, decision_id: str, reward: float
+    state: BanditState, decision_id: str, reward: float, t: float
 ) -> "tuple[Resolution | None, BanditState]":
-    """Resolve an open decision as rewarded(reward). Unknown or already
-    resolved IDs are a no-op: (None, unchanged state)."""
+    """Resolve an open decision at time `t`: rewarded(reward) inside the
+    horizon, expired(default_reward) at or past it — the same boundary
+    `expire` uses, so a late reward can never train as a timely one.
+    Unknown or already resolved IDs are a no-op: (None, unchanged state)."""
     record, rest = take(state.ledger, decision_id)
     if record is None:
         return None, state
+    if record.t + state.horizon <= t:
+        kind, trained = EXPIRED, state.default_reward
+    else:
+        kind, trained = REWARDED, reward
     new_state = replace(
         state,
-        model=update(state.model, record.features, reward),
+        model=update(state.model, record.features, trained),
         model_version=state.model_version + 1,
         ledger=rest,
     )
-    return Resolution(decision_id, REWARDED, reward), new_state
-
-
-def censor(state: BanditState, decision_id: str) -> "tuple[Resolution | None, BanditState]":
-    """Resolve an open decision as censored: removed from the ledger without
-    training, the exclusion itself returned for the log."""
-    record, rest = take(state.ledger, decision_id)
-    if record is None:
-        return None, state
-    return Resolution(decision_id, CENSORED, None), replace(state, ledger=rest)
+    return Resolution(decision_id, kind, trained), new_state
 
 
 def expire(state: BanditState, t: float) -> "tuple[tuple[Resolution, ...], BanditState]":

@@ -119,6 +119,7 @@ class GittinsPolicy(Policy):
         ]
         record, self.state = decide(self.state, candidates, rd.t, self.salt)
         self._decision_id = record.decision_id
+        self._t = rd.t
         # Metric-only read: the same estimates decide just scored with
         # (the model can't have changed between), recomputed because decide
         # deliberately logs only the chosen candidate.
@@ -127,7 +128,7 @@ class GittinsPolicy(Policy):
         return record.chosen, estimates
 
     def observe(self, reward: float) -> None:
-        _, self.state = learn(self.state, self._decision_id, reward)
+        _, self.state = learn(self.state, self._decision_id, reward, self._t)
 
 
 class ModelPolicy(Policy):

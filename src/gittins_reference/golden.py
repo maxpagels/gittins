@@ -36,7 +36,7 @@ from gittins_reference import ope
 from gittins_reference.decide import candidate_set_hash, decide, new_bandit
 from gittins_reference.encoding import encode, feature_tokens, pair_hash
 from gittins_reference.exploration import epsilon_greedy_probabilities, sample_index
-from gittins_reference.ledger import censor, expire, learn
+from gittins_reference.ledger import expire, learn
 from gittins_reference.model import new_model, predict, update
 from gittins_reference.rng import derive_key, random_u64, random_unit
 from gittins_reference.state import FORMAT_VERSION, deserialize, serialize
@@ -157,14 +157,14 @@ def encoding_vectors():
 
 def run_episode():
     """The end-to-end acceptance scenario: one agent decides and learns over
-    hash-encoded candidates with out-of-order rewards, a censor, and an
+    hash-encoded candidates with out-of-order rewards and an
     expiry sweep. Training is order-dependent, so the exact resolution
     sequence below *is* the contract. Matching this section exactly means
     an independent decide/learn implementation is done (Phase 0 exit).
 
     Returns (episode section, mid state, final state): the mid state is the
-    snapshot just before the censor — the moment the ledger holds two open
-    records — and both states feed the serialization section."""
+    snapshot just after the eleventh decision — the moment the ledger holds
+    two open records — and both states feed the serialization section."""
     bits = 4
     forgetting = 0.9
     horizon = 2 * HOUR
@@ -196,32 +196,28 @@ def run_episode():
         elif i % 2 == 1:
             deferred.append((record.decision_id, reward))  # resolved late, in reverse
         else:
-            a = resolve(learn, a, record.decision_id, reward)
+            a = resolve(learn, a, record.decision_id, reward, T0 + i * 600.0)
     for decision_id, reward in reversed(deferred):
-        a = resolve(learn, a, decision_id, reward)
-    a, record, _ = play(a, T0 + 6000.0, "a")
+        a = resolve(learn, a, decision_id, reward, T0 + 9 * 600.0)  # all inside the horizon
+    a, record, reward = play(a, T0 + 6000.0, "a")
     mid_state = a  # decisions 7 and 10 open: the serialization mid snapshot
-    a = resolve(censor, a, record.decision_id)
+    a = resolve(learn, a, record.decision_id, reward, T0 + 6000.0)
     sweep_t = T0 + 7 * 600.0 + horizon  # decision 7 is exactly due
     expired, a = expire(a, sweep_t)
     resolutions.extend(resolution_json(r) for r in expired)
     # Rejected resolutions: every way an attempt can find no open record —
-    # conflicting duplicate reward, post-expiry reward, reward after censor,
-    # censor after reward, unknown id. Each must be a structural no-op. The
-    # final state below is captured *after* these attempts, so an
-    # independent implementation must reject them all to match it.
+    # conflicting duplicate reward, post-expiry reward, unknown id. Each
+    # must be a structural no-op. The final state below is captured *after*
+    # these attempts, so an independent implementation must reject them all
+    # to match it.
     rejected = [
-        {"action": "learn", "decision_id": "fleet-a:0", "reward": 0.0},
-        {"action": "learn", "decision_id": "fleet-a:7", "reward": 1.0},
-        {"action": "learn", "decision_id": "fleet-a:10", "reward": 1.0},
-        {"action": "censor", "decision_id": "fleet-a:0"},
-        {"action": "learn", "decision_id": "fleet-a:99", "reward": 1.0},
+        {"action": "learn", "decision_id": "fleet-a:0", "reward": 0.0, "t": sweep_t},
+        {"action": "learn", "decision_id": "fleet-a:7", "reward": 1.0, "t": sweep_t},
+        {"action": "learn", "decision_id": "fleet-a:10", "reward": 1.0, "t": sweep_t},
+        {"action": "learn", "decision_id": "fleet-a:99", "reward": 1.0, "t": sweep_t},
     ]
     for attempt in rejected:
-        if attempt["action"] == "learn":
-            resolution, a = learn(a, attempt["decision_id"], attempt["reward"])
-        else:
-            resolution, a = censor(a, attempt["decision_id"])
+        resolution, a = learn(a, attempt["decision_id"], attempt["reward"], attempt["t"])
         assert resolution is None, f"rejected attempt resolved: {attempt}"
     predictions = []
     for seg in ["a", "b"]:
@@ -271,7 +267,7 @@ def api_vectors():
     """One compact scenario driven purely through the public dict-shaped
     surface (api.py): create, four decides over the same (arm_id, action)
     catalog — action features included, which the episode section never
-    exercises — then out-of-order rewards, a censor, an exact-horizon
+    exercises — then out-of-order rewards, an exact-horizon
     expiry, and the final state's canonical bytes. A binding replays this
     section calling only its public API; matching it (final hex included)
     is the binding's acceptance gate."""
@@ -294,9 +290,8 @@ def api_vectors():
         events.append({"t": record.t, "context": context, "record": record_json(record)})
         records.append(record)
     for decision_id, reward in [(records[1].decision_id, 1.0), (records[0].decision_id, 0.0)]:
-        resolutions.append(resolution_json(api.learn(state, decision_id, reward)))
-    resolutions.append(resolution_json(api.censor(state, records[2].decision_id)))
-    sweep_t = T0 + 3 * 900.0 + horizon  # the one open decision is exactly due
+        resolutions.append(resolution_json(api.learn(state, decision_id, reward, T0 + 3 * 900.0)))
+    sweep_t = T0 + 3 * 900.0 + horizon  # decisions 2 and 3 both due (3 exactly)
     resolutions.extend(resolution_json(r) for r in api.expire(state, sweep_t))
     assert not state._state.ledger, "api scenario must end with nothing open"
     return {
@@ -318,7 +313,7 @@ def byo_vectors():
     """The BYO plumbing pinned through the public surface:
     decides under a spec-defined score callback, explore callback, both,
     and neither on one shared state; out-of-order rewards through a train
-    callback, one deliberately mixed built-in learn, a censor, and an
+    callback, one deliberately mixed built-in learn, and an
     exact-horizon expiry with train. `trained` is the exact sequence of
     (record, reward) observations the train callback received. Every
     implementation replays this with the callbacks written natively in its
@@ -372,17 +367,16 @@ def byo_vectors():
         records.append(record)
     resolutions = []
     resolutions.append(
-        resolution_json(api.learn(state, records[1].decision_id, 1.0, train=train))
+        resolution_json(api.learn(state, records[1].decision_id, 1.0, T0 + 3 * 900.0, train=train))
     )
     resolutions.append(
-        resolution_json(api.learn(state, records[0].decision_id, 0.0, train=train))
+        resolution_json(api.learn(state, records[0].decision_id, 0.0, T0 + 3 * 900.0, train=train))
     )
     # Deliberately mixed: one plain learn trains the built-in model, so the
     # final state pins both that train *replaces* the update and that its
     # absence still applies it.
-    resolutions.append(resolution_json(api.learn(state, records[4].decision_id, 1.0)))
-    resolutions.append(resolution_json(api.censor(state, records[2].decision_id)))
-    sweep_t = T0 + 3 * 900.0 + horizon  # the one open decision is exactly due
+    resolutions.append(resolution_json(api.learn(state, records[4].decision_id, 1.0, T0 + 4 * 900.0)))
+    sweep_t = T0 + 3 * 900.0 + horizon  # decisions 2 and 3 both due (3 exactly)
     resolutions.extend(resolution_json(r) for r in api.expire(state, sweep_t, train=train))
     assert not state._state.ledger, "byo scenario must end with nothing open"
     return {
@@ -405,7 +399,7 @@ def byo_vectors():
 
 def ope_vectors():
     """The experience log and OPE pinned end to end: one
-    api-driven log (two candidate sets, out-of-order rewards, a censor,
+    api-driven log (two candidate sets, out-of-order rewards,
     an exact-horizon expiry, three decisions left open), its clean
     verify, progressive IPS/SNIPS reports — the logging configuration
     first, whose report must be the exact identity (w = 1 everywhere:
@@ -446,15 +440,14 @@ def ope_vectors():
     # would be vacuous.
     for i in range(3):
         decide(i)
-    resolve(api.learn(state, records[1].decision_id, 1.0))
-    resolve(api.learn(state, records[0].decision_id, 0.0))
+    resolve(api.learn(state, records[1].decision_id, 1.0, T0 + 2 * 60.0))
+    resolve(api.learn(state, records[0].decision_id, 0.0, T0 + 2 * 60.0))
     decide(3)
     decide(4)
-    resolve(api.censor(state, records[2].decision_id))
-    resolve(api.learn(state, records[4].decision_id, 0.5))
+    resolve(api.learn(state, records[4].decision_id, 0.5, T0 + 4 * 60.0))
     for i in (5, 6, 7):
         decide(i)
-    for r in api.expire(state, T0 + 3 * 60.0 + horizon):  # decision 3 exactly due
+    for r in api.expire(state, T0 + 3 * 60.0 + horizon):  # decisions 2 and 3 due (3 exactly)
         resolve(r)
 
     events = tuple(ope.parse_log(json.dumps(e) for e in log))  # parse_log streams; reused below

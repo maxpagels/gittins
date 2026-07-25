@@ -35,12 +35,11 @@ def run_agent(bits=4, epsilon=0.1, forgetfulness=0.9, salt="agent"):
 
     for i in range(3):
         decide(i)
-    resolve(api.learn(state, records[1].decision_id, 1.0))
-    resolve(api.learn(state, records[0].decision_id, 0.0))
+    resolve(api.learn(state, records[1].decision_id, 1.0, T0 + 2 * 60.0))
+    resolve(api.learn(state, records[0].decision_id, 0.0, T0 + 2 * 60.0))
     decide(3)
     decide(4)
-    resolve(api.censor(state, records[2].decision_id))
-    resolve(api.learn(state, records[4].decision_id, 0.5))
+    resolve(api.learn(state, records[4].decision_id, 0.5, T0 + 4 * 60.0))
     for i in (5, 6, 7):
         decide(i)
     for r in api.expire(state, T0 + 3 * 60.0 + HORIZON):  # decision 3 exactly due
@@ -57,7 +56,7 @@ class TestLog:
         log, _ = run_agent()
         events = parse(log)
         assert ope.verify(events) == ()
-        # 8 decisions; 3 rewarded + 1 expired + 1 censored; 3 left open.
+        # 8 decisions; 3 rewarded + 2 expired; 3 left open.
         assert sum(isinstance(e, ope.DecisionEvent) for e in events) == 8
         assert sum(isinstance(e, ope.ResolutionEvent) for e in events) == 5
 
@@ -157,8 +156,7 @@ class TestEvaluate:
         log, _ = run_agent(bits=4, epsilon=0.1, forgetfulness=0.9)
         report = ope.evaluate(parse(log), bits=4, epsilon=0.1, forgetfulness=0.9)
         assert report.decisions == 8
-        assert report.resolved == 4  # 3 rewarded + 1 expired
-        assert report.censored == 1
+        assert report.resolved == 5  # 3 rewarded + 2 expired
         assert report.unresolved == 3
         assert report.max_weight == 1.0
         assert report.ips == report.snips == report.logged_mean
@@ -168,7 +166,7 @@ class TestEvaluate:
         log, _ = run_agent(bits=4, epsilon=0.1, forgetfulness=0.9)
         events = parse(log)
         report = ope.evaluate(events, bits=5, epsilon=0.05, forgetfulness=0.999)
-        assert report.resolved == 4
+        assert report.resolved == 5
         # Logged propensities are >= epsilon/k = 0.1/3, target q <= 1.
         assert 0.0 < report.max_weight <= 30.0
         assert report.ess is not None and 0.0 < report.ess <= report.resolved
@@ -198,12 +196,12 @@ class TestReplay:
         log, state = run_agent(bits=4, epsilon=0.1, forgetfulness=0.9)
         rebuilt = ope.replay(parse(log), bits=4, horizon=HORIZON, epsilon=0.1, forgetfulness=0.9)
         assert rebuilt.model == state._state.model
-        assert rebuilt.model_version == 4
+        assert rebuilt.model_version == 5
         assert rebuilt.next_seq == 0 and rebuilt.ledger == ()
         # The rebuilt state is deployable: it serializes like any other.
         assert state_module.deserialize(state_module.serialize(rebuilt)) == rebuilt
 
-    def test_censored_and_unresolved_never_train(self):
+    def test_unresolved_decisions_never_train(self):
         log, _ = run_agent()
         rebuilt = ope.replay(parse(log), bits=4, horizon=HORIZON, epsilon=0.1, forgetfulness=0.9)
-        assert rebuilt.model_version == 4  # of 8 decisions, only 4 resolved with rewards
+        assert rebuilt.model_version == 5  # of 8 decisions, only 5 resolved

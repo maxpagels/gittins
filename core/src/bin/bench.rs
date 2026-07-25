@@ -58,7 +58,7 @@ fn drive(
         let record =
             api::decide(&mut state, &contexts[i % contexts.len()], catalog, i as f64, "warm", None, None)
                 .unwrap();
-        api::learn(&mut state, &record.decision_id, 1.0, None).unwrap();
+        api::learn(&mut state, &record.decision_id, 1.0, i as f64, None).unwrap();
     }
     let mut rounds = 0;
     let start = Instant::now();
@@ -71,6 +71,7 @@ fn drive(
             &mut state,
             &record.decision_id,
             if i % 3 != 0 { 1.0 } else { 0.0 },
+            i as f64,
             None,
         )
         .unwrap();

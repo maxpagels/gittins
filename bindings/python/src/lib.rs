@@ -128,7 +128,7 @@ impl From<CoreRecord> for DecisionRecord {
 }
 
 /// One resolution event: how a decision left the ledger. `reward` is what
-/// the model trained with; None for censored.
+/// the model trained with.
 #[pyclass(frozen, name = "Resolution", module = "gittins")]
 struct Resolution {
     #[pyo3(get)]
@@ -310,15 +310,19 @@ fn log_line(py: Python<'_>, item: &Bound<'_, PyAny>) -> PyResult<String> {
 }
 
 /// The resolution, or None if the id is unknown or already resolved.
-/// `train` is the BYO training tap: it replaces the built-in
-/// update and fires after the resolution commits, exactly once.
+/// The engine classifies against the horizon at time `t`: a reward
+/// arriving at or past the record's `t + horizon` resolves as expired
+/// with the default reward. `train` is the BYO training tap: it replaces
+/// the built-in update and fires after the resolution commits, exactly
+/// once, with the classified reward.
 #[pyfunction]
-#[pyo3(signature = (state, decision_id, reward, train=None))]
+#[pyo3(signature = (state, decision_id, reward, t, train=None))]
 fn learn(
     py: Python<'_>,
     state: &Bound<'_, BanditState>,
     decision_id: &str,
     reward: f64,
+    t: f64,
     train: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Option<Resolution>> {
     let caught = Caught::new();
@@ -327,15 +331,10 @@ fn learn(
         &mut state.borrow_mut().inner,
         decision_id,
         reward,
+        t,
         train_cb.as_mut().map(|c| c as _),
     );
     caught.rethrow(result).map(|o| o.map(Resolution::from))
-}
-
-/// The resolution, or None if the id is unknown or already resolved.
-#[pyfunction]
-fn censor(state: &Bound<'_, BanditState>, decision_id: &str) -> Option<Resolution> {
-    api::censor(&mut state.borrow_mut().inner, decision_id).map(Resolution::from)
 }
 
 /// Every decision past its horizon at time `t`, resolved as expired, in
@@ -381,7 +380,6 @@ fn gittins(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create, m)?)?;
     m.add_function(wrap_pyfunction!(decide, m)?)?;
     m.add_function(wrap_pyfunction!(learn, m)?)?;
-    m.add_function(wrap_pyfunction!(censor, m)?)?;
     m.add_function(wrap_pyfunction!(expire, m)?)?;
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;

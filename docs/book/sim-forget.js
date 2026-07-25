@@ -114,7 +114,7 @@ function run(g) {
     const i = (Math.random() * CONTEXTS.length) | 0;
     tSim += 1;
     const record = g.decide(state, CONTEXTS[i], ACTIONS, tSim, "forget-sim");
-    g.learn(state, record.decision_id, Math.random() < world[i][record.chosen] ? 1.0 : 0.0);
+    g.learn(state, record.decision_id, Math.random() < world[i][record.chosen] ? 1.0 : 0.0, tSim);
 
     const pB = world[i][record.chosen];
     const pR = world[i][(Math.random() * 3) | 0];

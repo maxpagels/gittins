@@ -173,6 +173,7 @@ pub struct GittinsPolicy {
     state: BanditState,
     salt: String,
     decision_id: String,
+    t: f64,
 }
 
 impl GittinsPolicy {
@@ -183,6 +184,7 @@ impl GittinsPolicy {
             state: new_bandit(1 << bits, 10.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap(),
             salt: String::new(),
             decision_id: String::new(),
+            t: 0.0,
         }
     }
 }
@@ -209,6 +211,7 @@ impl Policy for GittinsPolicy {
             .collect();
         let record = decide(&mut self.state, &candidates, rd.t, &self.salt, None, None).unwrap();
         self.decision_id = record.decision_id;
+        self.t = rd.t;
         // Metric-only read: the same estimates decide just scored with,
         // recomputed because decide deliberately logs only the chosen
         // candidate.
@@ -217,6 +220,6 @@ impl Policy for GittinsPolicy {
         (record.chosen, Some(estimates))
     }
     fn observe(&mut self, reward: f64) {
-        learn(&mut self.state, &self.decision_id, reward);
+        learn(&mut self.state, &self.decision_id, reward, self.t);
     }
 }

@@ -33,8 +33,7 @@ engine's knobs) is scored with the model it would actually have had at
 that moment, giving the importance weight `w = q / propensity`; at each
 rewarded/expired resolution the logged reward feeds both the estimators
 (IPS `sum(w*r)/n`, SNIPS `sum(w*r)/sum(w)`) and the candidate model's
-training, at the resolution's logged position. Censored resolutions are
-excluded from both, on record. Diagnostics (effective sample size, max
+training, at the resolution's logged position. Diagnostics (effective sample size, max
 weight) travel with every estimate because an IPS number without them
 is a trap. There is no clipping and no clipping knob: epsilon-greedy
 logging bounds every weight structurally at k / epsilon.
@@ -61,7 +60,7 @@ from dataclasses import dataclass, replace
 from gittins_reference.decide import DecisionRecord, candidate_set_hash, new_bandit
 from gittins_reference.encoding import encode
 from gittins_reference.exploration import DEFAULT_EPSILON, epsilon_greedy_probabilities
-from gittins_reference.ledger import CENSORED, EXPIRED, REWARDED
+from gittins_reference.ledger import EXPIRED, REWARDED
 from gittins_reference.model import (
     DEFAULT_FORGETTING,
     estimate_factored,
@@ -98,7 +97,6 @@ class OpeReport:
 
     decisions: int
     resolved: int  # rewarded + expired: the estimator's n
-    censored: int
     unresolved: int  # open at end of log
     logged_mean: "float | None"  # the logging policy's realized mean reward
     ips: "float | None"
@@ -268,11 +266,8 @@ def verify(events) -> "tuple[str, ...]":
                 problems.append(f"line {e.line}: second resolution for decision '{e.decision_id}'")
                 continue
             resolved.add(e.decision_id)
-            if e.kind not in (REWARDED, EXPIRED, CENSORED):
+            if e.kind not in (REWARDED, EXPIRED):
                 problems.append(f"{where} {e.decision_id}: unknown kind '{e.kind}'")
-            elif e.kind == CENSORED:
-                if e.reward is not None:
-                    problems.append(f"{where} {e.decision_id}: censored resolutions carry no reward")
             elif e.reward is None or not math.isfinite(e.reward):
                 problems.append(f"{where} {e.decision_id}: reward must be a finite number")
     return tuple(problems)
@@ -292,7 +287,7 @@ def evaluate(
         raise ValueError("bits must be between 1 and 24")
     model = new_model(1 << bits, forgetfulness)
     pending = {}  # decision_id -> (chosen encoding at candidate bits, weight)
-    decisions = resolved = censored = 0
+    decisions = resolved = 0
     sum_r = sum_w = sum_wr = sum_w2 = 0.0
     max_weight = 0.0
     for e in events:
@@ -315,9 +310,6 @@ def evaluate(
             got = pending.pop(e.decision_id, None)
             if got is None:
                 continue
-            if e.kind == CENSORED:
-                censored += 1
-                continue
             if e.kind not in (REWARDED, EXPIRED):
                 raise ValueError(f"line {e.line}: unknown resolution kind")
             if e.reward is None or not math.isfinite(e.reward):
@@ -333,11 +325,10 @@ def evaluate(
                 max_weight = w
             model = update(model, x, reward)
     if resolved == 0:
-        return OpeReport(decisions, 0, censored, len(pending), None, None, None, None, None)
+        return OpeReport(decisions, 0, len(pending), None, None, None, None, None)
     return OpeReport(
         decisions=decisions,
         resolved=resolved,
-        censored=censored,
         unresolved=len(pending),
         logged_mean=sum_r / resolved,
         ips=sum_wr / resolved,
@@ -382,7 +373,7 @@ def replay(
             )
         else:
             x = pending.pop(e.decision_id, None)
-            if x is None or e.kind == CENSORED:
+            if x is None:
                 continue
             if e.kind not in (REWARDED, EXPIRED):
                 raise ValueError(f"line {e.line}: unknown resolution kind")

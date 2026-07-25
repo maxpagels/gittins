@@ -1,11 +1,11 @@
 # Using gittins
 
 Everything goes through one module, `gittins` — the Rust engine as a Python
-package. It has nine functions, and the four steps below are the whole
+package. It has eight functions, and the four steps below are the whole
 integration: no schema to define, nothing to register, no background
 machinery. (Until the wheel is on PyPI, install it from the repo with
 `pip install ./bindings/python`. The pure-Python reference implementation
-exposes the same nine functions as `gittins_reference.api`, so everything
+exposes the same eight functions as `gittins_reference.api`, so everything
 on this page works there too.)
 
 Two things to know before the code makes sense:
@@ -15,8 +15,8 @@ Two things to know before the code makes sense:
   their results. To save, copy, or roll back, snapshot it with
   `serialize` — the whole state is one plain string.
 - **You supply the time.** Pass your own clock's `t` (seconds, e.g.
-  `time.time()`) into `decide` and `expire`. The engine never looks at a
-  clock itself, so any run can be replayed exactly.
+  `time.time()`) into `decide`, `learn`, and `expire`. The engine never
+  looks at a clock itself, so any run can be replayed exactly.
 
 ## Setting up
 
@@ -69,16 +69,14 @@ The model learns only when you resolve a decision, and each decision can
 only be resolved once:
 
 ```python
-# The reward came in (late or out of order is fine):
-resolution = gittins.learn(state, record.decision_id, reward=1.0)
+# The reward came in (late or out of order is fine). The engine checks
+# your `t` against the decision's own time: a reward arriving at or past
+# the horizon resolves as expired and trains as default_reward instead.
+resolution = gittins.learn(state, record.decision_id, reward=1.0, t=1_752_000_060.0)
 
 # Call this regularly with the current time; decisions that waited past
 # the horizon are trained as default_reward:
 resolutions = gittins.expire(state, t=1_752_003_600.0)
-
-# Throw a decision out of training, but keep that fact on record
-# (say, an outage corrupted the outcome):
-resolution = gittins.censor(state, record.decision_id)
 ```
 
 Each call tells you what it did, so you can log it. Reporting the same
@@ -110,7 +108,7 @@ record = gittins.decide(
 )
 
 gittins.learn(
-    state, record.decision_id, reward=1.0,
+    state, record.decision_id, reward=1.0, t=...,
     train=lambda rec, reward: model.update(rec.decision_id, reward),
 )
 # Give expire the same callback so timed-out decisions train too:
@@ -151,7 +149,7 @@ with open("decisions.jsonl", "a") as f:
     record = gittins.decide(state, context, candidates, t=..., salt="agent-1")
     f.write(gittins.log_line(record) + "\n")
     # ...later, when outcomes arrive:
-    resolution = gittins.learn(state, record.decision_id, reward=1.0)
+    resolution = gittins.learn(state, record.decision_id, reward=1.0, t=...)
     f.write(gittins.log_line(resolution) + "\n")
     for r in gittins.expire(state, t=...):
         f.write(gittins.log_line(r) + "\n")
@@ -176,6 +174,10 @@ gittins eval --log decisions.jsonl.gz --bits 8 --epsilon 0.1
 
 # compare a whole grid in one table
 gittins sweep --log decisions.jsonl.gz --bits 8 --epsilon 0.02,0.05,0.1 --forgetfulness 0.999,0.995
+
+# any log-consuming command accepts --hard-fail: run the full verify
+# pass first and refuse to continue (exit 1) on any violation
+gittins eval --log decisions.jsonl.gz --bits 8 --epsilon 0.1 --hard-fail
 
 # rebuild a deployable state from the log (fleet pooling: merge logs, replay, ship)
 gittins replay --log decisions.jsonl.gz --bits 8 --horizon 3600 > bandit.state

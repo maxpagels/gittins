@@ -102,7 +102,7 @@ class TestPersonalization:
             record, state = decide(state, cands, T0 + float(i), "loop")
             arm = ["x", "y"][record.chosen]
             reward = 1.0 if (arm == "x") == (seg == "a") else 0.0
-            _, state = learn(state, record.decision_id, reward)
+            _, state = learn(state, record.decision_id, reward, T0 + float(i))
             per_seg[seg].append(record.chosen)
         assert Counter(per_seg["a"][-50:])[0] > 40  # segment a wants arm x
         assert Counter(per_seg["b"][-50:])[1] > 40  # segment b wants arm y

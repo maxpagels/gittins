@@ -25,14 +25,14 @@ class TestGoldenCorpus:
     def test_episode_exercises_every_resolution_kind(self):
         episode = generate()["sections"]["episode"]
         kinds = {r["kind"] for r in episode["resolutions"]}
-        assert kinds == {"rewarded", "expired", "censored"}
+        assert kinds == {"rewarded", "expired"}
         assert len(episode["events"]) == 11
         # Nothing left open: the episode is a complete, replayable history.
         assert episode["final"]["open_ids"] == []
         # The rejected attempts cover both resolution entry points, and each
         # names either an already-resolved decision or one never made — the
         # no-op paths an independent implementation must reproduce.
-        assert {r["action"] for r in episode["rejected"]} == {"learn", "censor"}
+        assert {r["action"] for r in episode["rejected"]} == {"learn"}
         resolved = {r["decision_id"] for r in episode["resolutions"]}
         for attempt in episode["rejected"]:
             assert attempt["decision_id"] in resolved or attempt["decision_id"] == "fleet-a:99"
