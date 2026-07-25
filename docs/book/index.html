@@ -267,7 +267,7 @@
 <li><strong>Choose your own complexity.</strong> The same model needs to be able to run (a) ephemerally in memory, (b) persisted to a flat file, or (c) used via a shared service. There should be no need for databases; indeed, the model weights should be possible to check in to version control and deploy as part of normal deployment workflows.</li>
 </ol>
 <p>These concepts are discussed throughout this document, which serves both as an introduction to bandits and as technical documentation for Gittins. I encourage the reader to read the whole document once; once you have understood the concepts on a broad level, use the table of contents below to jump to sections you need to reference.</p>
-<nav class="toc"><h2>Table of Contents</h2><ol><li><a href="#the-contextual-bandit-problem">The Contextual Bandit Problem</a></li><li><a href="#your-first-decision">Your First Decision</a></li><li><a href="#anatomy-of-a-decision">Anatomy of a Decision</a></li><li><a href="#learning-to-forget">Learning to Forget</a></li><li><a href="#what-would-have-happened">What Would Have Happened?</a></li><li><a href="#bring-your-own-algorithms">Bring Your Own Algorithms</a></li><li><a href="#fast-and-the-same-everywhere">Fast, and the Same Everywhere</a></li><li><a href="#choose-your-own-complexity">Choose Your Own Complexity</a></li><li><a href="#stupid-gittins-tricks">Stupid? Gittins Tricks</a></li></ol></nav>
+<nav class="toc"><h2>Table of Contents</h2><ol><li><a href="#the-contextual-bandit-problem">The Contextual Bandit Problem</a></li><li><a href="#your-first-decision">Your First Decision</a></li><li><a href="#the-experience-log">The Experience Log</a></li><li><a href="#anatomy-of-a-decision">Anatomy of a Decision</a></li><li><a href="#learning-to-forget">Learning to Forget</a></li><li><a href="#what-would-have-happened">What Would Have Happened?</a></li><li><a href="#bring-your-own-algorithms">Bring Your Own Algorithms</a></li><li><a href="#fast-and-the-same-everywhere">Fast, and the Same Everywhere</a></li><li><a href="#choose-your-own-complexity">Choose Your Own Complexity</a></li><li><a href="#stupid-gittins-tricks">Stupid? Gittins Tricks</a></li></ol></nav>
 <div class="fleuron" role="separator">ε</div>
 <h2 id="the-contextual-bandit-problem">The Contextual Bandit Problem</h2>
 <p>In the contextual bandit setting, you (repeatedly):</p>
@@ -381,8 +381,51 @@ state = gittins.deserialize(localStorage.getItem(<span class="tok-str">&quot;ban
 </div>
 <p><code>deserialize</code> validates everything and refuses to load anything corrupt, and the format is shared across implementations: a state saved in the browser will load in Python, and vice versa.</p>
 <div class="fleuron" role="separator">ε</div>
+<h2 id="the-experience-log">The Experience Log</h2>
+<p>The loop above built learns online, and the snapshot saved carries everything the model knows. But a running bandit produces something else of value along the way: a trace of every decision it made, what it chose from, and what happened next. Written down properly, this trace is an <em>experience log</em>. This (optional) log is a dataset that lets you answer questions offline, after the fact. Was <code>epsilon</code> too high? Would forgetting more slowly have earned more reward? How would a different configuration have done on this exact traffic? Answering these questions is the subject of <a href="#what-would-have-happened">What Would Have Happened?</a>; this chapter is about building a log that such evaluation needs.</p>
+<p>A common failure mode of bandits in production settings is that their logs are <em>assembled</em> rather than <em>recorded</em>; typically, a &quot;what we chose&quot; table joined to a &quot;what reward we got&quot; table, with the candidate set reconstructed from a catalogue that has since changed, and the probability of each choice re-derived from a model that has since been retrained. Every join is a place to be subtly wrong, and a subtly wrong log poisons every conclusion drawn from it. Gittins takes the position that an experience log should never be assembled, only appended to: every call in the decision loop already returns exactly what belongs in the log, and <code>log_line</code> turns it into one canonical line. Log the record <code>decide</code> returns, log the resolution <code>learn</code> returns, log what <code>expire</code> returns, and you are done:</p>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="js">WASM (JavaScript)</button></div>
+<pre data-lang="python"><code class="language-python">log = open(<span class="tok-str">&quot;decisions.jsonl&quot;</span>, <span class="tok-str">&quot;a&quot;</span>)
+
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(), salt=<span class="tok-str">&quot;bandit-1&quot;</span>,
+)
+log.write(gittins.log_line(record) + <span class="tok-str">&quot;\n&quot;</span>)
+
+<span class="tok-com"># ...when the reward arrives:</span>
+resolution = gittins.learn(state, record.decision_id, reward=<span class="tok-num">1.0</span>)
+log.write(gittins.log_line(resolution) + <span class="tok-str">&quot;\n&quot;</span>)
+
+<span class="tok-com"># ...and on every sweep:</span>
+<span class="tok-kw">for</span> r <span class="tok-kw">in</span> gittins.expire(state, t=time.time()):
+    log.write(gittins.log_line(r) + <span class="tok-str">&quot;\n&quot;</span>)</code></pre>
+<pre data-lang="js" hidden><code class="language-js"><span class="tok-kw">const</span> log = []; <span class="tok-com">// ship to wherever your logs live</span>
+
+<span class="tok-kw">const</span> record = gittins.decide(
+  state, context, candidates,
+  Date.now() / <span class="tok-num">1000</span>, <span class="tok-str">&quot;browser-1&quot;</span>,
+);
+log.push(gittins.log_line(record));
+
+<span class="tok-com">// ...when the reward arrives:</span>
+<span class="tok-kw">const</span> resolution = gittins.learn(state, record.decision_id, <span class="tok-num">1.0</span>);
+log.push(gittins.log_line(resolution));
+
+<span class="tok-com">// ...and on every sweep:</span>
+<span class="tok-kw">for</span> (<span class="tok-kw">const</span> r <span class="tok-kw">of</span> gittins.expire(state, Date.now() / <span class="tok-num">1000</span>)) {
+  log.push(gittins.log_line(r));
+}</code></pre>
+</div>
+<p>Each line is one compact JSON object, in canonical field order, so the log is plain text: you can grep it, split it by line, gzip it, and diff it. It contains two types of records, decisions and resolutions (rewards), and if you've implemented it correctly, it should be ordered in time, with the latest observation at the end of the file. Note that following the bit-identical design philosophy of Gittins, logs written by a browser bandit and a Python bandit can be used to train each other, as there are no cross-platform differences.</p>
+<p>One rule follows from the design, and it is worth internalising: <strong>log decisions when you make them</strong>. The record <code>decide</code> returns is the only object that carries the full inputs — the context, the candidates, and the encoding declaration, attached at the only moment they all exist. The engine's own memory deliberately keeps a compact form (that is what keeps it fixed-size), so the inputs are not in the state and cannot be recovered from it later. The log, not the state, is where inputs persist.</p>
+<p>Notice also what you are <em>not</em> logging: your feature pipeline's raw inputs, the model's scores, or anything you compute yourself. Every decision line carries the probability the choice was made with and a fingerprint of the whole candidate set — the two facts offline evaluation depends on and after-the-fact assembly cannot faithfully recover. Because the engine wrote them, they can also be <em>verified</em>: the offline tooling recomputes what every line claims and refuses logs that do not check out, a guarantee covered in <a href="#what-would-have-happened">What Would Have Happened?</a>.</p>
+<p>Logging is optional — the bandit learns online either way, and an ephemeral use case may not care what would have happened. But an appended line per call is about as cheap as insurance gets, and the day you want to tune <code>epsilon</code> or <code>forgetfulness</code> against reality rather than intuition, the log is the only place those answers can come from.</p>
+<p><em>&quot;Isn't constant writing to disk bad for performance?&quot;</em>, you may ask. Indeed, in some instances, it can be. Feel free to batch resultions to an array and write to the log in batches; however, remember that the resolutions must be in the order they were made.</p>
+<div class="fleuron" role="separator">ε</div>
 <h2 id="anatomy-of-a-decision">Anatomy of a Decision</h2>
-<p>The previous chapter gave you a brief overview on how to make simple decisions with Gittins, but it is worth knowing what is happening under the hood. Gittins makes deliberate choices to offer a high degree of flexibility. For a decision, this is the internal workflow:</p>
+<p>The previous chapters gave you a brief overview on how to make simple decisions with Gittins, but it is worth knowing what is happening under the hood. Gittins makes deliberate choices to offer a high degree of flexibility. For a decision, this is the internal workflow:</p>
 <p><strong>Feature processing.</strong> The context dictionary and each candidate's feature dict are first broken into tokens: one token is created per (name, value) pair, and tagged by a namespace: <code>c</code> for context or <code>a</code> for action. Each token is then hashed into the model's space of 2^<code>bits</code> dimensions. This is why nothing is ever registered up front: a feature's position in the model <em>is</em> its hash, so a brand-new feature name or action simply hashes somewhere and starts accumulating evidence. Pay attention to your feature names: <code>Afternoon</code> and <code>afternoon</code> will hash into two different indices, learning separate weights inside the model.</p>
 <p>There is one additional subtlety worth understanding. With a linear model, a feature derived from the context alone would add the same amount to <em>every</em> candidate's score, and so could never change which candidate wins. Context can only matter through its <em>interaction</em> with the actions. Gittins encodes each candidate as a hashed outer product: every context token is crossed with every action token, plus main effects for each. &quot;Mobile user&quot; and &quot;discount banner&quot; each get their own dimension, and <em>mobile-user-seeing-a-discount-banner</em> gets a third. It is precisely this third dimension that lets the model learn that discounts work on mobile even if they fail on average.</p>
 <p><strong>Scoring.</strong> Each candidate's feature vector is scored by the built-in reward model, which is a ridge regression variant: recursive least squares with a forgetting factor, kept diagonal (forgetting is important for non-stationary problems; diagonality is for performance). Here is the whole model. Each dimension <code>j</code> carries two running sums: <code>xx_j</code>, the sum of that feature's squared values, and <code>xy_j</code>, the sum of that feature's value times the observed reward. On every update, both sums are first multiplied by the <code>forgetfulness</code> factor, so recent observations always outweigh old ones. A dimension's weight is then</p>

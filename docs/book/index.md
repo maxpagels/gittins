@@ -196,9 +196,63 @@ will load in Python, and vice versa.
 
 ---
 
+## The Experience Log
+
+The loop above built learns online, and the snapshot saved carries everything the model knows. But a running bandit produces something else of value along the way: a trace of every decision it made, what it chose from, and what happened next. Written down properly, this trace is an _experience log_. This (optional) log is a dataset that lets you answer questions offline, after the fact. Was `epsilon` too high? Would forgetting more slowly have earned more reward? How would a different configuration have done on this exact traffic? Answering these questions is the subject of [What Would Have Happened?](#what-would-have-happened); this chapter is about building a log that such evaluation needs.
+
+A common failure mode of bandits in production settings is that their logs are _assembled_ rather than _recorded_; typically, a "what we chose" table joined to a "what reward we got" table, with the candidate set reconstructed from a catalogue that has since changed, and the probability of each choice re-derived from a model that has since been retrained. Every join is a place to be subtly wrong, and a subtly wrong log poisons every conclusion drawn from it. Gittins takes the position that an experience log should never be assembled, only appended to: every call in the decision loop already returns exactly what belongs in the log, and `log_line` turns it into one canonical line. Log the record `decide` returns, log the resolution `learn` returns, log what `expire` returns, and you are done:
+
+```python
+log = open("decisions.jsonl", "a")
+
+record = gittins.decide(
+    state, context, candidates,
+    t=time.time(), salt="bandit-1",
+)
+log.write(gittins.log_line(record) + "\n")
+
+# ...when the reward arrives:
+resolution = gittins.learn(state, record.decision_id, reward=1.0)
+log.write(gittins.log_line(resolution) + "\n")
+
+# ...and on every sweep:
+for r in gittins.expire(state, t=time.time()):
+    log.write(gittins.log_line(r) + "\n")
+```
+
+```js
+const log = []; // ship to wherever your logs live
+
+const record = gittins.decide(
+  state, context, candidates,
+  Date.now() / 1000, "browser-1",
+);
+log.push(gittins.log_line(record));
+
+// ...when the reward arrives:
+const resolution = gittins.learn(state, record.decision_id, 1.0);
+log.push(gittins.log_line(resolution));
+
+// ...and on every sweep:
+for (const r of gittins.expire(state, Date.now() / 1000)) {
+  log.push(gittins.log_line(r));
+}
+```
+
+Each line is one compact JSON object, in canonical field order, so the log is plain text: you can grep it, split it by line, gzip it, and diff it. It contains two types of records, decisions and resolutions (rewards), and if you've implemented it correctly, it should be ordered in time, with the latest observation at the end of the file. Note that following the bit-identical design philosophy of Gittins, logs written by a browser bandit and a Python bandit can be used to train each other, as there are no cross-platform differences.
+
+One rule follows from the design, and it is worth internalising: **log decisions when you make them**. The record `decide` returns is the only object that carries the full inputs — the context, the candidates, and the encoding declaration, attached at the only moment they all exist. The engine's own memory deliberately keeps a compact form (that is what keeps it fixed-size), so the inputs are not in the state and cannot be recovered from it later. The log, not the state, is where inputs persist.
+
+Notice also what you are *not* logging: your feature pipeline's raw inputs, the model's scores, or anything you compute yourself. Every decision line carries the probability the choice was made with and a fingerprint of the whole candidate set — the two facts offline evaluation depends on and after-the-fact assembly cannot faithfully recover. Because the engine wrote them, they can also be *verified*: the offline tooling recomputes what every line claims and refuses logs that do not check out, a guarantee covered in [What Would Have Happened?](#what-would-have-happened).
+
+Logging is optional — the bandit learns online either way, and an ephemeral use case may not care what would have happened. But an appended line per call is about as cheap as insurance gets, and the day you want to tune `epsilon` or `forgetfulness` against reality rather than intuition, the log is the only place those answers can come from.
+
+_"Isn't constant writing to disk bad for performance?"_, you may ask. Indeed, in some instances, it can be. Feel free to batch resultions to an array and write to the log in batches; however, remember that the resolutions must be in the order they were made.
+---
+
 ## Anatomy of a Decision
 
-The previous chapter gave you a brief overview on how to make simple decisions with Gittins, but it is worth knowing what is happening under the hood. Gittins makes deliberate choices to offer a high degree of flexibility. For a decision, this is the internal workflow:
+The previous chapters gave you a brief overview on how to make simple decisions with Gittins, but it is worth knowing what is happening under the hood. Gittins makes deliberate choices to offer a high degree of flexibility. For a decision, this is the internal workflow:
 
 **Feature processing.** The context dictionary and each candidate's feature
 dict are first broken into tokens: one token is created per (name, value) pair, and tagged by a namespace: `c` for context or `a` for action. Each token is then hashed into the model's space of 2^`bits` dimensions. This is why nothing is ever registered up front: a feature's position in the model *is* its hash, so a brand-new feature name or action simply hashes somewhere and starts accumulating evidence. Pay attention to your feature names: `Afternoon` and `afternoon` will hash into two different indices, learning separate weights inside the model.
