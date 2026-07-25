@@ -15,14 +15,25 @@ const MIX_B: u64 = 0x94D049BB133111EB;
 const FNV_OFFSET: u64 = 0xCBF29CE484222325;
 const FNV_PRIME: u64 = 0x100000001B3;
 
-/// Hash bytes to a 64-bit integer with FNV-1a.
-pub fn fnv1a_64(data: &[u8]) -> u64 {
-    let mut h = FNV_OFFSET;
+/// The FNV-1a accumulator before any byte is folded in.
+pub const FNV_START: u64 = FNV_OFFSET;
+
+/// Fold more bytes into an FNV-1a accumulator. FNV-1a is a sequential
+/// byte fold, so `fnv1a_extend(fnv1a_extend(FNV_START, a), b)` equals
+/// `fnv1a_64` of `a` and `b` concatenated — callers hashing many strings
+/// that share a prefix can fold the prefix once and continue from its
+/// accumulator, with no intermediate buffer and no change to any hash.
+pub fn fnv1a_extend(mut h: u64, data: &[u8]) -> u64 {
     for &byte in data {
         h ^= byte as u64;
         h = h.wrapping_mul(FNV_PRIME);
     }
     h
+}
+
+/// Hash bytes to a 64-bit integer with FNV-1a.
+pub fn fnv1a_64(data: &[u8]) -> u64 {
+    fnv1a_extend(FNV_START, data)
 }
 
 /// The splitmix64 finalizer.

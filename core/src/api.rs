@@ -8,7 +8,7 @@
 
 use crate::decide::{decide as decide_encoded, new_bandit, BanditState, DecisionRecord};
 use crate::decide::{Explore, Score};
-use crate::encoding::{encode, Features, Value};
+use crate::encoding::{context_tokens, encode_with_context, Features, Value};
 use crate::error::Error;
 use crate::ledger;
 
@@ -175,9 +175,10 @@ pub fn decide(
     explore: Option<Explore>,
 ) -> Result<DecisionRecord, Error> {
     let bits = model_bits(state)?;
+    let left = context_tokens(context);
     let encoded: Vec<Features> = candidates
         .iter()
-        .map(|(arm_id, action)| encode(context, arm_id, action, bits))
+        .map(|(arm_id, action)| encode_with_context(&left, arm_id, action, bits))
         .collect::<Result<_, _>>()?;
     decide_encoded(state, &encoded, t, salt, score, explore)
 }
@@ -185,6 +186,7 @@ pub fn decide(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::encoding::encode;
     use crate::exploration::DEFAULT_EPSILON;
     use crate::model::DEFAULT_FORGETTING;
 

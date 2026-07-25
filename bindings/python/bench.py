@@ -292,7 +292,7 @@ def print_compare(base_rows: "list[dict]", head_rows: "list[dict]") -> None:
         for head in head_rows
     ]
     print_markdown_table(
-        ["arms", "context features"] + [label for _, label in IMPLS], table, small=True
+        ["arms", "context features"] + [label for _, label in IMPLS], table, small=False
     )
 
 
