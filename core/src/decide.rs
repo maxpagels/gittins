@@ -21,7 +21,7 @@ use crate::encoding::Features;
 use crate::error::Error;
 use crate::exploration::{epsilon_greedy_probabilities, sample_index};
 use crate::model::{estimate_factored, factorize, new_model, LinearModel};
-use crate::rng::{derive_key, fnv1a_64};
+use crate::rng::{derive_key, fnv1a_extend, FNV_START};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BanditState {
@@ -77,18 +77,20 @@ pub fn new_bandit(
 /// the count, then each candidate as the model dimension, its nonzero-entry
 /// count, and its (index, value) pairs in index order — integers as 8
 /// little-endian bytes, values as little-endian IEEE-754 doubles.
+/// Streamed through the FNV accumulator: the same bytes in the same order
+/// as hashing the materialized encoding, without ever building it — for a
+/// large candidate set that buffer is megabytes per decision.
 pub fn candidate_set_hash(candidates: &[Features], dim: usize) -> u64 {
-    let mut data = Vec::new();
-    data.extend_from_slice(&(candidates.len() as u64).to_le_bytes());
+    let mut h = fnv1a_extend(FNV_START, &(candidates.len() as u64).to_le_bytes());
     for x in candidates {
-        data.extend_from_slice(&(dim as u64).to_le_bytes());
-        data.extend_from_slice(&(x.len() as u64).to_le_bytes());
+        h = fnv1a_extend(h, &(dim as u64).to_le_bytes());
+        h = fnv1a_extend(h, &(x.len() as u64).to_le_bytes());
         for &(i, v) in x {
-            data.extend_from_slice(&(i as u64).to_le_bytes());
-            data.extend_from_slice(&v.to_le_bytes());
+            h = fnv1a_extend(h, &(i as u64).to_le_bytes());
+            h = fnv1a_extend(h, &v.to_le_bytes());
         }
     }
-    fnv1a_64(&data)
+    h
 }
 
 /// A BYO score callback: the candidates' estimates, in candidate order.

@@ -7,10 +7,8 @@
 //! accumulate in outer-product iteration order, so every output value is
 //! bit-identical to the reference's.
 
-use std::collections::BTreeMap;
-
 use crate::error::Error;
-use crate::rng::{fnv1a_64, mix64};
+use crate::rng::{fnv1a_extend, mix64, FNV_START};
 
 /// Separator between the two tokens of a pair; no printable token contains it.
 const PAIR_SEP: u8 = 0x1f;
@@ -43,14 +41,19 @@ pub fn feature_tokens(namespace: &str, values: &[(String, Value)]) -> Vec<(Strin
     out
 }
 
+/// The FNV-1a accumulator after folding `left_token` and the separator:
+/// the shared prefix state of every pair hash with this left token, folded
+/// once per left token instead of once per pair.
+fn left_prefix(left_token: &str) -> u64 {
+    fnv1a_extend(fnv1a_extend(FNV_START, left_token.as_bytes()), &[PAIR_SEP])
+}
+
 /// The 64-bit hash of one (left token, right token) pair: FNV-1a over the
 /// tokens joined by the separator byte, finished with the splitmix64 mixer.
+/// Streamed through the accumulator — the same byte fold as hashing the
+/// joined string, with no intermediate buffer.
 pub fn pair_hash(left_token: &str, right_token: &str) -> u64 {
-    let mut data = Vec::with_capacity(left_token.len() + 1 + right_token.len());
-    data.extend_from_slice(left_token.as_bytes());
-    data.push(PAIR_SEP);
-    data.extend_from_slice(right_token.as_bytes());
-    mix64(fnv1a_64(&data))
+    mix64(fnv1a_extend(left_prefix(left_token), right_token.as_bytes()))
 }
 
 /// The left half of the outer product — the bias token plus the context's
@@ -93,13 +96,27 @@ pub fn encode_with_context(
     let mut right = vec![(String::new(), 1.0)];
     right.extend(feature_tokens("a", action));
     right.push((format!("i|{arm_id}"), 1.0));
-    let mut slots: BTreeMap<usize, f64> = BTreeMap::new();
+    // The outer product, flat: (slot, contribution) in iteration order,
+    // then a stable sort by slot. Stability keeps equal slots in encounter
+    // order, so summing each run left to right performs the exact addition
+    // sequence the per-slot accumulator did — same bits, no tree of nodes.
+    let mut pairs: Vec<(usize, f64)> = Vec::with_capacity(left.len() * right.len());
     for (left_token, left_value) in left {
+        let prefix = left_prefix(left_token);
         for (right_token, right_value) in &right {
-            let h = pair_hash(left_token, right_token);
+            let h = mix64(fnv1a_extend(prefix, right_token.as_bytes()));
             let sign = if h >> 63 == 0 { 1.0 } else { -1.0 };
-            *slots.entry((h & mask) as usize).or_insert(0.0) += sign * left_value * right_value;
+            pairs.push(((h & mask) as usize, sign * left_value * right_value));
         }
     }
-    Ok(slots.into_iter().filter(|&(_, v)| v != 0.0).collect())
+    pairs.sort_by_key(|&(slot, _)| slot); // stable: encounter order per slot
+    let mut out: Features = Vec::with_capacity(pairs.len());
+    for (slot, v) in pairs {
+        match out.last_mut() {
+            Some(last) if last.0 == slot => last.1 += v,
+            _ => out.push((slot, v)),
+        }
+    }
+    out.retain(|&(_, v)| v != 0.0);
+    Ok(out)
 }
