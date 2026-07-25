@@ -201,10 +201,17 @@ IMPLS = (
 )
 
 
-def print_markdown_table(header: "list[str]", rows: "list[list[str]]") -> None:
+def print_markdown_table(
+    header: "list[str]", rows: "list[list[str]]", small: bool = False
+) -> None:
     """Pad every column to its widest cell so the table lines up in a
     terminal and in the raw job summary; the `---:` separators keep it
-    valid (right-aligned) markdown — same convention as the CLI's sweep."""
+    valid (right-aligned) markdown — same convention as the CLI's sweep.
+    `small` wraps every cell in `<sub>`, the one font-size lever GitHub's
+    markdown renderer allows (it strips CSS), for wide tables."""
+    if small:
+        header = [f"<sub>{h}</sub>" for h in header]
+        rows = [[f"<sub>{c}</sub>" for c in row] for row in rows]
     widths = [len(h) for h in header]
     for row in rows:
         for i, c in enumerate(row):
@@ -258,7 +265,7 @@ def delta_cell(base: "float | None", head: "float | None") -> str:
     if base is None:
         return f"{cell(head)} (new)"
     change = (head - base) / base * 100.0
-    return f"{base * 1e6:,.0f} → {head * 1e6:,.0f} µs ({change:+,.0f}%)"
+    return f"{base * 1e6:,.0f} → {head * 1e6:,.0f} ({change:+,.0f}%)"
 
 
 def print_compare(base_rows: "list[dict]", head_rows: "list[dict]") -> None:
@@ -285,7 +292,7 @@ def print_compare(base_rows: "list[dict]", head_rows: "list[dict]") -> None:
         for head in head_rows
     ]
     print_markdown_table(
-        ["arms", "context features"] + [label for _, label in IMPLS], table
+        ["arms", "context features"] + [label for _, label in IMPLS], table, small=True
     )
 
 
