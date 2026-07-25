@@ -59,8 +59,6 @@ Colliding contributions that cancel to exactly 0.0 are absent,
 matching the candidate-set hash's canonical form (decide.py).
 """
 
-from functools import lru_cache
-
 from gittins_reference.rng import fnv1a_64, mix64
 
 # Separator between the two tokens of a pair; no printable token contains it.
@@ -83,7 +81,6 @@ def feature_tokens(namespace: str, values: dict) -> "list[tuple[str, float]]":
     return out
 
 
-@lru_cache(maxsize=65536)
 def pair_hash(left_token: str, right_token: str) -> int:
     # A pure function of the tokens, and the same pairs recur on every
     # decision, so the hash is memoized; the bound keeps memory fixed under
