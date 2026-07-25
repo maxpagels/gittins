@@ -12,10 +12,10 @@ use crate::encoding::{encode, Features, Value};
 use crate::error::Error;
 use crate::ledger;
 
-// Censor and the resolution types pass through unchanged; re-exported so
+// The resolution types pass through unchanged; re-exported so
 // the binding surface is this one module. `learn` and `expire` gain the
 // BYO `train` callback below.
-pub use crate::ledger::{censor, Kind, Resolution};
+pub use crate::ledger::{Kind, Resolution};
 
 /// A BYO train callback: the resolved decision's record and
 /// the reward it resolved with — the exactly-once, correctly-joined

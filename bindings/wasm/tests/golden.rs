@@ -21,7 +21,7 @@ use js_sys::{Array, BigInt, Function, Object, Reflect};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 
-use gittins_wasm::{create, decide, deserialize, expire, learn, censor, model_bits, serialize};
+use gittins_wasm::{create, decide, deserialize, expire, learn, model_bits, serialize};
 
 fn section(name: &str) -> Json {
     Json::parse(include_str!("../../../spec/golden.json"))
@@ -152,7 +152,6 @@ fn api_section_through_the_binding() {
     let mut resolutions = Vec::new();
     resolutions.push(learn(&mut state, &ids[1], 1.0, last_t, None).unwrap());
     resolutions.push(learn(&mut state, &ids[0], 0.0, last_t, None).unwrap());
-    resolutions.push(censor(&mut state, &ids[2]));
     for r in expire(&mut state, s.get("expire_sweep_at").f64_(), None).unwrap().iter() {
         resolutions.push(r);
     }
@@ -164,7 +163,7 @@ fn api_section_through_the_binding() {
 
     // Second resolutions are no-ops, returning null.
     assert!(learn(&mut state, &ids[0], 1.0, last_t, None).unwrap().is_null());
-    assert!(censor(&mut state, &ids[2]).is_null());
+    assert!(learn(&mut state, &ids[2], 1.0, last_t, None).unwrap().is_null());
 
     let fin = s.get("final");
     let data = serialize(&state);
@@ -269,7 +268,6 @@ fn byo_section_through_the_binding() {
     resolutions.push(learn(&mut state, &ids[0], 0.0, t3, Some(train_fn.clone())).unwrap());
     // Deliberately mixed: the plain learn trains the built-in model.
     resolutions.push(learn(&mut state, &ids[4], 1.0, t4, None).unwrap());
-    resolutions.push(censor(&mut state, &ids[2]));
     for r in expire(&mut state, s.get("expire_sweep_at").f64_(), Some(train_fn.clone()))
         .unwrap()
         .iter()

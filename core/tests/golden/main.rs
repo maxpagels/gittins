@@ -13,7 +13,7 @@ use gittins_core::api;
 use gittins_core::decide::{candidate_set_hash, decide, new_bandit, BanditState, DecisionRecord};
 use gittins_core::encoding::{encode, feature_tokens, pair_hash, Features, Value};
 use gittins_core::exploration::{epsilon_greedy_probabilities, sample_index, DEFAULT_EPSILON};
-use gittins_core::ledger::{censor, expire, learn, Resolution};
+use gittins_core::ledger::{expire, learn, Resolution};
 use gittins_core::model::{new_model, predict, update, DEFAULT_FORGETTING};
 use gittins_core::rng::{derive_key, random_u64, random_unit};
 use gittins_core::state::{deserialize, serialize, FORMAT_VERSION};
@@ -213,8 +213,8 @@ fn assert_resolutions(actual: &[Resolution], expected: &Json) {
 /// same reward rule, same out-of-order resolutions, same rejected no-op
 /// attempts — asserting every record and resolution against the corpus
 /// along the way. Returns (mid state, final state): the mid state is the
-/// snapshot just before the censor (two open ledger records), matching the
-/// reference's serialization snapshot.
+/// snapshot just after the eleventh decision (two open ledger records),
+/// matching the reference's serialization snapshot.
 fn replay_episode(s: &Json) -> (BanditState, BanditState) {
     let bits: u32 = s.get("bits").u64_() as u32;
     let forgetting = s.get("forgetfulness").f64_();
@@ -262,9 +262,9 @@ fn replay_episode(s: &Json) -> (BanditState, BanditState) {
         // All inside the horizon: the generator reports them at the last play's time.
         resolutions.push(learn(&mut state, &decision_id, reward, t0 + 9.0 * 600.0).unwrap());
     }
-    let (record, _) = play(&mut state, t0 + 6000.0, "a", &events[10]);
+    let (record, reward) = play(&mut state, t0 + 6000.0, "a", &events[10]);
     let mid_state = state.clone(); // decisions 7 and 10 open
-    resolutions.push(censor(&mut state, &record.decision_id).unwrap());
+    resolutions.push(learn(&mut state, &record.decision_id, reward, t0 + 6000.0).unwrap());
     let sweep_t = t0 + 7.0 * 600.0 + horizon; // decision 7 is exactly due
     assert_bits(sweep_t, s.get("expire_sweep_at"), "expire_sweep_at");
     resolutions.extend(expire(&mut state, sweep_t));
@@ -274,13 +274,9 @@ fn replay_episode(s: &Json) -> (BanditState, BanditState) {
     // enforced by the final-state comparisons coming *after* them.
     for attempt in s.get("rejected").arr() {
         let id = attempt.get("decision_id").str_();
-        let resolved = match attempt.get("action").str_() {
-            "learn" => {
-                learn(&mut state, id, attempt.get("reward").f64_(), attempt.get("t").f64_()).is_some()
-            }
-            "censor" => censor(&mut state, id).is_some(),
-            other => panic!("unknown rejected action {other:?}"),
-        };
+        assert!(attempt.get("action").str_() == "learn", "unknown rejected action");
+        let resolved =
+            learn(&mut state, id, attempt.get("reward").f64_(), attempt.get("t").f64_()).is_some();
         assert!(!resolved, "rejected attempt on {id} unexpectedly resolved");
     }
     (mid_state, state)
@@ -414,7 +410,6 @@ fn api_section() {
     resolutions.push(
         api::learn(&mut state, &records[0].decision_id, 0.0, records[3].t, None).unwrap().unwrap(),
     );
-    resolutions.push(api::censor(&mut state, &records[2].decision_id).unwrap());
     resolutions.extend(api::expire(&mut state, s.get("expire_sweep_at").f64_(), None).unwrap());
     assert_resolutions(&resolutions, s.get("resolutions"));
 
@@ -514,7 +509,6 @@ fn byo_section() {
     resolutions.push(
         api::learn(&mut state, &records[4].decision_id, 1.0, records[4].t, None).unwrap().unwrap(),
     );
-    resolutions.push(api::censor(&mut state, &records[2].decision_id).unwrap());
     resolutions.extend(
         api::expire(&mut state, s.get("expire_sweep_at").f64_(), Some(&mut train)).unwrap(),
     );

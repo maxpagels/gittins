@@ -76,6 +76,14 @@ const TOKENS = {
 };
 TOKENS.py = TOKENS.python;
 TOKENS.javascript = TOKENS.js;
+TOKENS.sh = {
+  comment: /#[^\n]*/,
+  string: /"(?:\\.|[^"\\\n])*"|'[^'\n]*'/,
+  keyword: /\bgittins\b/,
+  number: /\b\d[\d_]*(?:\.\d[\d_]*)?\b/,
+};
+TOKENS.bash = TOKENS.sh;
+TOKENS.shell = TOKENS.sh;
 
 function highlight(code, lang) {
   const t = TOKENS[lang];

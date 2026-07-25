@@ -2,7 +2,7 @@
 
 /**
  * The bandit's state: an opaque handle, mutated in place by decide/learn/
- * censor/expire; persist it with serialize/deserialize.
+ * expire; persist it with serialize/deserialize.
  */
 export class BanditState {
     static __wrap(ptr) {
@@ -23,20 +23,6 @@ export class BanditState {
     }
 }
 if (Symbol.dispose) BanditState.prototype[Symbol.dispose] = BanditState.prototype.free;
-
-/**
- * The resolution object, or null if the id is unknown or already resolved.
- * @param {BanditState} state
- * @param {string} decision_id
- * @returns {any}
- */
-export function censor(state, decision_id) {
-    _assertClass(state, BanditState);
-    const ptr0 = passStringToWasm0(decision_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.censor(state.__wbg_ptr, ptr0, len0);
-    return ret;
-}
 
 /**
  * @param {number} bits

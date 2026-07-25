@@ -194,7 +194,7 @@ fn resolution_to_js(resolution: Resolution) -> JsValue {
 }
 
 /// The bandit's state: an opaque handle, mutated in place by decide/learn/
-/// censor/expire; persist it with serialize/deserialize.
+/// expire; persist it with serialize/deserialize.
 #[wasm_bindgen]
 pub struct BanditState {
     inner: CoreState,
@@ -365,15 +365,6 @@ pub fn learn(
         Some(resolution) => resolution_to_js(resolution),
         None => JsValue::NULL,
     })
-}
-
-/// The resolution object, or null if the id is unknown or already resolved.
-#[wasm_bindgen]
-pub fn censor(state: &mut BanditState, decision_id: &str) -> JsValue {
-    match api::censor(&mut state.inner, decision_id) {
-        Some(resolution) => resolution_to_js(resolution),
-        None => JsValue::NULL,
-    }
 }
 
 /// Every decision past its horizon at time `t`, resolved as expired, in

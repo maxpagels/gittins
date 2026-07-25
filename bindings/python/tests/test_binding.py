@@ -30,7 +30,6 @@ def replay_api_section():
     last_t = s["events"][-1]["t"]  # both rewards inside every horizon
     resolutions.append(gittins.learn(state, expected1["decision_id"], 1.0, last_t))
     resolutions.append(gittins.learn(state, expected0["decision_id"], 0.0, last_t))
-    resolutions.append(gittins.censor(state, records[2][1]["decision_id"]))
     resolutions.extend(gittins.expire(state, s["expire_sweep_at"]))
     return s, state, records, resolutions
 
@@ -115,7 +114,7 @@ class TestSurface:
         assert gittins.expire(state, 1e9) == ()
 
     def test_the_usage_doc_lifecycle(self):
-        # docs/usage.md, through the wheel: decide, learn, expire, censor,
+        # docs/usage.md, through the wheel: decide, learn, expire,
         # save, load.
         state = gittins.create(bits=8, horizon=3600.0)
         context = {"device": "mobile", "hour": 14}
@@ -127,8 +126,6 @@ class TestSurface:
         record = gittins.decide(state, context, candidates, 0.0, "agent-1")
         assert candidates[record.chosen][0].startswith("banner-")
         assert gittins.learn(state, record.decision_id, 1.0, 60.0).kind == "rewarded"
-        record = gittins.decide(state, context, candidates, 1.0, "agent-1")
-        assert gittins.censor(state, record.decision_id).kind == "censored"
         assert gittins.model_bits(state) == 8
         restored = gittins.deserialize(gittins.serialize(state))
         assert gittins.serialize(restored) == gittins.serialize(state)
@@ -186,7 +183,6 @@ def replay_byo_section():
     resolutions.append(gittins.learn(state, ids[1], 1.0, t3, train=train))
     resolutions.append(gittins.learn(state, ids[0], 0.0, t3, train=train))
     resolutions.append(gittins.learn(state, ids[4], 1.0, t4))  # deliberately mixed: built-in update
-    resolutions.append(gittins.censor(state, ids[2]))
     resolutions.extend(gittins.expire(state, s["expire_sweep_at"], train=train))
     return s, state, records, resolutions, trained
 

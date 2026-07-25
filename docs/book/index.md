@@ -44,7 +44,7 @@ You may be thinking to yourself, "why not use supervised learning instead of ban
 
 Gittins comes in three flavours: a (slow) reference Python implementation, which is not packaged and not recommended outside development of the system; Python bindings, for most data science workflows; and WASM bindings, for in-browser decisions. The bindings call a core written in Rust for performance reasons.
 
-Whichever flavour you pick, the interface is the same nine functions with the same
+Whichever flavour you pick, the interface is the same eight functions with the same
 names and the same semantics. A state saved by one loads in the others,
 bit for bit. The examples in this document default to Python; use the toggle
 above any code block to switch to the WASM (JavaScript) API, and the whole
@@ -477,12 +477,6 @@ Simply put, this means you can save a model in Python, load it in JavaScript, an
 [BENCH]
 
 As you can see, and I'll hope you agree, these are high performance numbers. High throughput enables architectures not always apparent; for example, if your use case is ephemeral, you can run Gittins single-threaded in one small virtual machine and serve far more users than the server software in front of it is likely to be able to handle, assuming a typical amount of actions.
-
----
-
-## Choose Your Own Complexity
-
-[WIP]
 
 ---
 

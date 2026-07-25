@@ -128,7 +128,7 @@ impl From<CoreRecord> for DecisionRecord {
 }
 
 /// One resolution event: how a decision left the ledger. `reward` is what
-/// the model trained with; None for censored.
+/// the model trained with.
 #[pyclass(frozen, name = "Resolution", module = "gittins")]
 struct Resolution {
     #[pyo3(get)]
@@ -337,12 +337,6 @@ fn learn(
     caught.rethrow(result).map(|o| o.map(Resolution::from))
 }
 
-/// The resolution, or None if the id is unknown or already resolved.
-#[pyfunction]
-fn censor(state: &Bound<'_, BanditState>, decision_id: &str) -> Option<Resolution> {
-    api::censor(&mut state.borrow_mut().inner, decision_id).map(Resolution::from)
-}
-
 /// Every decision past its horizon at time `t`, resolved as expired, in
 /// ledger order. `train` as on `learn`, fired per due record.
 #[pyfunction]
@@ -386,7 +380,6 @@ fn gittins(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(create, m)?)?;
     m.add_function(wrap_pyfunction!(decide, m)?)?;
     m.add_function(wrap_pyfunction!(learn, m)?)?;
-    m.add_function(wrap_pyfunction!(censor, m)?)?;
     m.add_function(wrap_pyfunction!(expire, m)?)?;
     m.add_function(wrap_pyfunction!(serialize, m)?)?;
     m.add_function(wrap_pyfunction!(deserialize, m)?)?;

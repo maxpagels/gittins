@@ -1,7 +1,7 @@
 //! The decision ledger: safe reward handling — the port of `ledger.py`.
 //!
-//! Every open decision resolves in exactly one of three ways — rewarded,
-//! expired(default_reward) at the horizon, or censored — each a deliberate,
+//! Every open decision resolves in exactly one of two ways — rewarded, or
+//! expired(default_reward) at the horizon — each a deliberate,
 //! loggable event. Resolving removes the record, so duplicates are
 //! structural no-ops; no code path learns from an open decision. Resolution
 //! order within one `expire` sweep is ledger (insertion) order.
@@ -13,7 +13,6 @@ use crate::model::update;
 pub enum Kind {
     Rewarded,
     Expired,
-    Censored,
 }
 
 impl Kind {
@@ -21,13 +20,12 @@ impl Kind {
         match self {
             Kind::Rewarded => "rewarded",
             Kind::Expired => "expired",
-            Kind::Censored => "censored",
         }
     }
 }
 
 /// One deliberate, loggable resolution event. `reward` is the value the
-/// model trained with; `None` for censored (excluded from training).
+/// model trained with.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Resolution {
     pub decision_id: String,
@@ -59,17 +57,6 @@ pub fn learn(state: &mut BanditState, decision_id: &str, reward: f64, t: f64) ->
         decision_id: record.decision_id,
         kind,
         reward: Some(trained),
-    })
-}
-
-/// Resolve an open decision as censored: removed from the ledger without
-/// training, the exclusion itself returned for the log.
-pub fn censor(state: &mut BanditState, decision_id: &str) -> Option<Resolution> {
-    let record = take(&mut state.ledger, decision_id)?;
-    Some(Resolution {
-        decision_id: record.decision_id,
-        kind: Kind::Censored,
-        reward: None,
     })
 }
 
@@ -107,7 +94,7 @@ mod tests {
     /// `rejected` attempts cover the no-op paths through the final-state
     /// comparison); this pins the same exactly-once property directly, the
     /// way the reference's pytest suite does: every second resolution —
-    /// duplicate, conflicting, post-expiry, post-censor, unknown — returns
+    /// duplicate, conflicting, post-expiry, unknown — returns
     /// None and leaves every bit of the state alone.
     #[test]
     fn resolutions_are_exactly_once() {
@@ -118,16 +105,15 @@ mod tests {
         let c = decide(&mut state, &candidates, 2.0, "test", None, None).unwrap();
 
         assert!(learn(&mut state, &a.decision_id, 1.0, 1.0).is_some());
-        assert!(censor(&mut state, &b.decision_id).is_some());
+        assert!(learn(&mut state, &b.decision_id, 0.0, 2.0).is_some());
         let expired = expire(&mut state, 12.0); // c is due at exactly 12.0
         assert!(expired.len() == 1 && expired[0].decision_id == c.decision_id);
-        assert!(state.ledger.is_empty() && state.model_version == 2);
+        assert!(state.ledger.is_empty() && state.model_version == 3);
 
         let before = state.clone();
         assert!(learn(&mut state, &a.decision_id, 0.0, 3.0).is_none()); // conflicting duplicate
-        assert!(learn(&mut state, &b.decision_id, 1.0, 3.0).is_none()); // reward after censor
+        assert!(learn(&mut state, &b.decision_id, 1.0, 3.0).is_none()); // plain duplicate
         assert!(learn(&mut state, &c.decision_id, 1.0, 13.0).is_none()); // reward after expiry
-        assert!(censor(&mut state, &a.decision_id).is_none()); // censor after reward
         assert!(learn(&mut state, "never-made:0", 1.0, 3.0).is_none()); // unknown id
         assert!(expire(&mut state, 100.0).is_empty()); // nothing due
         assert!(state == before, "a rejected resolution moved the state");

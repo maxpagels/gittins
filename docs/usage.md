@@ -1,11 +1,11 @@
 # Using gittins
 
 Everything goes through one module, `gittins` — the Rust engine as a Python
-package. It has nine functions, and the four steps below are the whole
+package. It has eight functions, and the four steps below are the whole
 integration: no schema to define, nothing to register, no background
 machinery. (Until the wheel is on PyPI, install it from the repo with
 `pip install ./bindings/python`. The pure-Python reference implementation
-exposes the same nine functions as `gittins_reference.api`, so everything
+exposes the same eight functions as `gittins_reference.api`, so everything
 on this page works there too.)
 
 Two things to know before the code makes sense:
@@ -77,10 +77,6 @@ resolution = gittins.learn(state, record.decision_id, reward=1.0, t=1_752_000_06
 # Call this regularly with the current time; decisions that waited past
 # the horizon are trained as default_reward:
 resolutions = gittins.expire(state, t=1_752_003_600.0)
-
-# Throw a decision out of training, but keep that fact on record
-# (say, an outage corrupted the outcome):
-resolution = gittins.censor(state, record.decision_id)
 ```
 
 Each call tells you what it did, so you can log it. Reporting the same

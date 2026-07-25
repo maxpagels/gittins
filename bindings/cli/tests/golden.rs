@@ -63,7 +63,6 @@ fn ope_section() {
         let expected = &case["report"];
         assert!(report.decisions == expected["decisions"].as_u64().unwrap(), "{what}: decisions");
         assert!(report.resolved == expected["resolved"].as_u64().unwrap(), "{what}: resolved");
-        assert!(report.censored == expected["censored"].as_u64().unwrap(), "{what}: censored");
         assert!(report.unresolved == expected["unresolved"].as_u64().unwrap(), "{what}: unresolved");
         assert_opt(report.logged_mean, &expected["logged_mean"], &format!("{what}: logged_mean"));
         assert_opt(report.ips, &expected["ips"], &format!("{what}: ips"));

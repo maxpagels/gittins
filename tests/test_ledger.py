@@ -2,11 +2,9 @@ from collections import Counter
 
 from gittins_reference.decide import decide, new_bandit
 from gittins_reference.ledger import (
-    CENSORED,
     EXPIRED,
     REWARDED,
     Resolution,
-    censor,
     expire,
     learn,
     take,
@@ -114,24 +112,6 @@ class TestLearn:
         resolution, _ = learn(s1, record.decision_id, 1.0, T0 + DAY - 1.0)
         assert resolution == Resolution(record.decision_id, REWARDED, 1.0)
 
-
-class TestCensor:
-    def test_excludes_from_training_but_logs_the_exclusion(self):
-        s = fresh()
-        record, s1 = decide(s, CANDS, T0, "pepper")
-        resolution, s2 = censor(s1, record.decision_id)
-        assert resolution == Resolution(record.decision_id, CENSORED, None)
-        assert s2.ledger == ()
-        assert s2.model == s1.model  # nothing trained
-        assert s2.model_version == s1.model_version
-
-    def test_censored_decision_cannot_be_rewarded_later(self):
-        s = fresh()
-        record, s = decide(s, CANDS, T0, "pepper")
-        _, s = censor(s, record.decision_id)
-        resolution, s2 = learn(s, record.decision_id, 1.0, T0 + 60.0)
-        assert resolution is None
-        assert s2 == s
 
 
 class TestExpire:

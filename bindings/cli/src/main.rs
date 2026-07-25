@@ -187,7 +187,6 @@ fn cmd_eval(flags: &Flags) -> Result<i32, String> {
     )?;
     println!("decisions    {}", report.decisions);
     println!("resolved     {}", report.resolved);
-    println!("censored     {}", report.censored);
     println!("unresolved   {}", report.unresolved);
     println!("logged E(r)  {}", opt(report.logged_mean));
     println!("ips E(r)     {}", opt(report.ips));
