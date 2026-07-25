@@ -339,14 +339,17 @@ pub fn log_line(item: &JsValue) -> Result<String, JsError> {
 }
 
 /// The resolution object, or null if the id is unknown or already resolved.
-/// `train` is the BYO training tap: it replaces the built-in
-/// update and fires after the resolution commits, exactly once, with the
-/// record object and the reward.
+/// The engine classifies against the horizon at time `t`: a reward
+/// arriving at or past the record's `t + horizon` resolves as expired
+/// with the default reward. `train` is the BYO training tap: it replaces
+/// the built-in update and fires after the resolution commits, exactly
+/// once, with the record object and the classified reward.
 #[wasm_bindgen]
 pub fn learn(
     state: &mut BanditState,
     decision_id: &str,
     reward: f64,
+    t: f64,
     train: Option<Function>,
 ) -> Result<JsValue, JsValue> {
     let caught = Caught::new();
@@ -355,6 +358,7 @@ pub fn learn(
         &mut state.inner,
         decision_id,
         reward,
+        t,
         train_cb.as_mut().map(|c| c as _),
     );
     Ok(match caught.rethrow(result)? {

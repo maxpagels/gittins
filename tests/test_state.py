@@ -15,7 +15,7 @@ def worked_state():
         candidates = [encode({"seg": str(i % 2)}, arm, {}, 4) for arm in ("x", "y")]
         record, state = decide(state, candidates, 1000.0 + i, "salty")
         if i < 4:  # the last two stay open
-            _, state = learn(state, record.decision_id, 1.0 if i % 2 else -1.0)
+            _, state = learn(state, record.decision_id, 1.0 if i % 2 else -1.0, 1000.0 + i)
     return state
 
 

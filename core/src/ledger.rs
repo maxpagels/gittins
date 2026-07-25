@@ -42,16 +42,23 @@ fn take(ledger: &mut Vec<DecisionRecord>, decision_id: &str) -> Option<DecisionR
     Some(ledger.remove(i))
 }
 
-/// Resolve an open decision as rewarded(reward). Unknown or already
-/// resolved IDs are a no-op returning `None`.
-pub fn learn(state: &mut BanditState, decision_id: &str, reward: f64) -> Option<Resolution> {
+/// Resolve an open decision at time `t`: rewarded(reward) inside the
+/// horizon, expired(default_reward) at or past it — the same boundary
+/// `expire` uses, so a late reward can never train as a timely one.
+/// Unknown or already resolved IDs are a no-op returning `None`.
+pub fn learn(state: &mut BanditState, decision_id: &str, reward: f64, t: f64) -> Option<Resolution> {
     let record = take(&mut state.ledger, decision_id)?;
-    update(&mut state.model, &record.features, reward);
+    let (kind, trained) = if record.t + state.horizon <= t {
+        (Kind::Expired, state.default_reward)
+    } else {
+        (Kind::Rewarded, reward)
+    };
+    update(&mut state.model, &record.features, trained);
     state.model_version += 1;
     Some(Resolution {
         decision_id: record.decision_id,
-        kind: Kind::Rewarded,
-        reward: Some(reward),
+        kind,
+        reward: Some(trained),
     })
 }
 
@@ -110,19 +117,37 @@ mod tests {
         let b = decide(&mut state, &candidates, 1.0, "test", None, None).unwrap();
         let c = decide(&mut state, &candidates, 2.0, "test", None, None).unwrap();
 
-        assert!(learn(&mut state, &a.decision_id, 1.0).is_some());
+        assert!(learn(&mut state, &a.decision_id, 1.0, 1.0).is_some());
         assert!(censor(&mut state, &b.decision_id).is_some());
         let expired = expire(&mut state, 12.0); // c is due at exactly 12.0
         assert!(expired.len() == 1 && expired[0].decision_id == c.decision_id);
         assert!(state.ledger.is_empty() && state.model_version == 2);
 
         let before = state.clone();
-        assert!(learn(&mut state, &a.decision_id, 0.0).is_none()); // conflicting duplicate
-        assert!(learn(&mut state, &b.decision_id, 1.0).is_none()); // reward after censor
-        assert!(learn(&mut state, &c.decision_id, 1.0).is_none()); // reward after expiry
+        assert!(learn(&mut state, &a.decision_id, 0.0, 3.0).is_none()); // conflicting duplicate
+        assert!(learn(&mut state, &b.decision_id, 1.0, 3.0).is_none()); // reward after censor
+        assert!(learn(&mut state, &c.decision_id, 1.0, 13.0).is_none()); // reward after expiry
         assert!(censor(&mut state, &a.decision_id).is_none()); // censor after reward
-        assert!(learn(&mut state, "never-made:0", 1.0).is_none()); // unknown id
+        assert!(learn(&mut state, "never-made:0", 1.0, 3.0).is_none()); // unknown id
         assert!(expire(&mut state, 100.0).is_empty()); // nothing due
         assert!(state == before, "a rejected resolution moved the state");
+    }
+
+    /// The horizon is enforced at learn time against the record's own
+    /// decision t: a reward arriving at or past the cutoff resolves as
+    /// expired(default_reward) — the same boundary `expire` uses — and
+    /// the supplied reward is ignored.
+    #[test]
+    fn late_reward_resolves_as_expired() {
+        let mut state = new_bandit(4, 10.0, 0.25, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
+        let candidates = vec![vec![(0, 1.0)], vec![(1, 1.0)]];
+        let a = decide(&mut state, &candidates, 0.0, "test", None, None).unwrap();
+        let b = decide(&mut state, &candidates, 0.0, "test", None, None).unwrap();
+
+        let late = learn(&mut state, &a.decision_id, 1.0, 10.0).unwrap(); // due at exactly 10.0
+        assert!(late.kind == Kind::Expired && late.reward == Some(0.25));
+        let timely = learn(&mut state, &b.decision_id, 1.0, 9.0).unwrap();
+        assert!(timely.kind == Kind::Rewarded && timely.reward == Some(1.0));
+        assert!(state.ledger.is_empty() && state.model_version == 2);
     }
 }

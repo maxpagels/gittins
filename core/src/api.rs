@@ -22,32 +22,41 @@ pub use crate::ledger::{censor, Kind, Resolution};
 /// observation the user's model trains on in place of the built-in update.
 pub type Train<'a> = &'a mut dyn FnMut(&DecisionRecord, f64) -> Result<(), Error>;
 
-/// Resolve an open decision as rewarded; `Ok(None)` (a no-op) if the id is
-/// unknown or already resolved. With `train` the built-in model is left
-/// untouched: the resolution commits — the record leaves the ledger and
-/// model_version advances — and then `train(record, reward)` fires,
-/// exactly once per decision; its error propagates after the commit, so a
-/// failing callback loses that one example loudly but can never
-/// double-train.
+/// Resolve an open decision at time `t`: rewarded(reward) inside the
+/// horizon, expired(default_reward) at or past it — the engine enforces
+/// the declared cutoff against the ledger record's own decision time, so
+/// a late reward can never train as a timely one. `Ok(None)` (a no-op) if
+/// the id is unknown or already resolved. With `train` the built-in model
+/// is left untouched: the resolution commits — the record leaves the
+/// ledger and model_version advances — and then `train(record, trained)`
+/// fires with the same classified reward, exactly once per decision; its
+/// error propagates after the commit, so a failing callback loses that
+/// one example loudly but can never double-train.
 pub fn learn(
     state: &mut BanditState,
     decision_id: &str,
     reward: f64,
+    t: f64,
     train: Option<Train>,
 ) -> Result<Option<Resolution>, Error> {
     let Some(train) = train else {
-        return Ok(ledger::learn(state, decision_id, reward));
+        return Ok(ledger::learn(state, decision_id, reward, t));
     };
     let Some(i) = state.ledger.iter().position(|r| r.decision_id == decision_id) else {
         return Ok(None);
     };
     let record = state.ledger.remove(i);
+    let (kind, trained) = if record.t + state.horizon <= t {
+        (Kind::Expired, state.default_reward)
+    } else {
+        (Kind::Rewarded, reward)
+    };
     state.model_version += 1;
-    train(&record, reward)?;
+    train(&record, trained)?;
     Ok(Some(Resolution {
         decision_id: record.decision_id,
-        kind: Kind::Rewarded,
-        reward: Some(reward),
+        kind,
+        reward: Some(trained),
     }))
 }
 
@@ -233,7 +242,7 @@ mod tests {
             trained.borrow_mut().push((r.decision_id.clone(), reward));
             Ok(())
         };
-        let resolution = learn(&mut state, &record.decision_id, 0.75, Some(&mut train))
+        let resolution = learn(&mut state, &record.decision_id, 0.75, 1.0, Some(&mut train))
             .unwrap()
             .unwrap();
         assert!(resolution.kind == Kind::Rewarded && resolution.reward == Some(0.75));
@@ -241,7 +250,7 @@ mod tests {
         assert!(state.model_version == 1, "the observation still counts");
         assert!(*trained.borrow() == vec![(record.decision_id.clone(), 0.75)]);
         // Exactly once: a retry is a no-op and the callback stays quiet.
-        assert!(learn(&mut state, &record.decision_id, 0.75, Some(&mut train))
+        assert!(learn(&mut state, &record.decision_id, 0.75, 1.0, Some(&mut train))
             .unwrap()
             .is_none());
         assert!(trained.borrow().len() == 1);

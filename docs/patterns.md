@@ -24,8 +24,8 @@ r1 = gittins.decide(router, context, category_candidates, t=t, salt="router")
 cat = category_candidates[r1.chosen][0]
 r2 = gittins.decide(leaves[cat], context, items_in(cat), t=t, salt=f"leaf-{cat}")
 # ...outcome arrives:
-gittins.learn(router, r1.decision_id, reward)
-gittins.learn(leaves[cat], r2.decision_id, reward)
+gittins.learn(router, r1.decision_id, reward, t=t)
+gittins.learn(leaves[cat], r2.decision_id, reward, t=t)
 ```
 
 The payoff is large action sets: 10,000 items via 100 categories times 100

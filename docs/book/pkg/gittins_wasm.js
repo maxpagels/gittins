@@ -111,20 +111,23 @@ export function expire(state, t, train) {
 
 /**
  * The resolution object, or null if the id is unknown or already resolved.
- * `train` is the BYO training tap: it replaces the built-in
- * update and fires after the resolution commits, exactly once, with the
- * record object and the reward.
+ * The engine classifies against the horizon at time `t`: a reward
+ * arriving at or past the record's `t + horizon` resolves as expired
+ * with the default reward. `train` is the BYO training tap: it replaces
+ * the built-in update and fires after the resolution commits, exactly
+ * once, with the record object and the classified reward.
  * @param {BanditState} state
  * @param {string} decision_id
  * @param {number} reward
+ * @param {number} t
  * @param {Function | null} [train]
  * @returns {any}
  */
-export function learn(state, decision_id, reward, train) {
+export function learn(state, decision_id, reward, t, train) {
     _assertClass(state, BanditState);
     const ptr0 = passStringToWasm0(decision_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.learn(state.__wbg_ptr, ptr0, len0, reward, isLikeNone(train) ? 0 : addToExternrefTable0(train));
+    const ret = wasm.learn(state.__wbg_ptr, ptr0, len0, reward, t, isLikeNone(train) ? 0 : addToExternrefTable0(train));
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

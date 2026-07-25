@@ -109,7 +109,7 @@ function run(g) {
     const i = (Math.random() * CONTEXTS.length) | 0;
     tSim += 1;
     const record = g.decide(state, CONTEXTS[i], ACTIONS, tSim, "sim");
-    g.learn(state, record.decision_id, Math.random() < P[i][record.chosen] ? 1.0 : 0.0);
+    g.learn(state, record.decision_id, Math.random() < P[i][record.chosen] ? 1.0 : 0.0, tSim);
 
     // Expected reward of each policy's choice this round.
     const pB = P[i][record.chosen];

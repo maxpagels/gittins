@@ -15,8 +15,8 @@ Two things to know before the code makes sense:
   their results. To save, copy, or roll back, snapshot it with
   `serialize` — the whole state is one plain string.
 - **You supply the time.** Pass your own clock's `t` (seconds, e.g.
-  `time.time()`) into `decide` and `expire`. The engine never looks at a
-  clock itself, so any run can be replayed exactly.
+  `time.time()`) into `decide`, `learn`, and `expire`. The engine never
+  looks at a clock itself, so any run can be replayed exactly.
 
 ## Setting up
 
@@ -69,8 +69,10 @@ The model learns only when you resolve a decision, and each decision can
 only be resolved once:
 
 ```python
-# The reward came in (late or out of order is fine):
-resolution = gittins.learn(state, record.decision_id, reward=1.0)
+# The reward came in (late or out of order is fine). The engine checks
+# your `t` against the decision's own time: a reward arriving at or past
+# the horizon resolves as expired and trains as default_reward instead.
+resolution = gittins.learn(state, record.decision_id, reward=1.0, t=1_752_000_060.0)
 
 # Call this regularly with the current time; decisions that waited past
 # the horizon are trained as default_reward:
@@ -110,7 +112,7 @@ record = gittins.decide(
 )
 
 gittins.learn(
-    state, record.decision_id, reward=1.0,
+    state, record.decision_id, reward=1.0, t=...,
     train=lambda rec, reward: model.update(rec.decision_id, reward),
 )
 # Give expire the same callback so timed-out decisions train too:
@@ -151,7 +153,7 @@ with open("decisions.jsonl", "a") as f:
     record = gittins.decide(state, context, candidates, t=..., salt="agent-1")
     f.write(gittins.log_line(record) + "\n")
     # ...later, when outcomes arrive:
-    resolution = gittins.learn(state, record.decision_id, reward=1.0)
+    resolution = gittins.learn(state, record.decision_id, reward=1.0, t=...)
     f.write(gittins.log_line(resolution) + "\n")
     for r in gittins.expire(state, t=...):
         f.write(gittins.log_line(r) + "\n")

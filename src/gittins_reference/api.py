@@ -11,7 +11,7 @@ The surface is nine names:
     create(bits, horizon, ...)          -> BanditState (a handle)
     decide(state, context, candidates, t, salt,
            score=None, explore=None)    -> DecisionRecord
-    learn(state, decision_id, reward, train=None) -> Resolution | None
+    learn(state, decision_id, reward, t, train=None) -> Resolution | None
     censor(state, decision_id)          -> Resolution | None
     expire(state, t, train=None)        -> (Resolution, ...)
     serialize(state)                    -> str (hex)
@@ -232,26 +232,33 @@ def decide(
 
 
 def learn(
-    state: BanditState, decision_id: str, reward: float, train=None
+    state: BanditState, decision_id: str, reward: float, t: float, train=None
 ) -> "Resolution | None":
-    """Resolve an open decision as rewarded; None (a no-op) if the id is
-    unknown or already resolved.
+    """Resolve an open decision at time `t`: rewarded(reward) inside the
+    horizon, expired(default_reward) at or past it — the engine enforces
+    the declared cutoff against the ledger record's own decision time, so
+    a late reward can never train as a timely one. None (a no-op) if the
+    id is unknown or already resolved.
 
     With `train` (the BYO model's training tap), the built-in
     model is left untouched: the resolution commits — the record leaves the
-    ledger and model_version advances — and then `train(record, reward)`
-    fires, exactly once per decision."""
+    ledger and model_version advances — and then `train(record, trained)`
+    fires with the same classified reward, exactly once per decision."""
     if train is None:
-        resolution, state._state = _ledger.learn(state._state, decision_id, reward)
+        resolution, state._state = _ledger.learn(state._state, decision_id, reward, t)
         return resolution
     record, rest = _ledger.take(state._state.ledger, decision_id)
     if record is None:
         return None
+    if record.t + state._state.horizon <= t:
+        kind, trained = _ledger.EXPIRED, state._state.default_reward
+    else:
+        kind, trained = _ledger.REWARDED, reward
     state._state = _replace(
         state._state, model_version=state._state.model_version + 1, ledger=rest
     )
-    train(_public_record(record), reward)
-    return Resolution(decision_id, _ledger.REWARDED, reward)
+    train(_public_record(record), trained)
+    return Resolution(decision_id, kind, trained)
 
 
 def censor(state: BanditState, decision_id: str) -> "Resolution | None":

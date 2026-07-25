@@ -196,9 +196,9 @@ def run_episode():
         elif i % 2 == 1:
             deferred.append((record.decision_id, reward))  # resolved late, in reverse
         else:
-            a = resolve(learn, a, record.decision_id, reward)
+            a = resolve(learn, a, record.decision_id, reward, T0 + i * 600.0)
     for decision_id, reward in reversed(deferred):
-        a = resolve(learn, a, decision_id, reward)
+        a = resolve(learn, a, decision_id, reward, T0 + 9 * 600.0)  # all inside the horizon
     a, record, _ = play(a, T0 + 6000.0, "a")
     mid_state = a  # decisions 7 and 10 open: the serialization mid snapshot
     a = resolve(censor, a, record.decision_id)
@@ -211,15 +211,15 @@ def run_episode():
     # final state below is captured *after* these attempts, so an
     # independent implementation must reject them all to match it.
     rejected = [
-        {"action": "learn", "decision_id": "fleet-a:0", "reward": 0.0},
-        {"action": "learn", "decision_id": "fleet-a:7", "reward": 1.0},
-        {"action": "learn", "decision_id": "fleet-a:10", "reward": 1.0},
+        {"action": "learn", "decision_id": "fleet-a:0", "reward": 0.0, "t": sweep_t},
+        {"action": "learn", "decision_id": "fleet-a:7", "reward": 1.0, "t": sweep_t},
+        {"action": "learn", "decision_id": "fleet-a:10", "reward": 1.0, "t": sweep_t},
         {"action": "censor", "decision_id": "fleet-a:0"},
-        {"action": "learn", "decision_id": "fleet-a:99", "reward": 1.0},
+        {"action": "learn", "decision_id": "fleet-a:99", "reward": 1.0, "t": sweep_t},
     ]
     for attempt in rejected:
         if attempt["action"] == "learn":
-            resolution, a = learn(a, attempt["decision_id"], attempt["reward"])
+            resolution, a = learn(a, attempt["decision_id"], attempt["reward"], attempt["t"])
         else:
             resolution, a = censor(a, attempt["decision_id"])
         assert resolution is None, f"rejected attempt resolved: {attempt}"
@@ -294,7 +294,7 @@ def api_vectors():
         events.append({"t": record.t, "context": context, "record": record_json(record)})
         records.append(record)
     for decision_id, reward in [(records[1].decision_id, 1.0), (records[0].decision_id, 0.0)]:
-        resolutions.append(resolution_json(api.learn(state, decision_id, reward)))
+        resolutions.append(resolution_json(api.learn(state, decision_id, reward, T0 + 3 * 900.0)))
     resolutions.append(resolution_json(api.censor(state, records[2].decision_id)))
     sweep_t = T0 + 3 * 900.0 + horizon  # the one open decision is exactly due
     resolutions.extend(resolution_json(r) for r in api.expire(state, sweep_t))
@@ -372,15 +372,15 @@ def byo_vectors():
         records.append(record)
     resolutions = []
     resolutions.append(
-        resolution_json(api.learn(state, records[1].decision_id, 1.0, train=train))
+        resolution_json(api.learn(state, records[1].decision_id, 1.0, T0 + 3 * 900.0, train=train))
     )
     resolutions.append(
-        resolution_json(api.learn(state, records[0].decision_id, 0.0, train=train))
+        resolution_json(api.learn(state, records[0].decision_id, 0.0, T0 + 3 * 900.0, train=train))
     )
     # Deliberately mixed: one plain learn trains the built-in model, so the
     # final state pins both that train *replaces* the update and that its
     # absence still applies it.
-    resolutions.append(resolution_json(api.learn(state, records[4].decision_id, 1.0)))
+    resolutions.append(resolution_json(api.learn(state, records[4].decision_id, 1.0, T0 + 4 * 900.0)))
     resolutions.append(resolution_json(api.censor(state, records[2].decision_id)))
     sweep_t = T0 + 3 * 900.0 + horizon  # the one open decision is exactly due
     resolutions.extend(resolution_json(r) for r in api.expire(state, sweep_t, train=train))
@@ -446,12 +446,12 @@ def ope_vectors():
     # would be vacuous.
     for i in range(3):
         decide(i)
-    resolve(api.learn(state, records[1].decision_id, 1.0))
-    resolve(api.learn(state, records[0].decision_id, 0.0))
+    resolve(api.learn(state, records[1].decision_id, 1.0, T0 + 2 * 60.0))
+    resolve(api.learn(state, records[0].decision_id, 0.0, T0 + 2 * 60.0))
     decide(3)
     decide(4)
     resolve(api.censor(state, records[2].decision_id))
-    resolve(api.learn(state, records[4].decision_id, 0.5))
+    resolve(api.learn(state, records[4].decision_id, 0.5, T0 + 4 * 60.0))
     for i in (5, 6, 7):
         decide(i)
     for r in api.expire(state, T0 + 3 * 60.0 + horizon):  # decision 3 exactly due

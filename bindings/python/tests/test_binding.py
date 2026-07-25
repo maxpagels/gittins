@@ -27,8 +27,9 @@ def replay_api_section():
     resolutions = []
     _, expected0 = records[0]
     _, expected1 = records[1]
-    resolutions.append(gittins.learn(state, expected1["decision_id"], 1.0))
-    resolutions.append(gittins.learn(state, expected0["decision_id"], 0.0))
+    last_t = s["events"][-1]["t"]  # both rewards inside every horizon
+    resolutions.append(gittins.learn(state, expected1["decision_id"], 1.0, last_t))
+    resolutions.append(gittins.learn(state, expected0["decision_id"], 0.0, last_t))
     resolutions.append(gittins.censor(state, records[2][1]["decision_id"]))
     resolutions.extend(gittins.expire(state, s["expire_sweep_at"]))
     return s, state, records, resolutions
@@ -86,8 +87,8 @@ class TestReferenceEquivalence:
             assert list(b_record.features) == list(p_record.features)
             assert b_record.candidate_hash == p_record.candidate_hash
             if i % 4 == 0:
-                gittins.learn(bound, b_record.decision_id, 1.0)
-                api.learn(pure, p_record.decision_id, 1.0)
+                gittins.learn(bound, b_record.decision_id, 1.0, float(i))
+                api.learn(pure, p_record.decision_id, 1.0, float(i))
             if i % 7 == 0:
                 gittins.expire(bound, float(i))
                 api.expire(pure, float(i))
@@ -110,7 +111,7 @@ class TestSurface:
 
     def test_unknown_resolutions_are_none(self):
         state = gittins.create(4, horizon=10.0)
-        assert gittins.learn(state, "never-made:0", 1.0) is None
+        assert gittins.learn(state, "never-made:0", 1.0, 0.0) is None
         assert gittins.expire(state, 1e9) == ()
 
     def test_the_usage_doc_lifecycle(self):
@@ -125,7 +126,7 @@ class TestSurface:
         ]
         record = gittins.decide(state, context, candidates, 0.0, "agent-1")
         assert candidates[record.chosen][0].startswith("banner-")
-        assert gittins.learn(state, record.decision_id, 1.0).kind == "rewarded"
+        assert gittins.learn(state, record.decision_id, 1.0, 60.0).kind == "rewarded"
         record = gittins.decide(state, context, candidates, 1.0, "agent-1")
         assert gittins.censor(state, record.decision_id).kind == "censored"
         assert gittins.model_bits(state) == 8
@@ -180,9 +181,11 @@ def replay_byo_section():
         records.append((record, event["record"]))
     ids = [expected["decision_id"] for _, expected in records]
     resolutions = []
-    resolutions.append(gittins.learn(state, ids[1], 1.0, train=train))
-    resolutions.append(gittins.learn(state, ids[0], 0.0, train=train))
-    resolutions.append(gittins.learn(state, ids[4], 1.0))  # deliberately mixed: built-in update
+    t3 = s["events"][3]["t"]
+    t4 = s["events"][4]["t"]
+    resolutions.append(gittins.learn(state, ids[1], 1.0, t3, train=train))
+    resolutions.append(gittins.learn(state, ids[0], 0.0, t3, train=train))
+    resolutions.append(gittins.learn(state, ids[4], 1.0, t4))  # deliberately mixed: built-in update
     resolutions.append(gittins.censor(state, ids[2]))
     resolutions.extend(gittins.expire(state, s["expire_sweep_at"], train=train))
     return s, state, records, resolutions, trained
@@ -233,11 +236,11 @@ class TestByoReferenceEquivalence:
             assert b_record.propensity == p_record.propensity
             if i % 4 == 0:
                 gittins.learn(
-                    bound, b_record.decision_id, 1.0,
+                    bound, b_record.decision_id, 1.0, float(i),
                     train=lambda rec, r: trained["bound"].append((rec.decision_id, r)),
                 )
                 api.learn(
-                    pure, p_record.decision_id, 1.0,
+                    pure, p_record.decision_id, 1.0, float(i),
                     train=lambda rec, r: trained["pure"].append((rec.decision_id, r)),
                 )
         gittins.expire(bound, 1e9, train=lambda rec, r: trained["bound"].append((rec.decision_id, r)))
@@ -277,9 +280,9 @@ class TestByoSurface:
             raise RuntimeError("trainer crashed")
 
         with pytest.raises(RuntimeError, match="trainer crashed"):
-            gittins.learn(state, record.decision_id, 1.0, train=boom_train)
+            gittins.learn(state, record.decision_id, 1.0, 1.0, train=boom_train)
         # Commit-then-fire: the record is spent; no double-train possible.
-        assert gittins.learn(state, record.decision_id, 1.0) is None
+        assert gittins.learn(state, record.decision_id, 1.0, 1.0) is None
 
     def test_malformed_callback_results_are_valueerrors_with_reference_messages(self):
         state = gittins.create(4, horizon=10.0)
@@ -300,7 +303,8 @@ class TestByoSurface:
         record = gittins.decide(state, {}, catalog, 0.0, "s")
         trained = []
         resolution = gittins.learn(
-            state, record.decision_id, 1.0, train=lambda rec, r: trained.append((rec.decision_id, r))
+            state, record.decision_id, 1.0, 1.0,
+            train=lambda rec, r: trained.append((rec.decision_id, r)),
         )
         assert resolution.kind == "rewarded"
         assert trained == [(record.decision_id, 1.0)]
@@ -336,8 +340,8 @@ class TestLogLine:
             p_record = api.decide(pure, context, catalog, float(i), "eq")
             assert gittins.log_line(b_record) == api.log_line(p_record)
             if i % 4 == 0:
-                b_res = gittins.learn(bound, b_record.decision_id, 1.0)
-                p_res = api.learn(pure, p_record.decision_id, 1.0)
+                b_res = gittins.learn(bound, b_record.decision_id, 1.0, float(i))
+                p_res = api.learn(pure, p_record.decision_id, 1.0, float(i))
                 assert gittins.log_line(b_res) == api.log_line(p_res)
 
     def test_appended_lines_are_a_verified_evaluable_log(self):
@@ -347,7 +351,7 @@ class TestLogLine:
         lines = []
         record = gittins.decide(state, {"seg": "a"}, catalog, 0.0, "s")
         lines.append(gittins.log_line(record))
-        lines.append(gittins.log_line(gittins.learn(state, record.decision_id, 1.0)))
+        lines.append(gittins.log_line(gittins.learn(state, record.decision_id, 1.0, 0.5)))
         record = gittins.decide(state, {"seg": "b"}, catalog, 1.0, "s")
         lines.append(gittins.log_line(record))
         lines.extend(gittins.log_line(r) for r in gittins.expire(state, 100.0))
@@ -359,7 +363,7 @@ class TestLogLine:
         state = gittins.create(4, horizon=10.0)
         record = gittins.decide(state, {}, [("a", {}), ("b", {})], 0.0, "s")
         seen = []
-        gittins.learn(state, record.decision_id, 1.0, train=lambda rec, r: seen.append(rec))
+        gittins.learn(state, record.decision_id, 1.0, 1.0, train=lambda rec, r: seen.append(rec))
         assert seen[0].bits is None and seen[0].context is None and seen[0].candidates is None
         with pytest.raises(ValueError, match="record decide returned"):
             gittins.log_line(seen[0])

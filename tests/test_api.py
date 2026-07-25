@@ -58,7 +58,7 @@ class TestDecide:
         alias = state
         record = api.decide(state, {}, CATALOG, 0.0, "s")
         assert isinstance(record, api.DecisionRecord)
-        assert api.learn(alias, record.decision_id, 1.0).kind == "rewarded"
+        assert api.learn(alias, record.decision_id, 1.0, 1.0).kind == "rewarded"
         assert api.serialize(alias) == api.serialize(state)
 
     def test_rejects_states_not_built_by_create(self):
@@ -79,9 +79,9 @@ class TestFullCycle:
         # pairs: the surface a binding exposes is sufficient on its own.
         state = api.create(4, horizon=5.0)
         record = api.decide(state, {"seg": "a"}, CATALOG, 0.0, "s")
-        resolution = api.learn(state, record.decision_id, 1.0)
+        resolution = api.learn(state, record.decision_id, 1.0, 1.0)
         assert resolution.kind == "rewarded"
-        assert api.learn(state, record.decision_id, 1.0) is None  # exactly once
+        assert api.learn(state, record.decision_id, 1.0, 1.0) is None  # exactly once
 
         record = api.decide(state, {"seg": "b"}, CATALOG, 1.0, "s")
         expired = api.expire(state, record.t + 5.0)
@@ -92,6 +92,16 @@ class TestFullCycle:
         assert isinstance(data, str) and data.startswith("67697474696e7300")  # "gittins\0"
         assert api.serialize(api.deserialize(data)) == data
         assert api.serialize(api.deserialize(data.upper())) == data  # either case in, lowercase out
+
+    def test_late_reward_learns_as_expired(self):
+        # The horizon is enforced at learn time: a reward arriving at or
+        # past record.t + horizon trains as default_reward, exactly as an
+        # expire sweep would have resolved it.
+        state = api.create(4, horizon=5.0, default_reward=-1.0)
+        record = api.decide(state, {}, CATALOG, 0.0, "s")
+        resolution = api.learn(state, record.decision_id, 1.0, 5.0)
+        assert resolution.kind == "expired" and resolution.reward == -1.0
+        assert api.learn(state, record.decision_id, 1.0, 5.0) is None  # still exactly once
 
     def test_deserialize_rejects_non_hex(self):
         good = api.serialize(api.create(4, horizon=5.0))
@@ -107,7 +117,7 @@ class TestFullCycle:
         for i in range(30):
             record = api.decide(state, {}, CATALOG, float(i), "train")
             reward = 1.0 if CATALOG[record.chosen][0] == "plus" else 0.0
-            api.learn(state, record.decision_id, reward)
+            api.learn(state, record.decision_id, reward, float(i))
         record = api.decide(state, {}, CATALOG, 1000.0, "probe")
         assert CATALOG[record.chosen][0] == "plus"
         assert record.propensity > 0.9  # the greedy share, not an epsilon draw
@@ -145,7 +155,7 @@ class TestByo:
         model_before = state._state.model
         trained = []
         resolution = api.learn(
-            state, record.decision_id, 0.75, train=lambda rec, r: trained.append((rec, r))
+            state, record.decision_id, 0.75, 1.0, train=lambda rec, r: trained.append((rec, r))
         )
         assert resolution.kind == "rewarded" and resolution.reward == 0.75
         assert state._state.model is model_before  # built-in model untouched
@@ -156,8 +166,20 @@ class TestByo:
         # log written at decide time, never in the state.
         assert rec.bits is None and rec.context is None and rec.candidates is None
         # Exactly once: the retry is a no-op and the callback stays quiet.
-        assert api.learn(state, record.decision_id, 0.75, train=lambda rec, r: trained.append((rec, r))) is None
+        assert api.learn(state, record.decision_id, 0.75, 1.0, train=lambda rec, r: trained.append((rec, r))) is None
         assert len(trained) == 1
+
+    def test_late_learn_with_train_fires_with_the_default_reward(self):
+        # The classification happens before the training tap: a late
+        # reward reaches the BYO model as default_reward, kind expired.
+        state = api.create(4, horizon=5.0, default_reward=-1.0)
+        record = api.decide(state, {}, CATALOG, 0.0, "s")
+        trained = []
+        resolution = api.learn(
+            state, record.decision_id, 1.0, 5.0, train=lambda rec, r: trained.append(r)
+        )
+        assert resolution.kind == "expired" and resolution.reward == -1.0
+        assert trained == [-1.0]
 
     def test_expire_with_train(self):
         state = api.create(4, horizon=5.0, default_reward=-1.0)
@@ -184,9 +206,9 @@ class TestByo:
             raise RuntimeError("trainer crashed")
 
         with pytest.raises(RuntimeError, match="trainer crashed"):
-            api.learn(state, record.decision_id, 1.0, train=boom)
+            api.learn(state, record.decision_id, 1.0, 1.0, train=boom)
         assert state._state.model_version == 1
-        assert api.learn(state, record.decision_id, 1.0) is None  # already spent
+        assert api.learn(state, record.decision_id, 1.0, 1.0) is None  # already spent
 
     def test_expire_sweep_is_per_record_under_a_raising_train(self):
         state = api.create(4, horizon=5.0)
@@ -222,7 +244,7 @@ class TestByo:
             score=lambda c, k: [1.0, 0.0, 0.0],
             explore=lambda e, eps: [0.5, 0.25, 0.25],
         )
-        api.learn(state, record.decision_id, 1.0, train=lambda rec, r: None)
+        api.learn(state, record.decision_id, 1.0, 1.0, train=lambda rec, r: None)
         data = api.serialize(state)
         assert api.serialize(api.deserialize(data)) == data
 
@@ -239,7 +261,7 @@ class TestLogLine:
         lines = []
         record = api.decide(state, {"seg": "a"}, CATALOG, 0.0, "s")
         lines.append(api.log_line(record))
-        lines.append(api.log_line(api.learn(state, record.decision_id, 1.0)))
+        lines.append(api.log_line(api.learn(state, record.decision_id, 1.0, 0.5)))
         record = api.decide(state, {"seg": "b"}, CATALOG, 1.0, "s")
         lines.append(api.log_line(record))
         lines.extend(api.log_line(r) for r in api.expire(state, 100.0))
@@ -267,7 +289,7 @@ class TestLogLine:
         state = api.create(4, horizon=10.0)
         record = api.decide(state, {}, CATALOG, 0.0, "s")
         seen = []
-        api.learn(state, record.decision_id, 1.0, train=lambda rec, r: seen.append(rec))
+        api.learn(state, record.decision_id, 1.0, 1.0, train=lambda rec, r: seen.append(rec))
         with pytest.raises(ValueError, match="record decide returned"):
             api.log_line(seen[0])
         with pytest.raises(ValueError, match="DecisionRecord or Resolution"):

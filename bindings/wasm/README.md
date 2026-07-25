@@ -40,7 +40,7 @@ const chosenArmId = candidates[record.chosen][0];
 renderBanner(chosenArmId); // your code: act on the choice
 
 // later, when the user clicks (or doesn't):
-gittins.learn(state, record.decision_id, 1.0);
+gittins.learn(state, record.decision_id, 1.0, Date.now() / 1000);
 gittins.expire(state, Date.now() / 1000);
 
 localStorage.setItem("bandit", gittins.serialize(state));

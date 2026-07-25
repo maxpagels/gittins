@@ -51,7 +51,7 @@ export function cycle(g, state, problem, step, t) {
   const record = g.decide(
     state, problem.contexts[step % 16], problem.candidates, t, "bench",
   );
-  g.learn(state, record.decision_id, (step + record.chosen) % 3 === 0 ? 1.0 : 0.0);
+  g.learn(state, record.decision_id, (step + record.chosen) % 3 === 0 ? 1.0 : 0.0, t);
 }
 
 // Fresh state, FINGERPRINT_DECISIONS fixed cycles, then a checksum of the

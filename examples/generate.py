@@ -50,7 +50,7 @@ for i in range(1000):
         if i % 97 == 0:  # an outage corrupted this outcome
             lines.append(api.log_line(api.censor(state, due.decision_id)))
         elif i % 11 != 0:  # and some rewards never arrive at all
-            resolution = api.learn(state, due.decision_id, reward_for(due, due_context))
+            resolution = api.learn(state, due.decision_id, reward_for(due, due_context), t)
             lines.append(api.log_line(resolution))
     if i % 50 == 49:  # the regular expiry sweep
         lines.extend(api.log_line(r) for r in api.expire(state, t))

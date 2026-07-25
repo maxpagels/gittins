@@ -35,12 +35,12 @@ def run_agent(bits=4, epsilon=0.1, forgetfulness=0.9, salt="agent"):
 
     for i in range(3):
         decide(i)
-    resolve(api.learn(state, records[1].decision_id, 1.0))
-    resolve(api.learn(state, records[0].decision_id, 0.0))
+    resolve(api.learn(state, records[1].decision_id, 1.0, T0 + 2 * 60.0))
+    resolve(api.learn(state, records[0].decision_id, 0.0, T0 + 2 * 60.0))
     decide(3)
     decide(4)
     resolve(api.censor(state, records[2].decision_id))
-    resolve(api.learn(state, records[4].decision_id, 0.5))
+    resolve(api.learn(state, records[4].decision_id, 0.5, T0 + 4 * 60.0))
     for i in (5, 6, 7):
         decide(i)
     for r in api.expire(state, T0 + 3 * 60.0 + HORIZON):  # decision 3 exactly due

@@ -255,11 +255,12 @@ fn replay_episode(s: &Json) -> (BanditState, BanditState) {
         } else if i % 2 == 1 {
             deferred.push((record.decision_id, reward)); // resolved late, in reverse
         } else {
-            resolutions.push(learn(&mut state, &record.decision_id, reward).unwrap());
+            resolutions.push(learn(&mut state, &record.decision_id, reward, t0 + i as f64 * 600.0).unwrap());
         }
     }
     for (decision_id, reward) in deferred.into_iter().rev() {
-        resolutions.push(learn(&mut state, &decision_id, reward).unwrap());
+        // All inside the horizon: the generator reports them at the last play's time.
+        resolutions.push(learn(&mut state, &decision_id, reward, t0 + 9.0 * 600.0).unwrap());
     }
     let (record, _) = play(&mut state, t0 + 6000.0, "a", &events[10]);
     let mid_state = state.clone(); // decisions 7 and 10 open
@@ -274,7 +275,9 @@ fn replay_episode(s: &Json) -> (BanditState, BanditState) {
     for attempt in s.get("rejected").arr() {
         let id = attempt.get("decision_id").str_();
         let resolved = match attempt.get("action").str_() {
-            "learn" => learn(&mut state, id, attempt.get("reward").f64_()).is_some(),
+            "learn" => {
+                learn(&mut state, id, attempt.get("reward").f64_(), attempt.get("t").f64_()).is_some()
+            }
             "censor" => censor(&mut state, id).is_some(),
             other => panic!("unknown rejected action {other:?}"),
         };
@@ -405,8 +408,12 @@ fn api_section() {
     }
 
     let mut resolutions = Vec::new();
-    resolutions.push(api::learn(&mut state, &records[1].decision_id, 1.0, None).unwrap().unwrap());
-    resolutions.push(api::learn(&mut state, &records[0].decision_id, 0.0, None).unwrap().unwrap());
+    resolutions.push(
+        api::learn(&mut state, &records[1].decision_id, 1.0, records[3].t, None).unwrap().unwrap(),
+    );
+    resolutions.push(
+        api::learn(&mut state, &records[0].decision_id, 0.0, records[3].t, None).unwrap().unwrap(),
+    );
     resolutions.push(api::censor(&mut state, &records[2].decision_id).unwrap());
     resolutions.extend(api::expire(&mut state, s.get("expire_sweep_at").f64_(), None).unwrap());
     assert_resolutions(&resolutions, s.get("resolutions"));
@@ -494,13 +501,19 @@ fn byo_section() {
     };
     let mut resolutions = Vec::new();
     resolutions.push(
-        api::learn(&mut state, &records[1].decision_id, 1.0, Some(&mut train)).unwrap().unwrap(),
+        api::learn(&mut state, &records[1].decision_id, 1.0, records[3].t, Some(&mut train))
+            .unwrap()
+            .unwrap(),
     );
     resolutions.push(
-        api::learn(&mut state, &records[0].decision_id, 0.0, Some(&mut train)).unwrap().unwrap(),
+        api::learn(&mut state, &records[0].decision_id, 0.0, records[3].t, Some(&mut train))
+            .unwrap()
+            .unwrap(),
     );
     // Deliberately mixed: the plain learn trains the built-in model.
-    resolutions.push(api::learn(&mut state, &records[4].decision_id, 1.0, None).unwrap().unwrap());
+    resolutions.push(
+        api::learn(&mut state, &records[4].decision_id, 1.0, records[4].t, None).unwrap().unwrap(),
+    );
     resolutions.push(api::censor(&mut state, &records[2].decision_id).unwrap());
     resolutions.extend(
         api::expire(&mut state, s.get("expire_sweep_at").f64_(), Some(&mut train)).unwrap(),
