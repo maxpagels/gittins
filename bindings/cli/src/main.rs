@@ -2,17 +2,19 @@
 //! experience log. Presentation only — flags, tables, exit
 //! codes; every semantic lives in `ope.rs`, the reference's port.
 //!
-//! Exit codes: 0 ok; 1 `verify` found problems; 2 usage or input error.
+//! Exit codes: 0 ok; 1 `verify` found problems (or `--hard-fail`
+//! refused an invalid log); 2 usage or input error.
 
 use gittins_cli::ope::{evaluate, read_log, replay, verify, Event, OpeReport};
 
 const USAGE: &str = "\
 usage:
   gittins verify --log FILE[.gz]
-  gittins eval   --log FILE --bits N [--epsilon X] [--forgetfulness X]
+  gittins eval   --log FILE --bits N [--epsilon X] [--forgetfulness X] [--hard-fail]
   gittins sweep  --log FILE --bits N[,N...] [--epsilon X[,X...]] [--forgetfulness X[,X...]]
+                 [--hard-fail]
   gittins replay --log FILE --bits N --horizon SECONDS [--default-reward X]
-                 [--epsilon X] [--forgetfulness X]
+                 [--epsilon X] [--forgetfulness X] [--hard-fail]
 
 The log is JSONL (one decision or resolution event per line),
 gzip-compressed or plain — detected by content, not file name.
@@ -21,7 +23,10 @@ gzip-compressed or plain — detected by content, not file name.
   eval    progressive IPS/SNIPS estimate of one configuration, with the
           diagnostics (ess, max weight) an estimate must never be read without
   sweep   eval over a configuration grid, as one markdown table
-  replay  rebuild a deployable state from the log; hex on stdout";
+  replay  rebuild a deployable state from the log; hex on stdout
+
+  --hard-fail  run the full verify pass first and refuse to continue
+               (exit 1, problems on stderr) if the log has any violation";
 
 const DEFAULT_EPSILON: f64 = gittins_core::exploration::DEFAULT_EPSILON;
 const DEFAULT_FORGETTING: f64 = gittins_core::model::DEFAULT_FORGETTING;
@@ -57,6 +62,9 @@ fn run(args: &[String]) -> Result<i32, String> {
     }
 }
 
+/// Flags that stand alone, taking no value.
+const BOOLEAN_FLAGS: &[&str] = &["hard-fail"];
+
 struct Flags(Vec<(String, String)>);
 
 impl Flags {
@@ -67,6 +75,11 @@ impl Flags {
             let name = args[i]
                 .strip_prefix("--")
                 .ok_or(format!("expected a --flag, got '{}'\n{USAGE}", args[i]))?;
+            if BOOLEAN_FLAGS.contains(&name) {
+                flags.push((name.to_string(), String::new()));
+                i += 1;
+                continue;
+            }
             let value = args
                 .get(i + 1)
                 .ok_or(format!("--{name} needs a value\n{USAGE}"))?;
@@ -144,7 +157,28 @@ fn opt(v: Option<f64>) -> String {
     v.map_or("n/a".to_string(), |x| x.to_string())
 }
 
+/// The `--hard-fail` guard: verify the whole log up front and refuse to
+/// continue on any violation, so an invalid evaluation cannot be run by
+/// accident even in a pipeline that forgot to call `verify` itself.
+fn hard_fail(flags: &Flags) -> Result<bool, String> {
+    if flags.get("hard-fail").is_none() {
+        return Ok(false);
+    }
+    let problems = verify(flags.events()?)?;
+    for problem in &problems {
+        eprintln!("{problem}");
+    }
+    if problems.is_empty() {
+        return Ok(false);
+    }
+    eprintln!("--hard-fail: {} problem(s), refusing to continue", problems.len());
+    Ok(true)
+}
+
 fn cmd_eval(flags: &Flags) -> Result<i32, String> {
+    if hard_fail(flags)? {
+        return Ok(1);
+    }
     let report = evaluate(
         flags.events()?,
         flags.bits()?,
@@ -158,6 +192,7 @@ fn cmd_eval(flags: &Flags) -> Result<i32, String> {
     println!("logged E(r)  {}", opt(report.logged_mean));
     println!("ips E(r)     {}", opt(report.ips));
     println!("snips E(r)   {}", opt(report.snips));
+    println!("ess          {}", opt(report.ess));
     println!("max weight   {}", opt(report.max_weight));
     Ok(0)
 }
@@ -170,6 +205,9 @@ fn rounded(v: Option<f64>, decimals: usize) -> String {
 }
 
 fn cmd_sweep(flags: &Flags) -> Result<i32, String> {
+    if hard_fail(flags)? {
+        return Ok(1);
+    }
     let all_bits: Vec<u32> = {
         let v = flags.required("bits")?;
         v.split(',')
@@ -180,7 +218,7 @@ fn cmd_sweep(flags: &Flags) -> Result<i32, String> {
     let forgetfulnesses = flags.list("forgetfulness", DEFAULT_FORGETTING)?;
     let header = [
         "bits", "epsilon", "forgetfulness", "logged E(r)", "ips E(r)", "snips E(r)",
-        "max weight", "resolved",
+        "ess", "max weight", "resolved",
     ];
     let mut rows: Vec<Vec<String>> = Vec::new();
     for &bits in &all_bits {
@@ -194,6 +232,7 @@ fn cmd_sweep(flags: &Flags) -> Result<i32, String> {
                     rounded(r.logged_mean, 4),
                     rounded(r.ips, 4),
                     rounded(r.snips, 4),
+                    rounded(r.ess, 1),
                     rounded(r.max_weight, 4),
                     r.resolved.to_string(),
                 ]);
@@ -227,6 +266,9 @@ fn cmd_sweep(flags: &Flags) -> Result<i32, String> {
 }
 
 fn cmd_replay(flags: &Flags) -> Result<i32, String> {
+    if hard_fail(flags)? {
+        return Ok(1);
+    }
     let horizon = {
         let v = flags.required("horizon")?;
         v.parse().map_err(|_| format!("--horizon: '{v}' is not a number"))?
@@ -245,4 +287,37 @@ fn cmd_replay(flags: &Flags) -> Result<i32, String> {
     );
     println!("{}", gittins_core::api::serialize(&state));
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two decisions whose t decreases within one salt: a violation only
+    /// `verify` sees — `eval` neither checks ordering nor the hashes, so
+    /// it runs happily unless `--hard-fail` puts the verify pass in front.
+    const INVALID_LOG: &str = concat!(
+        r#"{"event":"decision","bits":8,"context":{},"candidates":[["a",{}]],"record":{"decision_id":"s:0","t":2.0,"candidate_hash":0,"chosen":0,"features":[[0,1.0]],"propensity":1.0,"model_version":0,"salt":"s"}}"#,
+        "\n",
+        r#"{"event":"decision","bits":8,"context":{},"candidates":[["a",{}]],"record":{"decision_id":"s:1","t":1.0,"candidate_hash":0,"chosen":0,"features":[[0,1.0]],"propensity":1.0,"model_version":0,"salt":"s"}}"#,
+        "\n",
+        r#"{"event":"resolution","decision_id":"s:0","kind":"rewarded","reward":1.0}"#,
+        "\n",
+    );
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn hard_fail_refuses_an_invalid_log() {
+        let path = std::env::temp_dir().join("gittins-cli-hard-fail.jsonl");
+        std::fs::write(&path, INVALID_LOG).unwrap();
+        let log = path.to_str().unwrap();
+        assert!(run(&args(&["eval", "--log", log, "--bits", "8"])) == Ok(0));
+        assert!(run(&args(&["eval", "--log", log, "--bits", "8", "--hard-fail"])) == Ok(1));
+        assert!(run(&args(&["sweep", "--hard-fail", "--log", log, "--bits", "8"])) == Ok(1));
+        let replay = ["replay", "--log", log, "--bits", "8", "--horizon", "60", "--hard-fail"];
+        assert!(run(&args(&replay)) == Ok(1));
+    }
 }

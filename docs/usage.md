@@ -177,6 +177,10 @@ gittins eval --log decisions.jsonl.gz --bits 8 --epsilon 0.1
 # compare a whole grid in one table
 gittins sweep --log decisions.jsonl.gz --bits 8 --epsilon 0.02,0.05,0.1 --forgetfulness 0.999,0.995
 
+# any log-consuming command accepts --hard-fail: run the full verify
+# pass first and refuse to continue (exit 1) on any violation
+gittins eval --log decisions.jsonl.gz --bits 8 --epsilon 0.1 --hard-fail
+
 # rebuild a deployable state from the log (fleet pooling: merge logs, replay, ship)
 gittins replay --log decisions.jsonl.gz --bits 8 --horizon 3600 > bandit.state
 ```
