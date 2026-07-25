@@ -5,8 +5,6 @@
 //! mutates the sums in place (the reference copies immutable tuples), which
 //! changes no bit of any value.
 
-use std::collections::HashMap;
-
 use crate::encoding::Features;
 use crate::error::Error;
 
@@ -71,34 +69,36 @@ pub fn update(model: &mut LinearModel, x: &Features, reward: f64) {
 }
 
 /// The candidate-independent part of prediction, solved lazily: a
-/// coordinate's (1/a_j, theta_j) is computed the first time any candidate
-/// touches it and memoized for the rest of the decision. Valid until the
-/// next update.
+/// coordinate's (1/a_j, theta_j) is computed when a candidate touches it.
+/// A diagonal system needs one reciprocal per *touched* coordinate, never
+/// O(dim); the type is kept for the once-per-decision shape it gives the
+/// layer above. Valid until the next update.
+///
+/// The reference memoizes each coordinate for the rest of the decision and
+/// this core does not (the second deliberate difference, after in-place
+/// mutation) — every value is identical either way, since a memo only ever
+/// returns the same reciprocal the recompute produces. Under the hashed
+/// encoding the memo has almost nothing to hit: every slot comes from a
+/// pair hash folding in the arm identity, and `encode` has already merged
+/// a candidate's duplicate slots, so nearly every lookup is a first touch
+/// and hashing the key costs several times the reciprocal it saves.
 pub struct Factorization<'a> {
     model: &'a LinearModel,
-    cache: HashMap<usize, (f64, f64)>,
 }
 
 impl<'a> Factorization<'a> {
-    /// (1 / a_j, theta_j) for one coordinate, memoized.
+    /// (1 / a_j, theta_j) for one coordinate. Takes `&mut self` so that
+    /// reinstating a memo stays a change to this function alone.
     pub fn coordinate(&mut self, j: usize) -> (f64, f64) {
-        if let Some(&got) = self.cache.get(&j) {
-            return got;
-        }
         let m = self.model;
         let inv_a = 1.0 / (m.scale * m.xx[j] + m.ridge);
-        let got = (inv_a, (m.scale * m.xy[j]) * inv_a);
-        self.cache.insert(j, got);
-        got
+        (inv_a, (m.scale * m.xy[j]) * inv_a)
     }
 }
 
 /// The lazy solve: O(1) now, one reciprocal per touched coordinate later.
 pub fn factorize(model: &LinearModel) -> Factorization<'_> {
-    Factorization {
-        model,
-        cache: HashMap::new(),
-    }
+    Factorization { model }
 }
 
 /// Estimated reward only, for callers that need no uncertainty (the decide

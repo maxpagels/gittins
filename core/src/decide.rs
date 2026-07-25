@@ -168,8 +168,9 @@ pub fn decide(
 
     let estimates: Vec<f64> = match score {
         None => {
-            // The weights depend on the model only, so they are solved
-            // once and shared by every candidate.
+            // The weights depend on the model only, so one factorization
+            // binds it for the whole candidate set; each candidate's
+            // touched coordinates are solved as they are read.
             let mut factored = factorize(&state.model);
             candidates
                 .iter()
