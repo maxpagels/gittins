@@ -134,8 +134,7 @@ Gittins learns only when you resolve a decision, and each decision can be
 resolved exactly once. When the reward arrives simply report it by id, along
 with the current time: the engine checks your `t` against the decision's own,
 so a reward that shows up at or past the horizon is not quietly accepted — it
-resolves as expired and trains as `default_reward`, exactly as a sweep would
-have resolved it.
+resolves as expired and trains as `default_reward`.
 
 In addition to submitting rewards, remember to call `expire` regularly with the current time so that decisions which waited past the horizon are trained as `default_reward`. If you fail to call expire regularly, the memory usage will continue to grow. It is a deliberate choice to pass the expiration responsibility to you, as your application may have reasons not to expire unresolved records at regular intervals. However, for most applications, you will usually want to call expire inside a timer or directly after every `decide` call to ensure the records in memory never grow too large.
 

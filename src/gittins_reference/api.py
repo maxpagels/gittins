@@ -6,13 +6,12 @@ else. The rule it exists to enforce: the public API is specified once, here
 in the reference, and every binding mirrors it exactly; a binding's CI gate
 is the golden `api` section replayed through these functions alone.
 
-The surface is nine names:
+The surface is eight names:
 
     create(bits, horizon, ...)          -> BanditState (a handle)
     decide(state, context, candidates, t, salt,
            score=None, explore=None)    -> DecisionRecord
     learn(state, decision_id, reward, t, train=None) -> Resolution | None
-    censor(state, decision_id)          -> Resolution | None
     expire(state, t, train=None)        -> (Resolution, ...)
     serialize(state)                    -> str (hex)
     deserialize(data)                   -> BanditState
@@ -26,7 +25,7 @@ turns it (or any resolution) into one canonical experience-log line, so
 building an OPE-ready log is appending what each call returns:
 
     f.write(log_line(record) + "\n")      # after decide
-    f.write(log_line(resolution) + "\n")  # after learn / censor / expire
+    f.write(log_line(resolution) + "\n")  # after learn / expire
 
 The three input fields live only on records returned by `decide`: the
 ledger keeps the compact record (fixed memory, unchanged serialization),
@@ -57,7 +56,7 @@ callback loses that one training example loudly, but can never cause a
 double-train — the record is already spent.
 
 **The state is an opaque handle, updated in place.** `create` and
-`deserialize` return one; `decide`/`learn`/`censor`/`expire` mutate it and
+`deserialize` return one; `decide`/`learn`/`expire` mutate it and
 return only their results. This is the uniform convention across every
 implementation (a JS binding cannot return (result, state) tuples
 idiomatically, so nothing does). It is purely a facade choice: the
@@ -100,7 +99,6 @@ __all__ = [
     "create",
     "decide",
     "learn",
-    "censor",
     "expire",
     "serialize",
     "deserialize",
@@ -150,7 +148,7 @@ def _public_record(record, bits=None, context=None, candidates=None) -> Decision
 
 class BanditState:
     """An opaque handle on the bandit's state, updated in place by
-    decide/learn/censor/expire. Snapshot or persist it with `serialize`;
+    decide/learn/expire. Snapshot or persist it with `serialize`;
     the value inside stays immutable, so aliases of the handle always
     observe the current state."""
 
@@ -259,13 +257,6 @@ def learn(
     )
     train(_public_record(record), trained)
     return Resolution(decision_id, kind, trained)
-
-
-def censor(state: BanditState, decision_id: str) -> "Resolution | None":
-    """Resolve an open decision as censored (excluded from training, on
-    record); None (a no-op) if the id is unknown or already resolved."""
-    resolution, state._state = _ledger.censor(state._state, decision_id)
-    return resolution
 
 
 def expire(state: BanditState, t: float, train=None) -> "tuple[Resolution, ...]":

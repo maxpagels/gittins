@@ -3,7 +3,7 @@
 The engine owns the join between decisions and rewards. The state's ledger
 holds every *open* decision record — made by `decide`, not yet resolved —
 and the only way to train the model is to resolve one of them. Every open
-decision resolves in exactly one of three ways, each a deliberate event
+decision resolves in exactly one of two ways, each a deliberate event
 returned to the caller for logging:
 
     learn(state, decision_id, reward, t)  ->  rewarded(reward), or
@@ -11,8 +11,6 @@ returned to the caller for logging:
                                               says the horizon already passed
     expire(state, t)                      ->  expired(default_reward), for every
                                               decision past its horizon
-    censor(state, decision_id)            ->  censored (excluded from training,
-                                              but the exclusion is on record)
 
 Three properties, by construction rather than by discipline:
 
@@ -20,7 +18,7 @@ Three properties, by construction rather than by discipline:
   duplicate (or conflicting, or bogus) report finds nothing and is a no-op.
   There is one record per decision and it can be spent once.
 - **Late rewards are safe, in arrival order** — rewards may arrive late,
-  out of order, or never, and every case resolves through the same three
+  out of order, or never, and every case resolves through the same two
   paths with nothing lost or double-counted. Training applies at the
   *resolution's* position in the update sequence with the model's current
   forgetting weight (model.py has no notion of time), so a late reward
@@ -58,17 +56,16 @@ from gittins_reference.model import update
 
 REWARDED = "rewarded"
 EXPIRED = "expired"
-CENSORED = "censored"
 
 
 @dataclass(frozen=True)
 class Resolution:
     """One deliberate, loggable resolution event. `reward` is the value the
-    model trained with; None for censored (excluded from training)."""
+    model trained with."""
 
     decision_id: str
-    kind: str  # REWARDED | EXPIRED | CENSORED
-    reward: "float | None"
+    kind: str  # REWARDED | EXPIRED
+    reward: float
 
 
 def take(
@@ -102,15 +99,6 @@ def learn(
         ledger=rest,
     )
     return Resolution(decision_id, kind, trained), new_state
-
-
-def censor(state: BanditState, decision_id: str) -> "tuple[Resolution | None, BanditState]":
-    """Resolve an open decision as censored: removed from the ledger without
-    training, the exclusion itself returned for the log."""
-    record, rest = take(state.ledger, decision_id)
-    if record is None:
-        return None, state
-    return Resolution(decision_id, CENSORED, None), replace(state, ledger=rest)
 
 
 def expire(state: BanditState, t: float) -> "tuple[tuple[Resolution, ...], BanditState]":
