@@ -93,9 +93,27 @@ pub fn encode_with_context(
         return Err(Error::new("bits must be between 1 and 24"));
     }
     let mask = (1u64 << bits) - 1;
-    let mut right = vec![(String::new(), 1.0)];
-    right.extend(feature_tokens("a", action));
-    right.push((format!("i|{arm_id}"), 1.0));
+    // Each right token as the byte parts feature_tokens would have
+    // concatenated — bias "", then "a|name" / "a|name=value" in sorted
+    // name order, then "i|arm" — folded through the accumulator per pair
+    // and never materialized as a string. Same bytes, same order, same
+    // hashes; what disappears is one String allocation per action token
+    // per candidate per decision.
+    const EMPTY: &[u8] = b"";
+    let mut sorted: Vec<&(String, Value)> = action.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut right: Vec<([&[u8]; 4], f64)> = Vec::with_capacity(sorted.len() + 2);
+    right.push(([EMPTY, EMPTY, EMPTY, EMPTY], 1.0)); // the bias token ""
+    for (name, value) in sorted {
+        match value {
+            Value::None => {}
+            Value::Str(s) => {
+                right.push(([b"a|", name.as_bytes(), b"=", s.as_bytes()], 1.0))
+            }
+            Value::Num(v) => right.push(([b"a|", name.as_bytes(), EMPTY, EMPTY], *v)),
+        }
+    }
+    right.push(([b"i|", arm_id.as_bytes(), EMPTY, EMPTY], 1.0));
     // The outer product, flat: (slot, contribution) in iteration order,
     // then a stable sort by slot. Stability keeps equal slots in encounter
     // order, so summing each run left to right performs the exact addition
@@ -103,8 +121,12 @@ pub fn encode_with_context(
     let mut pairs: Vec<(usize, f64)> = Vec::with_capacity(left.len() * right.len());
     for (left_token, left_value) in left {
         let prefix = left_prefix(left_token);
-        for (right_token, right_value) in &right {
-            let h = mix64(fnv1a_extend(prefix, right_token.as_bytes()));
+        for (parts, right_value) in &right {
+            let mut folded = prefix;
+            for part in parts {
+                folded = fnv1a_extend(folded, part);
+            }
+            let h = mix64(folded);
             let sign = if h >> 63 == 0 { 1.0 } else { -1.0 };
             pairs.push(((h & mask) as usize, sign * left_value * right_value));
         }
