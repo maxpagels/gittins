@@ -51,7 +51,7 @@ def drive(create, decide, learn, contexts, catalog) -> float:
     """Seconds per full decision cycle through one implementation,
     time-boxed sampling."""
     state = create(bits=BITS, horizon=1e9)
-    for i in range(5):  # warm up (fills the reference's hash cache, too)
+    for i in range(5):  # warm up
         record = decide(state, contexts[i % len(contexts)], catalog, float(i), "warm")
         learn(state, record.decision_id, 1.0, float(i))
     rounds = 0
