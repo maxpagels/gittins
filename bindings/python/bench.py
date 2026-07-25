@@ -8,7 +8,16 @@ Each cell is time-boxed (at least MIN_SECONDS of sampling, at most
 MAX_ROUNDS rounds), so heavy shapes don't blow the CI budget and light
 shapes still sample enough rounds to be stable.
 
-    python bindings/python/bench.py
+    python bindings/python/bench.py [--json OUT.json]
+    python bindings/python/bench.py --compare BASE.json HEAD.json
+
+`--json` writes the per-cell seconds next to the printed table;
+`--compare` prints a delta table between two such dumps (CI uses this to
+show a PR's numbers against its merge base, measured on the same runner).
+The GITTINS_BENCH_ROOT environment variable points the core-binary and
+wasm-package lookups at another checkout, so one harness can measure two
+revisions' artifacts — the venv it runs under supplies that revision's
+wheel and reference.
 """
 
 import time
@@ -63,6 +72,18 @@ def cell(seconds: "float | None") -> str:
     return f"{seconds * 1e6:,.0f} µs ({1 / seconds:,.0f}/s)"
 
 
+def bench_root():
+    """The checkout whose built artifacts (core binary, wasm package) are
+    measured: this file's repo unless GITTINS_BENCH_ROOT points elsewhere."""
+    import os
+    from pathlib import Path
+
+    override = os.environ.get("GITTINS_BENCH_ROOT")
+    if override:
+        return Path(override).resolve()
+    return Path(__file__).resolve().parents[2]
+
+
 def wasm_grid() -> "dict[tuple[int, int], float] | None":
     """Per-cell seconds for the wasm binding under Node, on the identical
     workload (bindings/wasm/bench.cjs), or None if the Node build of the
@@ -71,9 +92,8 @@ def wasm_grid() -> "dict[tuple[int, int], float] | None":
     import json
     import shutil
     import subprocess
-    from pathlib import Path
 
-    wasm_dir = Path(__file__).resolve().parents[1] / "wasm"
+    wasm_dir = bench_root() / "bindings" / "wasm"
     node = shutil.which("node")
     if node is None or not (wasm_dir / "pkg-node" / "gittins_wasm.js").exists():
         return None
@@ -102,9 +122,8 @@ def core_grid() -> "dict[tuple[int, int], float] | None":
     None when neither the binary nor cargo can be had."""
     import shutil
     import subprocess
-    from pathlib import Path
 
-    root = Path(__file__).resolve().parents[2]
+    root = bench_root()
     binary = root / "core" / "target" / "release" / "bench"
     if not binary.exists():
         cargo = shutil.which("cargo")
@@ -139,7 +158,10 @@ def core_grid() -> "dict[tuple[int, int], float] | None":
     return out
 
 
-def main() -> None:
+def measure() -> "list[dict]":
+    """Every cell of the grid, as one dict per (arms, features) shape with
+    the per-implementation seconds (None where an implementation is not
+    built or not installed)."""
     import gittins
 
     try:
@@ -149,6 +171,52 @@ def main() -> None:
     core = core_grid()
     wasm = wasm_grid()
 
+    rows = []
+    for arms in ARM_COUNTS:
+        catalog = catalog_for(arms)
+        for n_features in FEATURE_COUNTS:
+            contexts = contexts_for(n_features)
+            rows.append(
+                {
+                    "arms": arms,
+                    "features": n_features,
+                    "core": None if core is None else core.get((arms, n_features)),
+                    "wheel": drive(
+                        gittins.create, gittins.decide, gittins.learn, contexts, catalog
+                    ),
+                    "wasm": None if wasm is None else wasm.get((arms, n_features)),
+                    "reference": None
+                    if api is None
+                    else drive(api.create, api.decide, api.learn, contexts, catalog),
+                }
+            )
+    return rows
+
+
+IMPLS = (
+    ("core", "core (native Rust)"),
+    ("wheel", "wheel (Python)"),
+    ("wasm", "wasm (Node)"),
+    ("reference", "reference (pure Python)"),
+)
+
+
+def print_markdown_table(header: "list[str]", rows: "list[list[str]]") -> None:
+    """Pad every column to its widest cell so the table lines up in a
+    terminal and in the raw job summary; the `---:` separators keep it
+    valid (right-aligned) markdown — same convention as the CLI's sweep."""
+    widths = [len(h) for h in header]
+    for row in rows:
+        for i, c in enumerate(row):
+            widths[i] = max(widths[i], len(c))
+    line = lambda cells: "| " + " | ".join(c.rjust(w) for c, w in zip(cells, widths)) + " |"
+    print(line(header))
+    print(line(["-" * (w - 1) + ":" for w in widths]))
+    for row in rows:
+        print(line(row))
+
+
+def print_table(rows: "list[dict]") -> None:
     print("### Decision-cycle benchmark")
     print()
     print(
@@ -160,34 +228,87 @@ def main() -> None:
         "gaps to it are the boundary tax."
     )
     print()
-    print(
-        "| arms | context features | core (native Rust) | wheel (Python) "
-        "| wasm (Node) | reference (pure Python) | speedup |"
-    )
-    print("|---|---|---|---|---|---|---|")
-    for arms in ARM_COUNTS:
-        catalog = catalog_for(arms)
-        for n_features in FEATURE_COUNTS:
-            contexts = contexts_for(n_features)
-            bound = drive(gittins.create, gittins.decide, gittins.learn, contexts, catalog)
-            c = None if core is None else core.get((arms, n_features))
-            w = None if wasm is None else wasm.get((arms, n_features))
-            if api is None:
-                print(
-                    f"| {arms} | {n_features} | {cell(c)} | {cell(bound)} | {cell(w)} "
-                    "| not installed | — |"
-                )
-                continue
-            pure = drive(api.create, api.decide, api.learn, contexts, catalog)
-            ratios = [
+    table = []
+    for r in rows:
+        c, bound, w, pure = r["core"], r["wheel"], r["wasm"], r["reference"]
+        if pure is None:
+            reference, speedup = "not installed", "—"
+        else:
+            reference = cell(pure)
+            speedup = " / ".join(
                 "—" if seconds is None else f"{pure / seconds:,.1f}x"
                 for seconds in (c, bound, w)
-            ]
-            print(
-                f"| {arms} | {n_features} | {cell(c)} | {cell(bound)} | {cell(w)} "
-                f"| {cell(pure)} | {' / '.join(ratios)} |"
             )
+        table.append(
+            [str(r["arms"]), str(r["features"]), cell(c), cell(bound), cell(w),
+             reference, speedup]
+        )
+    print_markdown_table(
+        ["arms", "context features", "core (native Rust)", "wheel (Python)",
+         "wasm (Node)", "reference (pure Python)", "speedup"],
+        table,
+    )
+
+
+def delta_cell(base: "float | None", head: "float | None") -> str:
+    if head is None and base is None:
+        return "—"
+    if head is None:
+        return "removed"
+    if base is None:
+        return f"{cell(head)} (new)"
+    change = (head - base) / base * 100.0
+    return f"{base * 1e6:,.0f} → {head * 1e6:,.0f} µs ({change:+,.0f}%)"
+
+
+def print_compare(base_rows: "list[dict]", head_rows: "list[dict]") -> None:
+    """The delta table CI appends to the job summary: per cell and per
+    implementation, µs per cycle on the merge base → on the PR head, both
+    measured on the same runner. Negative percentages are faster."""
+    base = {(r["arms"], r["features"]): r for r in base_rows}
+    print("### Decision-cycle benchmark: PR vs main")
+    print()
+    print(
+        "Each cell is µs per full decide + learn cycle, merge base → PR "
+        "head, measured back to back on the same runner with the same "
+        "harness. Negative percentages are faster. Cells are time-boxed "
+        f"samples ({MIN_SECONDS}s), so differences within ~10% are usually "
+        "runner noise, not regressions."
+    )
+    print()
+    table = [
+        [str(head["arms"]), str(head["features"])]
+        + [
+            delta_cell(base.get((head["arms"], head["features"]), {}).get(key), head[key])
+            for key, _ in IMPLS
+        ]
+        for head in head_rows
+    ]
+    print_markdown_table(
+        ["arms", "context features"] + [label for _, label in IMPLS], table
+    )
+
+
+def main(argv: "list[str]") -> None:
+    import json
+    from pathlib import Path
+
+    if "--compare" in argv:
+        i = argv.index("--compare")
+        base_path, head_path = argv[i + 1], argv[i + 2]
+        base_rows = json.loads(Path(base_path).read_text(encoding="utf-8"))
+        head_rows = json.loads(Path(head_path).read_text(encoding="utf-8"))
+        print_compare(base_rows, head_rows)
+        return
+
+    rows = measure()
+    print_table(rows)
+    if "--json" in argv:
+        out = Path(argv[argv.index("--json") + 1])
+        out.write_text(json.dumps(rows, indent=1) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    main(sys.argv[1:])

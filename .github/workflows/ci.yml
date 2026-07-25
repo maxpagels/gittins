@@ -105,4 +105,31 @@ jobs:
       - name: Build the wasm package for Node
         run: wasm-pack build --target nodejs --out-dir pkg-node bindings/wasm
       - name: Decision-cycle benchmark
-        run: .venv/bin/python bindings/python/bench.py | tee -a "$GITHUB_STEP_SUMMARY"
+        run: .venv/bin/python bindings/python/bench.py --json bench-head.json | tee -a "$GITHUB_STEP_SUMMARY"
+      # On PRs, benchmark the merge base back to back on this same runner
+      # and append the delta table. The baseline's artifacts (wheel,
+      # reference, core binary, wasm package) are built from the base
+      # checkout in baseline/, but both runs use the PR's bench.py, so the
+      # harness is held constant and only the measured code differs.
+      - name: Check out the merge base
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+      - name: Build the baseline benchmark artifacts
+        if: github.event_name == 'pull_request'
+        run: |
+          cd baseline
+          uv venv
+          uv pip install . ./bindings/python
+          cargo build --release --bin bench --manifest-path core/Cargo.toml
+          wasm-pack build --target nodejs --out-dir pkg-node bindings/wasm
+      - name: Decision-cycle benchmark, merge base
+        if: github.event_name == 'pull_request'
+        run: >
+          GITTINS_BENCH_ROOT=baseline
+          baseline/.venv/bin/python bindings/python/bench.py --json bench-base.json > /dev/null
+      - name: Benchmark delta vs main
+        if: github.event_name == 'pull_request'
+        run: .venv/bin/python bindings/python/bench.py --compare bench-base.json bench-head.json | tee -a "$GITHUB_STEP_SUMMARY"
