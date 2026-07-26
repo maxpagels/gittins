@@ -70,6 +70,10 @@ jobs:
         with:
           name: dist-sdist
           path: dist
+          # Default is `warn`, which is how 1.0.0 shipped five wheels and no
+          # sdist: an empty upload is not a failure, so the job went green and
+          # publish carried on with what it had.
+          if-no-files-found: error
 
   wheels:
     needs: test
@@ -103,6 +107,7 @@ jobs:
         with:
           name: dist-${{ matrix.os }}-${{ matrix.target }}
           path: dist
+          if-no-files-found: error
 
   publish:
     needs: [sdist, wheels]
@@ -121,4 +126,19 @@ jobs:
           merge-multiple: true
           path: dist
       - run: ls -l dist
+      # Assert the shape of the upload before it becomes permanent. PyPI will
+      # not let a filename be replaced, so a release that is missing its sdist
+      # (as 1.0.0 was) can only be corrected by adding files to it later —
+      # better to refuse to publish than to publish something incomplete.
+      - name: The upload must contain an sdist and every wheel
+        run: |
+          sdists=$(ls dist/*.tar.gz 2>/dev/null | wc -l)
+          wheels=$(ls dist/*.whl 2>/dev/null | wc -l)
+          echo "sdists=$sdists wheels=$wheels"
+          test "$sdists" -eq 1 || { echo "::error::expected 1 sdist, got $sdists"; exit 1; }
+          test "$wheels" -eq 5 || { echo "::error::expected 5 wheels, got $wheels"; exit 1; }
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Lets a re-run backfill files onto a version that is already partly
+          # published, instead of 400-ing on the wheels that are already there.
+          skip-existing: true

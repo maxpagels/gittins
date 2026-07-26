@@ -90,6 +90,13 @@ const pkgPath = join(out, "package.json");
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
 
 pkg.name = "gittins";
+// npm renders this as the tagline on the package page, where the audience is
+// someone choosing a bandit library — so it states what the package *is*, and
+// matches the Python package's description word for word. The Cargo.toml one
+// it overrides ("WebAssembly binding for...") stays as it is, because on
+// crates.io the reader is picking between our four crates and does need to be
+// told which binding this is.
+pkg.description = "An opinionated, highly optimised contextual bandit engine";
 pkg.exports = {
   ".": {
     types: "./gittins_wasm.d.ts",
