@@ -179,6 +179,34 @@ function render(md) {
 
     if (/^\[TOC\]\s*$/.test(line)) { flush(); html.push("\u0000TOC\u0000"); continue; }
 
+    // [FOLD]: closes the cover opened by the h1. Everything above it is held
+    // to one viewport; the first line of prose lands below it.
+    if (/^\[FOLD\]\s*$/.test(line)) {
+      flush();
+      // A scroll cue pinned to the bottom of the cover. Decorative and
+      // redundant — the page scrolls perfectly well without it — so it is
+      // hidden from assistive technology and taken out of the tab order
+      // rather than announced as a second way to do nothing new.
+      html.push('<a class="scroll-cue" href="#intro" aria-hidden="true" ' +
+        'tabindex="-1">↓</a>');
+      html.push("</section>");
+      html.push('<div id="intro"></div>');
+      continue;
+    }
+
+    // [RATE]: the headline throughput line (docs/book/rate.js). The rate
+    // clause ships hidden and is revealed only once the engine has produced a
+    // real measurement, so without JavaScript or WebAssembly the line simply
+    // reads "Production-grade contextual bandits." rather than an empty claim.
+    if (/^\[RATE\]\s*$/.test(line)) {
+      flush();
+      html.push('<p class="tagline">Production-grade contextual bandits' +
+        '<span id="rate-clause" hidden> at <span id="rate-value"></span> ' +
+        "decisions/sec</span>.</p>");
+      html.push('<script type="module" src="rate.js"></script>');
+      continue;
+    }
+
     // [SIM]: mount point for the regret simulation (docs/book/sim.js).
     if (/^\[SIM\]\s*$/.test(line)) {
       flush();
@@ -239,6 +267,10 @@ function render(md) {
         while (j < lines.length && /^\s*$/.test(lines[j])) j++;
         const sub = lines[j]?.match(/^\*([^*].*)\*$/);
         if (sub) { subtitle = sub[1]; i = j; }
+        // The h1 opens the cover, which [FOLD] closes: everything from the
+        // title down to that marker is held to one viewport, so the prose
+        // below it starts under the fold.
+        html.push('<section class="cover">');
         html.push(`<header><h1>${inline(text)}</h1>` +
           (subtitle ? `<p class="subtitle">${inline(subtitle)}</p>` : "") +
           "</header>");
@@ -338,13 +370,48 @@ const css = `
   }
   html { background: #fff; }
   body {
-    font: large/1.567 "Linux Libertine", Georgia, serif;
+    /* Was the "large" keyword (18px); 20px is one Safari zoom step up from
+       it. Every other size in this sheet is em-relative, so raising this one
+       value scales the whole page. */
+    font: 20px/1.567 "Linux Libertine", Georgia, serif;
     color: #1a1a1a;
     max-width: 42em;
     margin: 0 auto;
     padding: 3em 1.5em 6em;
     text-rendering: optimizeLegibility;
   }
+  /* The cover: title, throughput line, byline, version, install. Held to a
+     viewport so the prose starts below the fold. Body top padding is
+     subtracted so the section adds one screen, not one screen plus padding;
+     min-height rather than height so a small window grows it instead of
+     clipping. */
+  .cover {
+    min-height: calc(100vh - 3em);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .cover > :last-child { margin-bottom: 0; }
+
+  /* An in-flow flex child, so it takes up room in the column and lifts the
+     masthead above it rather than floating over the layout. */
+  .scroll-cue {
+    align-self: center;
+    margin-top: 2em;
+    font-size: 1.6em;
+    line-height: 1;
+    color: #bbb;
+    text-decoration: none;
+    padding: 0.2em 0.6em;
+    transition: color 0.2s, transform 0.2s;
+  }
+  .scroll-cue:hover {
+    color: #900;
+    transform: translateY(0.15em);
+  }
+  /* The cue lands here. Zero-height, so it only ever serves as a target. */
+  #intro { scroll-margin-top: 1.5em; }
+
   header { text-align: center; margin: 2em 0 0; }
   h1 {
     font-size: 5em;
@@ -355,9 +422,13 @@ const css = `
     margin: 0 0 0.15em;
   }
 
-  /* The byline: the h2 directly after the masthead. */
-  header + h2 { margin: 2em 0 4.5em; }
-  header + h2:has(+ .version) { margin-bottom: 0.75em; }
+  /* The byline: the h2 after the masthead, with the throughput line now
+     sitting between the two. Both forms are matched so the byline keeps its
+     spacing whether or not that line is present. */
+  header + h2,
+  header + .tagline + h2 { margin: 2em 0 4.5em; }
+  header + h2:has(+ .version),
+  header + .tagline + h2:has(+ .version) { margin-bottom: 0.75em; }
   .version {
     text-align: center;
     font-size: 0.8em;
@@ -452,6 +523,10 @@ const css = `
     max-width: 28em;
     margin-left: auto;
     margin-right: auto;
+    /* Explicit, because the scroll cue is now the cover's last child, so the
+       generic last-child margin reset no longer reaches this block. Without
+       it the trailing 3em would push the centred masthead off centre. */
+    margin-bottom: 0;
   }
   .version + .codetabs .codetabs-nav { text-align: center; }
   .version + .codetabs pre { text-align: center; }
@@ -493,6 +568,26 @@ const css = `
   }
 
   .bandit-sim { margin: 0 0 3em; text-align: center; }
+
+  /* The throughput line, between the masthead and the byline. Set bold like
+     the headings rather than as italic body copy, and the figure is
+     tabular-nums so the line does not twitch as the number settles. */
+  .tagline {
+    margin: 0.6em 0 0;
+    text-align: center;
+    font-size: 1.15em;
+    /* Set like the byline below it: normal weight, uppercase, letter-spaced.
+       The headings in this book carry weight through case and tracking rather
+       than boldness, and this line reads as one of them. */
+    font-weight: normal;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #1a1a1a;
+  }
+  .tagline #rate-value {
+    font-variant-numeric: tabular-nums;
+    color: #900;
+  }
   .sim-canvas {
     display: block;
     width: 100%;

@@ -1,4 +1,7 @@
 # Gittins
+
+[RATE]
+
 ## By [Max Pagels](https://maxpagels.com)
 
 [VERSION]
@@ -15,7 +18,7 @@ npm install gittins
 import * as gittins from "https://esm.sh/gittins/web";
 ```
 
-[SIM]
+[FOLD]
 
 Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based on my experience working with bandit problems. It stands on the shoulders of giants, in particular
 [Vowpal Wabbit](https://vowpalwabbit.org/), and adheres strictly to a design in support of real-world production use. Gittins is not a research tool.

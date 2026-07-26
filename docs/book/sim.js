@@ -48,11 +48,14 @@ async function boot() {
     const engine = await import("./engine.js");
     await engine.ready;
     gittins = engine.gittins;
-  } catch {
+  } catch (e) {
     fallback(
       "The simulation engine could not be loaded. If you are reading this " +
       "as a local file, serve the book over HTTP (<code>make serve</code>) " +
-      "and reload this page."
+      "and reload this page." +
+    "<br><br>Reason: <code>" +
+    String((e && (e.message || e)) || "unknown")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</code>"
     );
     return;
   }

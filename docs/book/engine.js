@@ -9,12 +9,20 @@
 // guard is not race-safe, and concurrent init() calls from several demos can
 // instantiate the module repeatedly, stranding already-created bandit states
 // in a dead instance.
+//
+// The import of that entry is deliberately kept dynamic, inside `ready`,
+// rather than a static `import * as gittins from "./pkg/gittins.js"`. A static
+// import would make *this* module async too, because its dependency
+// top-level-awaits — and Safari resolves a dynamic `import()` of such a module
+// before its body has evaluated, so a demo doing `await import("./engine.js")`
+// then reading `engine.ready` hits "Cannot access 'ready' before
+// initialization". Keeping the await inside a promise leaves this module
+// synchronous, so both exports are initialized the moment it is imported, in
+// every browser.
 
-import * as gittins from "./pkg/gittins.js";
+export let gittins;
 
-export { gittins };
-// Kept so demos can `await engine.ready` unchanged. It is already resolved by
-// the time this module finishes evaluating — awaiting the dynamic import of
-// this file is itself enough — but leaving it costs nothing and keeps the
-// demos from having to care how initialization happens.
-export const ready = Promise.resolve();
+export const ready = import("./pkg/gittins.js").then((module) => {
+  gittins = module;
+  return module;
+});
