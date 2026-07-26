@@ -24,10 +24,6 @@ Full documentation and user guide: **[docs.getgittins.dev](https://docs.getgitti
 pip install gittins
 ```
 
-Wheels are published for Linux, macOS, and Windows. The extension is built
-against the stable ABI (abi3), so one wheel per platform covers CPython 3.10
-and up.
-
 ## Usage
 
 The state is an opaque handle updated **in place** — calls return only their
@@ -60,9 +56,6 @@ open("bandit.txt", "w").write(gittins.serialize(state))
 Feature values are typed by what you pass: strings are categorical, ints,
 floats and bools numeric, `None` absent. Anything else raises `ValueError`
 naming the feature.
-
-The serialization format is shared across implementations — a state written
-here loads unchanged in the Rust core or the browser/WASM build.
 
 ### Bringing your own model
 

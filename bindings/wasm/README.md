@@ -38,20 +38,11 @@ Straight from a CDN, no build step and no install, use the `/web` entry:
 import * as gittins from "https://esm.sh/gittins/web";
 ```
 
-It initializes itself before your first line runs, so this path needs no
-ceremony either.
+## Usage
 
-The engine is compiled to WebAssembly and exposes the same nine functions as
-the Python package and the reference. To build it yourself:
-
-```sh
-make npm-pkg   # emits bindings/wasm/pkg-npm/, exactly what is published
-```
-
-As everywhere else: calls return their result only, and
-the state handle is updated in place. Decision records and resolutions are
-plain objects with the same field names as the Python API;
-`candidate_hash` is a BigInt.
+Calls return their result only, and the state handle is updated in place.
+Decision records and resolutions are plain objects with the same field names
+as the Python API; `candidate_hash` is a BigInt.
 
 A bandit that lives entirely in the browser, surviving reloads through
 localStorage — the engine's whole state is one plain string, stored and
@@ -85,9 +76,7 @@ gittins.expire(state, Date.now() / 1000);
 localStorage.setItem("bandit", gittins.serialize(state));
 ```
 
-The format is shared across implementations: a state saved in the browser
-loads in Python or Rust unchanged. Tests
-(`wasm-pack test --node bindings/wasm`) replay the golden `api` and
-`serialization` sections through this module — the binding acceptance gate,
-and, because WASM mandates IEEE-754 semantics, the project's cross-platform
-bit-identity check.
+## License
+
+MIT. Named after John Gittins, whose index (1974) established that
+exploration has a precise, computable value.
