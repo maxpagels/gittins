@@ -3,6 +3,18 @@
 
 [VERSION]
 
+```python
+pip install gittins
+```
+
+```npm
+npm install gittins
+```
+
+```browser
+import * as gittins from "https://esm.sh/gittins/web";
+```
+
 [SIM]
 
 Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based on my experience working with bandit problems. It stands on the shoulders of giants, in particular
@@ -65,8 +77,7 @@ state = gittins.create(bits=8, horizon=3600.0)
 ```
 
 ```js
-import init, * as gittins from "./pkg/gittins_wasm.js";
-await init();
+import * as gittins from "gittins";
 
 let state = gittins.create(8, 3600.0); // bits, horizon in seconds
 ```

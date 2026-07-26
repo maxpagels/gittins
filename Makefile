@@ -34,6 +34,9 @@ book-wasm:
 	mkdir -p docs/book/pkg
 	cp bindings/wasm/pkg/gittins_wasm.js docs/book/pkg/
 	cp bindings/wasm/pkg/gittins_wasm_bg.wasm docs/book/pkg/
+	# The same auto-init entry the npm package ships, so the demos load the
+	# engine exactly the way the docs tell readers to.
+	cp bindings/wasm/web-entry.js docs/book/pkg/gittins.js
 
 # The publishable npm package, in bindings/wasm/pkg-npm: all three wasm-pack
 # targets behind one exports map, so no consumer has to call init(). See the

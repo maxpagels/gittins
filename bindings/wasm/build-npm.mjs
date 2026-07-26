@@ -52,18 +52,13 @@ for (const [target, dir] of targets) {
   console.log(`built ${target} -> ${dir.replace(out, "pkg-npm")}`);
 }
 
-// The zero-ceremony browser entry. `export *` deliberately does not re-export
-// init as the default, so there is no second, half-initialized way in.
+// The zero-ceremony browser entry, copied from the checked-in source rather
+// than written inline: the book's demos load the same file, and a wrapper that
+// differs between the two would mean the docs demonstrate something other than
+// what ships.
 writeFileSync(
   join(out, "web", "gittins.js"),
-  [
-    "// Auto-initializing entry: the top-level await below resolves before any",
-    "// importer's code runs, so callers never call init() themselves.",
-    'import init from "./gittins_wasm.js";',
-    "await init();",
-    'export * from "./gittins_wasm.js";',
-    "",
-  ].join("\n"),
+  readFileSync(join(crate, "web-entry.js"), "utf8"),
 );
 
 // wasm-pack writes a full package.json into every out-dir; the nested ones

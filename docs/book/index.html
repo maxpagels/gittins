@@ -147,6 +147,22 @@
   .codetabs-nav button.active { color: #900; border-bottom-color: #900; }
   .codetabs-nav button:hover { color: #c00; }
 
+  /* The install box, and only it: the one codetabs group that directly
+     follows the version badge. It is a two-word command under the title
+     rather than a listing to read, so it is centred and held narrow instead
+     of running the full measure like every other block. */
+  .version + .codetabs {
+    /* Wide enough for the longest tab (the esm.sh URL), which is what sets
+       the floor here: a hidden tab contributes nothing to layout, so sizing
+       to content would make the box jump width as the reader switches. Still
+       well under the full measure the other code blocks run to. */
+    max-width: 28em;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .version + .codetabs .codetabs-nav { text-align: center; }
+  .version + .codetabs pre { text-align: center; }
+
   ul, ol { margin: 0 0 3em; padding-left: 2.5em; padding-right: 2em; }
   ol { list-style: upper-roman; }
   ol li::marker { color: #900; }
@@ -252,6 +268,12 @@
 <header><h1>Gittins</h1></header>
 <h2 id="by-max-pagels">By <a href="https://maxpagels.com">Max Pagels</a></h2>
 <div class="version">1.0.0</div>
+<div class="codetabs">
+<div class="codetabs-nav"><button data-lang="python" class="active">Python</button><button data-lang="npm">npm</button><button data-lang="browser">Browser</button></div>
+<pre data-lang="python"><code class="language-python">pip install gittins</code></pre>
+<pre data-lang="npm" hidden><code class="language-npm">npm install <span class="tok-kw">gittins</span></code></pre>
+<pre data-lang="browser" hidden><code class="language-browser"><span class="tok-kw">import</span> * as gittins <span class="tok-kw">from</span> <span class="tok-str">&quot;https://esm.sh/gittins/web&quot;</span>;</code></pre>
+</div>
 <div id="bandit-sim" class="bandit-sim"><noscript>The live simulation requires JavaScript.</noscript></div>
 <script type="module" src="sim.js"></script>
 <p>Gittins is an opinionated, highly optimised contextual bandit engine that aims to address the practical considerations with such systems, based on my experience working with bandit problems. It stands on the shoulders of giants, in particular <a href="https://vowpalwabbit.org/">Vowpal Wabbit</a>, and adheres strictly to a design in support of real-world production use. Gittins is not a research tool.</p>
@@ -290,8 +312,7 @@
 <span class="tok-kw">import</span> time
 
 state = gittins.create(bits=<span class="tok-num">8</span>, horizon=<span class="tok-num">3600.0</span>)</code></pre>
-<pre data-lang="js" hidden><code class="language-js"><span class="tok-kw">import</span> init, * as gittins <span class="tok-kw">from</span> <span class="tok-str">&quot;./pkg/gittins_wasm.js&quot;</span>;
-<span class="tok-kw">await</span> init();
+<pre data-lang="js" hidden><code class="language-js"><span class="tok-kw">import</span> * as gittins <span class="tok-kw">from</span> <span class="tok-str">&quot;gittins&quot;</span>;
 
 <span class="tok-kw">let</span> state = gittins.create(<span class="tok-num">8</span>, <span class="tok-num">3600.0</span>); <span class="tok-com">// bits, horizon in seconds</span></code></pre>
 </div>

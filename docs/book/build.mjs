@@ -84,6 +84,11 @@ TOKENS.sh = {
 };
 TOKENS.bash = TOKENS.sh;
 TOKENS.shell = TOKENS.sh;
+// The install box's own tabs. They are separate languages so that box can be
+// labelled by install method ("npm", "Browser") without renaming the `js`
+// tabs the rest of the book uses for the WASM API.
+TOKENS.npm = TOKENS.sh;
+TOKENS.browser = TOKENS.js;
 
 function highlight(code, lang) {
   const t = TOKENS[lang];
@@ -154,7 +159,8 @@ function render(md) {
         `<code class="language-${b.lang || "text"}">${highlight(b.code, b.lang)}</code>`;
       if (blocks.length > 1) {
         const labels = { python: "Python", py: "Python", js: "WASM (JavaScript)",
-          javascript: "WASM (JavaScript)", rust: "Rust", sh: "Shell", bash: "Shell" };
+          javascript: "WASM (JavaScript)", rust: "Rust", sh: "Shell", bash: "Shell",
+          npm: "npm", browser: "Browser" };
         html.push('<div class="codetabs">');
         html.push('<div class="codetabs-nav">' + blocks.map((b, k) =>
           `<button data-lang="${b.lang}"${k === 0 ? ' class="active"' : ""}>` +
@@ -433,6 +439,22 @@ const css = `
   }
   .codetabs-nav button.active { color: #900; border-bottom-color: #900; }
   .codetabs-nav button:hover { color: #c00; }
+
+  /* The install box, and only it: the one codetabs group that directly
+     follows the version badge. It is a two-word command under the title
+     rather than a listing to read, so it is centred and held narrow instead
+     of running the full measure like every other block. */
+  .version + .codetabs {
+    /* Wide enough for the longest tab (the esm.sh URL), which is what sets
+       the floor here: a hidden tab contributes nothing to layout, so sizing
+       to content would make the box jump width as the reader switches. Still
+       well under the full measure the other code blocks run to. */
+    max-width: 28em;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .version + .codetabs .codetabs-nav { text-align: center; }
+  .version + .codetabs pre { text-align: center; }
 
   ul, ol { margin: 0 0 3em; padding-left: 2.5em; padding-right: 2em; }
   ol { list-style: upper-roman; }
