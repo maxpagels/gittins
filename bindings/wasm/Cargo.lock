@@ -79,11 +79,11 @@ dependencies = [
 
 [[package]]
 name = "gittins-core"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "gittins-wasm"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "gittins-core",
  "js-sys",
