@@ -3,7 +3,7 @@
 # core crate stays zero-dependency; wasm-bindgen lives here.
 [package]
 name = "gittins-wasm"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 description = "WebAssembly binding for the gittins contextual bandit engine"
 license = "MIT"
