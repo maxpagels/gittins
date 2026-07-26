@@ -2,7 +2,10 @@
 name = "gittins-reference"
 version = "0.0.1"
 description = "Pure-Python reference implementation of the gittins contextual bandit engine"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Max Pagels" }]
 dependencies = []
 
 [dependency-groups]
@@ -18,3 +21,53 @@ packages = ["src/gittins_reference"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+# The release version, driven by `make release BUMP=patch|minor|major`.
+#
+# This is the version of the shipped engine — the four Rust crates and the
+# `gittins` wheel move in lockstep, because they are one engine compiled
+# four ways and the golden corpus pins them to identical behavior. A wheel
+# and a crate carrying the same number must be the same engine.
+#
+# `gittins-reference` above is deliberately NOT in this list: it is the
+# executable spec, versioned on its own and not published. Its `version =`
+# on line 3 is left alone because only the files enumerated below are
+# rewritten.
+#
+# The Cargo.lock files are also absent, and must stay absent — `make
+# release` refreshes them with cargo after the bump, which is both less
+# brittle than pattern-matching lock entries and the only way the path
+# dependencies stay consistent.
+[tool.bumpversion]
+current_version = "0.1.0"
+commit = false
+tag = false
+
+# Every rule is anchored to `version = "..."` rather than the bare version
+# string: the manifests carry dependency versions too (pyo3, serde_json,
+# wasm-bindgen), and an unanchored match would eventually rewrite one of
+# those the day a dependency happens to share our version number.
+[[tool.bumpversion.files]]
+filename = "core/Cargo.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "bindings/python/Cargo.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "bindings/python/pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "bindings/wasm/Cargo.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "bindings/cli/Cargo.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'

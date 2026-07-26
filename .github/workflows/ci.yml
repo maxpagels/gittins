@@ -97,6 +97,40 @@ jobs:
         run: wasm-pack test --node bindings/wasm
       - name: Package smoke build (wasm for the web)
         run: wasm-pack build --target web bindings/wasm
+      # The published npm package, built and then consumed the way a user
+      # would: pack it, install it into an empty project, and import it with
+      # no init() call. The three-target exports map is the whole point of
+      # that package, and its failure modes (a wrong `type` field, a stale
+      # exports path) are invisible to a plain build — they only appear on
+      # import, which is why this installs the tarball rather than poking at
+      # the out-dir. The web entry is left to `wasm-pack test --node` above
+      # and a browser; it needs a fetchable URL Node does not provide.
+      - name: Build the npm package
+        run: make npm-pkg
+      - name: Consume the npm package as a user would
+        run: |
+          mkdir -p /tmp/npmsmoke/proj
+          npm pack bindings/wasm/pkg-npm --pack-destination /tmp/npmsmoke
+          cd /tmp/npmsmoke/proj
+          npm init -y >/dev/null && npm pkg set type=module >/dev/null
+          npm install /tmp/npmsmoke/gittins-*.tgz
+          cat > esm.mjs <<'EOF'
+          import * as gittins from "gittins";
+          const s = gittins.create(8, 3600.0);
+          const c = [["a", {}], ["b", {}]];
+          const r = gittins.decide(s, { device: "mobile" }, c, 1700000000.0, "salt");
+          if (typeof c[r.chosen][0] !== "string") throw new Error("no arm chosen");
+          const ser = gittins.serialize(s);
+          if (gittins.serialize(gittins.deserialize(ser)) !== ser) throw new Error("roundtrip");
+          console.log("npm ESM entry OK, no init() needed");
+          EOF
+          cat > cjs.cjs <<'EOF'
+          const gittins = require("gittins");
+          const s = gittins.create(8, 3600.0);
+          gittins.decide(s, { device: "mobile" }, [["a", {}], ["b", {}]], 1700000000.0, "salt");
+          console.log("npm CJS entry OK, no init() needed");
+          EOF
+          node esm.mjs && node cjs.cjs
       # The benchmark compares four implementations in one table, so this
       # job also builds the native-core bench binary and the wasm package
       # for Node (bench.py degrades cells to "not built" if absent).

@@ -1,0 +1,124 @@
+# Release: build the Python binding's wheels and publish them to PyPI.
+#
+# Cut a release with `make release BUMP=patch|minor|major` on main. That
+# bumps every shipped manifest, refreshes the lock files, commits, tags,
+# and pushes; the tag push is what runs this workflow. Nothing here is
+# meant to be triggered by hand except as a retry.
+#
+# Publishing uses Trusted Publishing (OIDC), registered on PyPI against
+# this repo, the filename `release.yml`, and the `pypi` environment — so
+# there is no API token in the repo secrets. All three must keep matching
+# the publisher registered on PyPI; renaming this file breaks releases.
+#
+# The core crate is a path dependency (../../core) and there is no cargo
+# workspace, but maturin rewrites the path and vendors core/ into the
+# sdist, so the sdist builds standalone — verified by installing it into a
+# clean venv.
+#
+# abi3-py310 means one wheel covers CPython >= 3.10, so the matrix is one
+# leg per platform/arch rather than per platform per Python version.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The release gate. `make release` runs these locally too, but a tag can
+  # reach GitHub without going through the Makefile, and the golden corpus
+  # is the contract that all four bindings implement the same engine —
+  # publishing a wheel that fails it would ship a binding that disagrees
+  # with the spec.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Reference test suite
+        run: uv run pytest -q
+      - name: Verify the core against the golden corpus
+        run: cargo test --manifest-path core/Cargo.toml
+      - name: Tag must match the packaged version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(grep -m1 '^version' bindings/python/pyproject.toml | cut -d'"' -f2)
+          echo "tag=$tag pyproject=$pkg"
+          test "$tag" = "$pkg" || {
+            echo "::error::tag v$tag does not match pyproject version $pkg"
+            exit 1
+          }
+
+  sdist:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist -m bindings/python/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist
+
+  wheels:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64
+          - os: ubuntu-latest
+            target: aarch64
+          - os: macos-latest
+            target: x86_64
+          - os: macos-latest
+            target: aarch64
+          - os: windows-latest
+            target: x64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          # `auto` picks the oldest manylinux the toolchain supports; the
+          # core crate is zero-dependency, so this stays maximally
+          # compatible. Ignored off Linux.
+          manylinux: auto
+          args: --release --out dist -m bindings/python/Cargo.toml
+          sccache: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}-${{ matrix.target }}
+          path: dist
+
+  publish:
+    needs: [sdist, wheels]
+    runs-on: ubuntu-latest
+    # Must match the environment named on PyPI's publisher, and is where a
+    # required-reviewer gate on releases would go.
+    environment: pypi
+    permissions:
+      # Mints the short-lived OIDC token Trusted Publishing exchanges for
+      # an upload token. Without this the publish step 403s.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+      - run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

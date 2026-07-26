@@ -1,11 +1,51 @@
-# gittins — browser / JS binding
+# gittins
 
-The gittins engine compiled to WebAssembly, exposing the same nine
-functions as the Python package and the reference. Build
-with [wasm-pack](https://rustwasm.github.io/wasm-pack/):
+An opinionated, highly optimised contextual bandit engine.
+
+- **Online by nature.** Learns one observation at a time, in O(1) work and
+  fixed memory, as long as open decisions are regularly resolved.
+- **Non-stationarity is expected.** The engine adapts as the relationship
+  between context and feedback drifts, and never learns anything it cannot
+  eventually unlearn.
+- **Dynamic actions and context.** The candidate set can change on every
+  call; you never declare the number of actions up front.
+- **Safe reward handling.** Rewards may arrive late or never. Constructing
+  invalid training data is made hard by design.
+- **Speed and determinism.** Bit-identical results across platforms and
+  language bindings, enforced by a golden test corpus.
+- **Bring your own model.** Swap in your own scoring or exploration and
+  inherit everything else.
+
+Full documentation and user guide: **[docs.getgittins.dev](https://docs.getgittins.dev)**
+
+## Install
 
 ```sh
-wasm-pack build --target web bindings/wasm   # emits bindings/wasm/pkg/
+npm install gittins
+```
+
+```js
+import * as gittins from "gittins";
+```
+
+That works in Node (ESM or CommonJS) and under any bundler — webpack, Vite,
+Rollup. There is no initialization step: the package ships a build per
+environment and the right one is selected for you.
+
+Straight from a CDN, no build step and no install, use the `/web` entry:
+
+```js
+import * as gittins from "https://esm.sh/gittins/web";
+```
+
+It initializes itself before your first line runs, so this path needs no
+ceremony either.
+
+The engine is compiled to WebAssembly and exposes the same nine functions as
+the Python package and the reference. To build it yourself:
+
+```sh
+make npm-pkg   # emits bindings/wasm/pkg-npm/, exactly what is published
 ```
 
 As everywhere else: calls return their result only, and
@@ -18,8 +58,7 @@ localStorage — the engine's whole state is one plain string, stored and
 loaded as-is:
 
 ```js
-import init, * as gittins from "./pkg/gittins_wasm.js";
-await init();
+import * as gittins from "gittins";
 
 const saved = localStorage.getItem("bandit");
 let state = saved ? gittins.deserialize(saved) : gittins.create(8, 3600.0); // bits, horizon seconds
