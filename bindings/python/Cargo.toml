@@ -3,7 +3,7 @@
 # CPython >= 3.10). The core crate stays zero-dependency; PyO3 lives here.
 [package]
 name = "gittins-python"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "Python binding for the gittins contextual bandit engine"
 license = "MIT"
