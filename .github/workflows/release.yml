@@ -57,16 +57,39 @@ jobs:
             exit 1
           }
 
+  # maturin is invoked directly here rather than through maturin-action, which
+  # is what the wheel legs use. For 1.0.0 this job ran green and produced no
+  # sdist, and the action's handling of `--out` is the likely reason: it
+  # appends its own output directory, so the tarball lands in target/wheels
+  # while the upload looks in dist/. Calling maturin ourselves means the
+  # command that runs here is the one that was tested by hand, and there is no
+  # container or argument rewriting in between.
   sdist:
     needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: PyO3/maturin-action@v1
+      - uses: astral-sh/setup-uv@v8.3.2
         with:
-          command: sdist
-          args: --out dist -m bindings/python/Cargo.toml
-      - uses: actions/upload-artifact@v4
+          python-version: "3.13"
+      - name: Build the sdist
+        run: uv run --with 'maturin>=1.7,<2' maturin sdist -m bindings/python/Cargo.toml -o dist
+      # An sdist that does not build standalone is worse than none: the core
+      # crate is a path dependency (../../core) with no cargo workspace, so
+      # this proves maturin vendored it before the file can be published.
+      - name: The sdist must install into a clean environment
+        run: |
+          test -f dist/gittins-*.tar.gz
+          uv venv /tmp/sdistcheck
+          uv pip install --python /tmp/sdistcheck/bin/python dist/gittins-*.tar.gz
+          /tmp/sdistcheck/bin/python -c "
+          import gittins
+          s = gittins.create(8, 3600.0)
+          r = gittins.decide(s, {'device': 'mobile'}, [('a', {}), ('b', {})], 1700000000.0, 'salt')
+          assert isinstance(gittins.serialize(s), str)
+          print('sdist installs and runs standalone')
+          "
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-sdist
           path: dist
@@ -103,7 +126,7 @@ jobs:
           manylinux: auto
           args: --release --out dist -m bindings/python/Cargo.toml
           sccache: true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-${{ matrix.os }}-${{ matrix.target }}
           path: dist
@@ -120,16 +143,16 @@ jobs:
       # an upload token. Without this the publish step 403s.
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: dist-*
           merge-multiple: true
           path: dist
       - run: ls -l dist
-      # Assert the shape of the upload before it becomes permanent. PyPI will
-      # not let a filename be replaced, so a release that is missing its sdist
-      # (as 1.0.0 was) can only be corrected by adding files to it later —
-      # better to refuse to publish than to publish something incomplete.
+      # Assert the shape of the upload before it becomes permanent. A version
+      # is only published once, so an incomplete set (1.0.0 went out with five
+      # wheels and no sdist) is not something a re-run can repair — better to
+      # refuse to publish than to publish something that has to be superseded.
       - name: The upload must contain an sdist and every wheel
         run: |
           sdists=$(ls dist/*.tar.gz 2>/dev/null | wc -l)
@@ -138,7 +161,50 @@ jobs:
           test "$sdists" -eq 1 || { echo "::error::expected 1 sdist, got $sdists"; exit 1; }
           test "$wheels" -eq 5 || { echo "::error::expected 5 wheels, got $wheels"; exit 1; }
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # npm, off the same tag as PyPI. Both registries publishing from one trigger
+  # is the point: the wheel and the npm package are the same engine at the same
+  # version, and a manual `make npm-publish` alongside an automatic PyPI
+  # release is exactly how they drift apart.
+  #
+  # Authentication is Trusted Publishing (OIDC), registered on npmjs.com
+  # against this repo, `release.yml`, and the `npm` environment below — so no
+  # NPM_TOKEN. `setup-node` is deliberately configured without `registry-url`:
+  # that option writes an .npmrc expecting NODE_AUTH_TOKEN, which is the
+  # token-based path this replaces.
+  npm:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          # Lets a re-run backfill files onto a version that is already partly
-          # published, instead of 400-ing on the wheels that are already there.
-          skip-existing: true
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      # OIDC publishing needs a newer npm than the one bundled with node.
+      - name: Update npm
+        run: npm install -g npm@latest && npm --version
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build the npm package
+        run: make npm-pkg
+      # The package version comes from bindings/wasm/Cargo.toml, which the
+      # release bump rewrote; check it against the tag the same way the Python
+      # side does, so a mismatch fails before it is published rather than after.
+      - name: Tag must match the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./bindings/wasm/pkg-npm/package.json').version")
+          echo "tag=$tag package=$pkg"
+          test "$tag" = "$pkg" || {
+            echo "::error::tag v$tag does not match npm package version $pkg"
+            exit 1
+          }
+      - name: Publish to npm
+        run: npm publish bindings/wasm/pkg-npm --access public

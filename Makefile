@@ -44,8 +44,11 @@ book-wasm:
 npm-pkg:
 	node bindings/wasm/build-npm.mjs
 
-# Publish that package to npm. Requires `npm login` (see the trusted-publisher
-# note in .github/workflows/release.yml once the first release is out).
+# Manual npm publish. Not the normal path: releases go out through the `npm`
+# job in .github/workflows/release.yml, which authenticates with OIDC and is
+# triggered by the tag `make release` pushes. Kept as a fallback, and it may
+# well refuse — npmjs.com can decline a token-based publish once a trusted
+# publisher is configured for the package.
 npm-publish: npm-pkg
 	npm publish bindings/wasm/pkg-npm --access public
 
