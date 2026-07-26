@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "gittins-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "flate2",
  "gittins-core",
@@ -50,7 +50,7 @@ dependencies = [
 
 [[package]]
 name = "gittins-core"
-version = "1.0.0"
+version = "1.0.1"
 
 [[package]]
 name = "hashbrown"
