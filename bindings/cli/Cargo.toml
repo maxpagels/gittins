@@ -11,6 +11,13 @@
 name = "gittins-cli"
 version = "0.1.0"
 edition = "2021"
+description = "Command-line tools for the gittins contextual bandit engine: experience-log verification and offline policy evaluation"
+license = "MIT"
+repository = "https://github.com/maxpagels/gittins"
+homepage = "https://docs.getgittins.dev"
+documentation = "https://docs.getgittins.dev"
+keywords = ["bandit", "contextual-bandit", "machine-learning", "online-learning", "exploration"]
+categories = ["algorithms", "science"]
 
 [[bin]]
 name = "gittins"

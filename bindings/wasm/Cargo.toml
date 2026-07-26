@@ -5,6 +5,13 @@
 name = "gittins-wasm"
 version = "0.1.0"
 edition = "2021"
+description = "WebAssembly binding for the gittins contextual bandit engine"
+license = "MIT"
+repository = "https://github.com/maxpagels/gittins"
+homepage = "https://docs.getgittins.dev"
+documentation = "https://docs.getgittins.dev"
+keywords = ["bandit", "contextual-bandit", "machine-learning", "online-learning", "exploration"]
+categories = ["algorithms", "science"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

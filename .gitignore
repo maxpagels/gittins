@@ -11,3 +11,6 @@ bindings/cli/target/
 examples/decisions.jsonl.gz
 bindings/wasm/pkg/
 bindings/wasm/pkg-node/
+
+# The publishable npm package (built by `make npm-pkg`).
+bindings/wasm/pkg-npm/
