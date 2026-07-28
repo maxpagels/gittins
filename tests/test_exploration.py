@@ -5,7 +5,6 @@ import pytest
 
 from gittins_reference.exploration import (
     DEFAULT_EPSILON,
-    choose,
     epsilon_greedy_probabilities,
     sample_index,
 )
@@ -43,6 +42,9 @@ class TestEpsilonGreedy:
         assert p[0] == p[3] == 0.05 / 4 + 0.95 / 2
         assert p[1] == p[2] == 0.05 / 4
 
+    def test_single_candidate_is_certain(self):
+        assert epsilon_greedy_probabilities([0.42], epsilon=0.05) == [1.0]
+
     def test_all_tied_is_uniform(self):
         # A fresh model estimates every candidate at 0.0: the distribution
         # must be uniform, not a point mass on index 0 (cold start).
@@ -78,21 +80,12 @@ class TestSample:
         # through rounding), the last index is chosen rather than crashing.
         assert sample_index([0.0, 0.0], KEY, 0) == 1
 
-
-class TestChoose:
-    def test_propensity_is_the_probability_of_the_choice(self):
-        est = [0.5, -0.25, 0.0, 0.5]
-        p = epsilon_greedy_probabilities(est, epsilon=0.05)
-        i, prop = choose(est, epsilon=0.05, key=KEY, counter=0)
-        assert prop == p[i]
-
-    def test_single_candidate_is_certain(self):
-        assert choose([0.42], epsilon=0.05, key=KEY, counter=0) == (0, 1.0)
-
     def test_mostly_greedy(self):
-        est = [0.0, 1.0, 0.5]
+        # The two layers together: the distribution's greedy mass is what
+        # the draw actually realizes, at the expected rate.
+        p = epsilon_greedy_probabilities([0.0, 1.0, 0.5], epsilon=DEFAULT_EPSILON)
         n = 10_000
-        counts = Counter(choose(est, DEFAULT_EPSILON, KEY, c)[0] for c in range(n))
+        counts = Counter(sample_index(p, KEY, c) for c in range(n))
         assert math.isclose(counts[1] / n, 1.0 - DEFAULT_EPSILON * 2 / 3, abs_tol=0.01)
 
 
@@ -105,7 +98,6 @@ class TestPinnedVectors:
         assert p == [0.4875, 0.0125, 0.0125, 0.4875]
 
     def test_choice_bits(self):
-        est = [0.5, -0.25, 0.0, 0.5]
-        assert choose(est, 0.05, KEY, 0) == (0, 0.4875)
-        assert choose(est, 0.05, KEY, 1) == (3, 0.4875)
-        assert choose(est, 0.05, KEY, 2) == (0, 0.4875)
+        p = epsilon_greedy_probabilities([0.5, -0.25, 0.0, 0.5], epsilon=0.05)
+        assert [sample_index(p, KEY, c) for c in (0, 1, 2)] == [0, 3, 0]
+        assert p[0] == p[3] == 0.4875
