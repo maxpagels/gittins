@@ -77,14 +77,3 @@ def sample_index(p: list[float], key: int, counter: int) -> int:
         if u < cumulative:
             return i
     return len(p) - 1  # u landed in the rounding gap above the final sum
-
-
-def choose(estimates: list[float], epsilon: float, key: int, counter: int) -> tuple[int, float]:
-    """The full exploration rule: (chosen index, its propensity).
-
-    The propensity is the probability the index was chosen with — exactly
-    what the decision record must log (D5).
-    """
-    p = epsilon_greedy_probabilities(estimates, epsilon)
-    i = sample_index(p, key, counter)
-    return i, p[i]
