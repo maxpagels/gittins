@@ -650,6 +650,11 @@ const css = `
 
   img { max-width: 100%; }
   hr { border: 0; }
+  @media (max-width: 34em) {
+    h1 { font-size: 2.8em; }
+    h2 { font-size: 1.35em; }
+    h3 { font-size: 1.1em; }
+  }
 `;
 
 const { title, body } = render(readFileSync(inFile, "utf8"));
