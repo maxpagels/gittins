@@ -678,6 +678,7 @@ const meta = [
   '<meta property="og:image:alt" content="A dark red italic epsilon">',
   ...(siteUrl ? [`<meta property="og:url" content="${siteUrl}/">`] : []),
   '<meta name="twitter:card" content="summary_large_image">',
+  `<link rel="canonical" href="${siteUrl}/">`,
 ].join("\n");
 
 writeFileSync(outFile, `<!DOCTYPE html>
@@ -711,3 +712,22 @@ for (const btn of document.querySelectorAll(".codetabs-nav button")) {
 `);
 
 console.log(`Wrote ${outFile}`);
+
+// The book is one page, so the sitemap is one URL. It exists to give
+// crawlers a discovery path that does not depend on someone linking to
+// us: the README link on GitHub is rel="nofollow", so it carries none.
+// lastmod is the build date, which is honest — the Makefile only rebuilds
+// when index.md, build.mjs, or the crate version actually changed.
+const sitemapFile = join(dirname(outFile), "sitemap.xml");
+const lastmod = new Date().toISOString().slice(0, 10);
+
+writeFileSync(sitemapFile, `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${siteUrl}/</loc>
+    <lastmod>${lastmod}</lastmod>
+  </url>
+</urlset>
+`);
+
+console.log(`Wrote ${sitemapFile}`);

@@ -23,6 +23,7 @@ ope-demo: ope-verify ope-eval ope-sweep ope-verify-gz
 
 book: docs/book/index.html
 
+# Also writes docs/book/sitemap.xml alongside the page; both are checked in.
 docs/book/index.html: docs/book/index.md docs/book/build.mjs core/Cargo.toml
 	node docs/book/build.mjs
 
