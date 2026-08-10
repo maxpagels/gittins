@@ -52,11 +52,11 @@ fn features(dict: &Bound<'_, PyDict>) -> PyResult<Vec<(String, Value)>> {
             .map_err(|_| PyValueError::new_err("feature names must be strings"))?;
         let value = if value.is_none() {
             Value::None
-        } else if value.downcast::<PyString>().is_ok() {
+        } else if value.cast::<PyString>().is_ok() {
             Value::Str(value.extract()?)
-        } else if value.downcast::<PyBool>().is_ok() {
+        } else if value.cast::<PyBool>().is_ok() {
             Value::Num(if value.is_truthy()? { 1.0 } else { 0.0 })
-        } else if value.downcast::<PyInt>().is_ok() || value.downcast::<PyFloat>().is_ok() {
+        } else if value.cast::<PyInt>().is_ok() || value.cast::<PyFloat>().is_ok() {
             Value::Num(value.extract()?)
         } else {
             return Err(PyValueError::new_err(format!(
@@ -275,7 +275,7 @@ fn log_line(py: Python<'_>, item: &Bound<'_, PyAny>) -> PyResult<String> {
     let kwargs = PyDict::new(py);
     kwargs.set_item("separators", (",", ":"))?;
     let line = PyDict::new(py);
-    if let Ok(record) = item.downcast::<DecisionRecord>() {
+    if let Ok(record) = item.cast::<DecisionRecord>() {
         let r = record.get();
         let (Some(bits), Some(context), Some(candidates)) = (r.bits, &r.context, &r.candidates)
         else {
@@ -297,7 +297,7 @@ fn log_line(py: Python<'_>, item: &Bound<'_, PyAny>) -> PyResult<String> {
         compact.set_item("model_version", r.model_version)?;
         compact.set_item("salt", &r.salt)?;
         line.set_item("record", compact)?;
-    } else if let Ok(resolution) = item.downcast::<Resolution>() {
+    } else if let Ok(resolution) = item.cast::<Resolution>() {
         let r = resolution.get();
         line.set_item("event", "resolution")?;
         line.set_item("decision_id", &r.decision_id)?;
