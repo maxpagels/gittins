@@ -39,7 +39,7 @@ pythonpath = ["."]
 # brittle than pattern-matching lock entries and the only way the path
 # dependencies stay consistent.
 [tool.bumpversion]
-current_version = "1.0.3"
+current_version = "1.0.4"
 commit = false
 tag = false
 

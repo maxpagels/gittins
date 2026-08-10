@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "gittins-core"
-version = "1.0.3"
+version = "1.0.4"
 
 [[package]]
 name = "gittins-python"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "gittins-core",
  "pyo3",
