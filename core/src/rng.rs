@@ -48,11 +48,12 @@ pub fn mix64(mut x: u64) -> u64 {
 /// ("ab", "c") and ("a", "bc") can never produce the same key.
 pub fn derive_key(decision_id: &str, salt: &str) -> u64 {
     let id = decision_id.as_bytes();
-    let mut message = Vec::with_capacity(8 + id.len() + salt.len());
-    message.extend_from_slice(&(id.len() as u64).to_le_bytes());
-    message.extend_from_slice(id);
-    message.extend_from_slice(salt.as_bytes());
-    fnv1a_64(&message)
+    // FNV-1a is a sequential byte fold, so folding the length prefix, the id
+    // and the salt in turn equals hashing their concatenation — with no
+    // per-decision buffer to allocate.
+    let h = fnv1a_extend(FNV_START, &(id.len() as u64).to_le_bytes());
+    let h = fnv1a_extend(h, id);
+    fnv1a_extend(h, salt.as_bytes())
 }
 
 /// The uniform 64-bit value at position `counter` of stream `key`.
