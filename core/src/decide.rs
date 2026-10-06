@@ -21,7 +21,7 @@ use crate::encoding::Features;
 use crate::error::Error;
 use crate::exploration::{epsilon_greedy_probabilities, sample_index};
 use crate::model::{estimate_factored, factorize, new_model, LinearModel};
-use crate::rng::{derive_key, fnv1a_extend, FNV_START};
+use crate::rng::{derive_key, fnv1a_extend_u64, FNV_START};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BanditState {
@@ -81,13 +81,13 @@ pub fn new_bandit(
 /// as hashing the materialized encoding, without ever building it — for a
 /// large candidate set that buffer is megabytes per decision.
 pub fn candidate_set_hash(candidates: &[Features], dim: usize) -> u64 {
-    let mut h = fnv1a_extend(FNV_START, &(candidates.len() as u64).to_le_bytes());
+    let mut h = fnv1a_extend_u64(FNV_START, candidates.len() as u64);
     for x in candidates {
-        h = fnv1a_extend(h, &(dim as u64).to_le_bytes());
-        h = fnv1a_extend(h, &(x.len() as u64).to_le_bytes());
+        h = fnv1a_extend_u64(h, dim as u64);
+        h = fnv1a_extend_u64(h, x.len() as u64);
         for &(i, v) in x {
-            h = fnv1a_extend(h, &(i as u64).to_le_bytes());
-            h = fnv1a_extend(h, &v.to_le_bytes());
+            h = fnv1a_extend_u64(h, i as u64);
+            h = fnv1a_extend_u64(h, v.to_bits());
         }
     }
     h
