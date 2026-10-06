@@ -29,7 +29,7 @@ docs/book/index.html: docs/book/index.md docs/book/build.mjs core/Cargo.toml
 
 # Build the WASM engine and copy it into the book so the live demo works
 # from a plain checkout. The copies in docs/book/pkg are checked in;
-# rerun this target whenever the engine changes.
+# `make release` reruns it; run it by hand to refresh between releases.
 book-wasm:
 	wasm-pack build --release --target web bindings/wasm
 	mkdir -p docs/book/pkg
@@ -64,8 +64,9 @@ serve: book
 # wheels and publishes to PyPI.
 #
 # Run from main with a clean tree. Unlike a pure-Python release this bumps
-# five manifests, four lock files, and the book, so the sequence is bump
-# (no commit, no tag) -> refresh locks -> rebuild the book -> one commit ->
+# five manifests, four lock files, and the book, so the sequence is rebuild
+# the book's WASM engine -> bump (no commit, no tag) -> refresh locks ->
+# rebuild the book -> one commit ->
 # tag. Letting bump-my-version commit for us would put the tag on a commit
 # whose Cargo.lock files and version badge still carried the old version —
 # a released tag that does not build reproducibly.
@@ -80,6 +81,11 @@ release:  # usage: make release BUMP=patch|minor|major
 	uv lock --check
 	uv run pytest -q
 	cargo test --manifest-path core/Cargo.toml
+	# Rebuild the book's checked-in WASM engine so the live demo ships the
+	# engine being released, not whichever one last ran `make book-wasm`.
+	# Before the bump: it needs no version, and a missing wasm-pack then
+	# fails the release before any manifest is rewritten.
+	$(MAKE) book-wasm
 	uvx bump-my-version bump $(BUMP)
 	@for m in core bindings/python bindings/wasm bindings/cli; do \
 	  cargo metadata --manifest-path $$m/Cargo.toml --format-version 1 >/dev/null; \
