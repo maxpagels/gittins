@@ -73,15 +73,6 @@ pub fn update(model: &mut LinearModel, x: &Features, reward: f64) {
 /// A diagonal system needs one reciprocal per *touched* coordinate, never
 /// O(dim); the type is kept for the once-per-decision shape it gives the
 /// layer above. Valid until the next update.
-///
-/// The reference memoizes each coordinate for the rest of the decision and
-/// this core does not (the second deliberate difference, after in-place
-/// mutation) — every value is identical either way, since a memo only ever
-/// returns the same reciprocal the recompute produces. Under the hashed
-/// encoding the memo has almost nothing to hit: every slot comes from a
-/// pair hash folding in the arm identity, and `encode` has already merged
-/// a candidate's duplicate slots, so nearly every lookup is a first touch
-/// and hashing the key costs several times the reciprocal it saves.
 pub struct Factorization<'a> {
     model: &'a LinearModel,
 }

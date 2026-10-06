@@ -5,11 +5,10 @@
 //! `tests/golden/` checks the result against `spec/golden.json`, the same
 //! corpus the reference pins itself to.
 //!
-//! Zero dependencies. Two things are deliberately not ports: state is
+//! Zero dependencies. One thing is deliberately not a port: state is
 //! mutated in place (the reference's immutable tuples were always
-//! documented as a reference-only artifact), and `Factorization` recomputes
-//! a coordinate instead of memoizing it (see `model`). Both are invisible
-//! in the output; everything else — semantics, constants, RNG streams, hash
+//! documented as a reference-only artifact). It is invisible in the
+//! output; everything else — semantics, constants, RNG streams, hash
 //! layouts — is unchanged.
 
 pub mod api;

@@ -41,9 +41,9 @@ The system is diagonal, so prediction needs no matrix solve anywhere:
 
 Each weight is that feature's own recency-weighted, shrunk running
 average, fully independent of every other feature — so `factorize` solves
-lazily: a coordinate's (1/a_j, theta_j) is computed the first time a
-candidate touches it and memoized for the rest of the decision, making a
-decision's solve cost O(coordinates touched), never O(dim). Because the
+lazily: a coordinate's (1/a_j, theta_j) is computed when a candidate
+touches it, making a decision's solve cost O(coordinates touched), never
+O(dim). Because the
 sums forget, the effective sample size is bounded at ~1/(1 - forgetting),
 so uncertainty has a floor and the model can never become absolutely
 certain; evidence on features that stop appearing fades out of the
@@ -91,7 +91,7 @@ selected offline from the decision log, not tuned online.
 """
 
 import math
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 DEFAULT_FORGETTING = 0.999
 
@@ -157,12 +157,12 @@ def update(model: LinearModel, x: Features, reward: float) -> LinearModel:
     return replace(model, scale=scale, xx=tuple(xx), xy=tuple(xy))
 
 
-@dataclass
+@dataclass(frozen=True)
 class Factorization:
     """The candidate-independent part of prediction, solved lazily: a
-    coordinate's precision and weight are computed the first time any
-    candidate touches it and memoized for the rest of the decision
-    (decide.py scores every candidate against one factorization). A
+    coordinate's precision and weight are computed when a candidate
+    touches it (decide.py scores every candidate against one
+    factorization). A
     diagonal system needs one reciprocal per *touched* coordinate — never
     O(dim) — the name is kept for the once-per-decision shape it gives the
     layer above. Valid until the next update."""
@@ -171,16 +171,11 @@ class Factorization:
     ridge: float
     xx: tuple[float, ...]
     xy: tuple[float, ...]
-    cache: "dict[int, tuple[float, float]]" = field(default_factory=dict)
 
     def coordinate(self, j: int) -> "tuple[float, float]":
-        """(1 / a_j, theta_j) for one coordinate, memoized."""
-        got = self.cache.get(j)
-        if got is None:
-            inv_a = 1.0 / (self.scale * self.xx[j] + self.ridge)
-            got = (inv_a, (self.scale * self.xy[j]) * inv_a)
-            self.cache[j] = got
-        return got
+        """(1 / a_j, theta_j) for one coordinate."""
+        inv_a = 1.0 / (self.scale * self.xx[j] + self.ridge)
+        return inv_a, (self.scale * self.xy[j]) * inv_a
 
 
 def factorize(model: LinearModel) -> Factorization:
