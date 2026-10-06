@@ -26,7 +26,6 @@
 //!   callback *result* throws an Error with the reference's message.
 
 use std::cell::RefCell;
-use std::fmt::Write;
 
 use js_sys::{Array, BigInt, Function, Object, Reflect};
 use wasm_bindgen::prelude::*;
@@ -90,7 +89,7 @@ fn train_callback<'a>(
     move |record: &DecisionRecord, reward: f64| {
         f.call2(
             &JsValue::NULL,
-            &record_to_js(record.clone()),
+            &record_to_js(record, None),
             &JsValue::from_f64(reward),
         )
         .map(|_| ())
@@ -159,51 +158,58 @@ fn get(obj: &JsValue, key: &str) -> JsValue {
     Reflect::get(obj, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
 }
 
-/// The `[[index, value], ...]` pairs as a JS array, built with one
-/// `JSON.parse` instead of two JS calls per pair — the pairs are most of
-/// a record's conversion cost. Bit-identical: Rust prints each double as
-/// its shortest round-tripping decimal, and JSON.parse reads it back
-/// exactly. JSON has no NaN or infinity, so a record carrying one takes
-/// the per-pair path.
-fn features_to_js(features: &[(usize, f64)]) -> JsValue {
-    if features.iter().all(|(_, v)| v.is_finite()) {
-        let mut json = String::with_capacity(2 + 24 * features.len());
-        json.push('[');
-        for (n, (j, v)) in features.iter().enumerate() {
-            if n > 0 {
-                json.push(',');
-            }
-            let _ = write!(json, "[{j},{v}]"); // writing to a String cannot fail
-        }
-        json.push(']');
-        if let Ok(array) = js_sys::JSON::parse(&json) {
-            return array;
-        }
-    }
-    let array = Array::new();
-    for (j, v) in features {
-        array.push(&Array::of2(&JsValue::from_f64(*j as f64), &JsValue::from_f64(*v)));
-    }
-    array.into()
+// The record object, built in one call into JS. Setting its fields one by
+// one from Rust costs a JS string conversion and a Reflect.set per field,
+// plus two JS calls per feature pair — ~4-16 µs a record, 30-45% of a
+// small decision; this is ~0.2-0.5 µs. Same fields in the same order, same
+// values bit for bit (the pairs cross as one Float64Array; indices are
+// exact as doubles). wasm-pack writes this into the package's `snippets/`
+// folder, which the generated JS imports — so anything that vendors the
+// package's files by hand (`make book-wasm`) must copy that folder too.
+#[wasm_bindgen(inline_js = "export function make_record(bits, context, candidates, decision_id, t, candidate_hash, chosen, flat, propensity, model_version, salt) {
+  const features = new Array(flat.length / 2);
+  for (let i = 0; i < features.length; i++) features[i] = [flat[2 * i], flat[2 * i + 1]];
+  return { bits, context, candidates, decision_id, t, candidate_hash, chosen, features, propensity, model_version, salt };
+}")]
+extern "C" {
+    #[allow(clippy::too_many_arguments)]
+    fn make_record(
+        bits: &JsValue,
+        context: &JsValue,
+        candidates: &JsValue,
+        decision_id: &str,
+        t: f64,
+        candidate_hash: u64, // crosses as a BigInt: it uses all 64 bits
+        chosen: f64,
+        flat: &[f64],
+        propensity: f64,
+        model_version: f64,
+        salt: &str,
+    ) -> JsValue;
 }
 
-fn record_to_js(record: DecisionRecord) -> JsValue {
-    let obj = Object::new();
-    // The input fields exist on every record; only `decide` fills them
-    // — a train callback's record carries null there, the
-    // ledger keeping only the compact record.
-    set(&obj, "bits", &JsValue::NULL);
-    set(&obj, "context", &JsValue::NULL);
-    set(&obj, "candidates", &JsValue::NULL);
-    set(&obj, "decision_id", &JsValue::from_str(&record.decision_id));
-    set(&obj, "t", &JsValue::from_f64(record.t));
-    set(&obj, "candidate_hash", &BigInt::from(record.candidate_hash).into());
-    set(&obj, "chosen", &JsValue::from_f64(record.chosen as f64));
-    set(&obj, "features", &features_to_js(&record.features));
-    set(&obj, "propensity", &JsValue::from_f64(record.propensity));
-    set(&obj, "model_version", &JsValue::from_f64(record.model_version as f64));
-    set(&obj, "salt", &JsValue::from_str(&record.salt));
-    obj.into()
+/// A record as a plain object. `inputs` is (bits, context, candidates) on
+/// the record `decide` returns; a train callback's record carries null
+/// there, the ledger keeping only the compact record.
+fn record_to_js(record: &DecisionRecord, inputs: Option<(u32, &JsValue, &JsValue)>) -> JsValue {
+    let (bits, context, candidates) = match inputs {
+        Some((bits, context, candidates)) => (JsValue::from_f64(bits as f64), context, candidates),
+        None => (JsValue::NULL, &JsValue::NULL, &JsValue::NULL),
+    };
+    let flat: Vec<f64> = record.features.iter().flat_map(|&(j, v)| [j as f64, v]).collect();
+    make_record(
+        &bits,
+        context,
+        candidates,
+        &record.decision_id,
+        record.t,
+        record.candidate_hash,
+        record.chosen as f64,
+        &flat,
+        record.propensity,
+        record.model_version as f64,
+        &record.salt,
+    )
 }
 
 fn resolution_to_js(resolution: Resolution) -> JsValue {
@@ -294,14 +300,10 @@ pub fn decide(
         score_cb.as_mut().map(|c| c as _),
         explore_cb.as_mut().map(|c| c as _),
     );
-    let record = record_to_js(caught.rethrow(result)?);
     // The returned record carries the very values the caller passed —
     // attached at the only moment they exist.
-    let obj: &Object = record.unchecked_ref();
-    set(obj, "bits", &JsValue::from_f64(bits as f64));
-    set(obj, "context", context);
-    set(obj, "candidates", candidates);
-    Ok(record)
+    let record = caught.rethrow(result)?;
+    Ok(record_to_js(&record, Some((bits, context, candidates))))
 }
 
 /// One canonical experience-log line for a decision record

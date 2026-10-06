@@ -80,6 +80,15 @@ for (const [sub, type] of [
     JSON.stringify({ type }, null, 2) + "\n",
   );
 }
+// The binding's inline JS (snippets/) is always emitted as ESM, `export`
+// and all, even for the nodejs target, whose CommonJS glue require()s it.
+// The `commonjs` scope above would make Node parse it as CommonJS and fail,
+// so the snippets folder gets its own ESM scope; require() of an ES module
+// works unflagged on every supported Node line (20.19+, 22.12+, 24).
+writeFileSync(
+  join(out, "node", "snippets", "package.json"),
+  JSON.stringify({ type: "module" }, null, 2) + "\n",
+);
 
 const pkgPath = join(out, "package.json");
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
@@ -105,7 +114,10 @@ pkg.exports = {
   "./package.json": "./package.json",
 };
 // `files` came from the bundler build alone; ship the other two as well.
-pkg.files = [...new Set([...(pkg.files ?? []), "node/", "web/"])];
+// wasm-pack also leaves out the bundler build's `snippets/` (the binding's
+// inline JS), which gittins_wasm_bg.js imports by relative path — without it
+// the default entry fails to load. node/ and web/ carry their own copies.
+pkg.files = [...new Set([...(pkg.files ?? []), "snippets/", "node/", "web/"])];
 pkg.sideEffects = ["./gittins_wasm.js", "./web/gittins.js", "./snippets/*"];
 
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");

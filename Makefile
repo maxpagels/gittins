@@ -35,6 +35,11 @@ book-wasm:
 	mkdir -p docs/book/pkg
 	cp bindings/wasm/pkg/gittins_wasm.js docs/book/pkg/
 	cp bindings/wasm/pkg/gittins_wasm_bg.wasm docs/book/pkg/
+	# gittins_wasm.js imports the binding's inline JS from snippets/ by a
+	# relative, content-hashed path, so the folder ships whole and stale
+	# hashes are cleared first.
+	rm -rf docs/book/pkg/snippets
+	cp -R bindings/wasm/pkg/snippets docs/book/pkg/
 	# The same auto-init entry the npm package ships, so the demos load the
 	# engine exactly the way the docs tell readers to.
 	cp bindings/wasm/web-entry.js docs/book/pkg/gittins.js
