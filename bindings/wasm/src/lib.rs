@@ -26,6 +26,7 @@
 //!   callback *result* throws an Error with the reference's message.
 
 use std::cell::RefCell;
+use std::fmt::Write;
 
 use js_sys::{Array, BigInt, Function, Object, Reflect};
 use wasm_bindgen::prelude::*;
@@ -158,6 +159,34 @@ fn get(obj: &JsValue, key: &str) -> JsValue {
     Reflect::get(obj, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
 }
 
+/// The `[[index, value], ...]` pairs as a JS array, built with one
+/// `JSON.parse` instead of two JS calls per pair — the pairs are most of
+/// a record's conversion cost. Bit-identical: Rust prints each double as
+/// its shortest round-tripping decimal, and JSON.parse reads it back
+/// exactly. JSON has no NaN or infinity, so a record carrying one takes
+/// the per-pair path.
+fn features_to_js(features: &[(usize, f64)]) -> JsValue {
+    if features.iter().all(|(_, v)| v.is_finite()) {
+        let mut json = String::with_capacity(2 + 24 * features.len());
+        json.push('[');
+        for (n, (j, v)) in features.iter().enumerate() {
+            if n > 0 {
+                json.push(',');
+            }
+            let _ = write!(json, "[{j},{v}]"); // writing to a String cannot fail
+        }
+        json.push(']');
+        if let Ok(array) = js_sys::JSON::parse(&json) {
+            return array;
+        }
+    }
+    let array = Array::new();
+    for (j, v) in features {
+        array.push(&Array::of2(&JsValue::from_f64(*j as f64), &JsValue::from_f64(*v)));
+    }
+    array.into()
+}
+
 fn record_to_js(record: DecisionRecord) -> JsValue {
     let obj = Object::new();
     // The input fields exist on every record; only `decide` fills them
@@ -170,11 +199,7 @@ fn record_to_js(record: DecisionRecord) -> JsValue {
     set(&obj, "t", &JsValue::from_f64(record.t));
     set(&obj, "candidate_hash", &BigInt::from(record.candidate_hash).into());
     set(&obj, "chosen", &JsValue::from_f64(record.chosen as f64));
-    let features = Array::new();
-    for (j, v) in &record.features {
-        features.push(&Array::of2(&JsValue::from_f64(*j as f64), &JsValue::from_f64(*v)));
-    }
-    set(&obj, "features", &features);
+    set(&obj, "features", &features_to_js(&record.features));
     set(&obj, "propensity", &JsValue::from_f64(record.propensity));
     set(&obj, "model_version", &JsValue::from_f64(record.model_version as f64));
     set(&obj, "salt", &JsValue::from_str(&record.salt));
