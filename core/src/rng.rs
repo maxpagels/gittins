@@ -31,6 +31,37 @@ pub fn fnv1a_extend(mut h: u64, data: &[u8]) -> u64 {
     h
 }
 
+/// FNV_PRIME^k for k = 0..=8.
+const FNV_PRIME_POW: [u64; 9] = {
+    let mut t = [1u64; 9];
+    let mut k = 1;
+    while k < 9 {
+        t[k] = t[k - 1].wrapping_mul(FNV_PRIME);
+        k += 1;
+    }
+    t
+};
+
+/// `fnv1a_extend(h, &w.to_le_bytes())`, bit for bit. A zero byte folds as
+/// a bare multiply by the prime, and wrapping multiplication is
+/// associative, so each run of k zero bytes at either end of the word
+/// folds as one multiply by FNV_PRIME^k.
+pub fn fnv1a_extend_u64(mut h: u64, w: u64) -> u64 {
+    if w == 0 {
+        return h.wrapping_mul(FNV_PRIME_POW[8]);
+    }
+    let low = w.trailing_zeros() / 8;
+    let high = w.leading_zeros() / 8;
+    h = h.wrapping_mul(FNV_PRIME_POW[low as usize]);
+    let mut x = w >> (low * 8);
+    for _ in 0..(8 - low - high) {
+        h ^= x & 0xff;
+        h = h.wrapping_mul(FNV_PRIME);
+        x >>= 8;
+    }
+    h.wrapping_mul(FNV_PRIME_POW[high as usize])
+}
+
 /// Hash bytes to a 64-bit integer with FNV-1a.
 pub fn fnv1a_64(data: &[u8]) -> u64 {
     fnv1a_extend(FNV_START, data)
@@ -65,4 +96,33 @@ pub fn random_u64(key: u64, counter: u64) -> u64 {
 /// exact in IEEE-754, so the result is bit-identical on every platform.
 pub fn random_unit(key: u64, counter: u64) -> f64 {
     (random_u64(key, counter) >> 11) as f64 * (2.0f64).powi(-53)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The zero-run shortcut must fold exactly the bytes the plain fold
+    /// does: all-zero, no zeros, zeros at either end, interior zeros only,
+    /// and every single-byte position.
+    #[test]
+    fn extend_u64_matches_the_byte_fold() {
+        let mut words = vec![
+            0,
+            u64::MAX,
+            1,
+            1 << 63,
+            0x00FF_0000_0000_FF00,
+            0xFF00_0000_0000_00FF,
+            0x3FF0_0000_0000_0000, // 1.0f64
+            (-0.25f64).to_bits(),
+        ];
+        words.extend((0..64).map(|s| 1u64 << s));
+        words.extend((0..1000).map(|c| random_u64(7, c) >> (c % 64)));
+        for w in words {
+            for h in [FNV_START, 0, u64::MAX, random_u64(1, w)] {
+                assert_eq!(fnv1a_extend_u64(h, w), fnv1a_extend(h, &w.to_le_bytes()), "word {w:#x}");
+            }
+        }
+    }
 }
