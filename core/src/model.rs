@@ -68,42 +68,16 @@ pub fn update(model: &mut LinearModel, x: &Features, reward: f64) {
     }
 }
 
-/// The candidate-independent part of prediction, solved lazily: a
-/// coordinate's (1/a_j, theta_j) is computed when a candidate touches it.
-/// A diagonal system needs one reciprocal per *touched* coordinate, never
-/// O(dim); the type is kept for the once-per-decision shape it gives the
-/// layer above. Valid until the next update.
-pub struct Factorization<'a> {
-    model: &'a LinearModel,
-}
-
-impl<'a> Factorization<'a> {
-    /// (1 / a_j, theta_j) for one coordinate.
-    pub fn coordinate(&self, j: usize) -> (f64, f64) {
-        let m = self.model;
-        let inv_a = 1.0 / (m.scale * m.xx[j] + m.ridge);
-        (inv_a, (m.scale * m.xy[j]) * inv_a)
-    }
-}
-
-/// The lazy solve: O(1) now, one reciprocal per touched coordinate later.
-pub fn factorize(model: &LinearModel) -> Factorization<'_> {
-    Factorization { model }
-}
-
-/// Estimated reward for features x, given a factorization built from the
-/// same model state: one multiply-add per nonzero.
-pub fn estimate_factored(f: &Factorization, x: &Features) -> f64 {
+/// Estimated reward for features x: one multiply-add per nonzero, each
+/// touched coordinate's weight solved from its own sums as it is read.
+/// O(nonzeros), never O(dim).
+pub fn predict(model: &LinearModel, x: &Features) -> f64 {
     let mut estimate = 0.0;
     for &(j, v) in x {
-        estimate += v * f.coordinate(j).1;
+        let inv_a = 1.0 / (model.scale * model.xx[j] + model.ridge);
+        estimate += v * ((model.scale * model.xy[j]) * inv_a);
     }
     estimate
-}
-
-/// Estimated reward for features x.
-pub fn predict(model: &LinearModel, x: &Features) -> f64 {
-    estimate_factored(&factorize(model), x)
 }
 
 #[cfg(test)]

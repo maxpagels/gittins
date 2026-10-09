@@ -63,9 +63,8 @@ from gittins_reference.exploration import DEFAULT_EPSILON, epsilon_greedy_probab
 from gittins_reference.ledger import EXPIRED, REWARDED
 from gittins_reference.model import (
     DEFAULT_FORGETTING,
-    estimate_factored,
-    factorize,
     new_model,
+    predict,
     update,
 )
 
@@ -301,8 +300,7 @@ def evaluate(
             if not (0.0 < r.propensity <= 1.0):
                 raise ValueError(f"line {e.line}: propensity must be in (0, 1]")
             encoded = [encode(e.context, arm, action, bits) for arm, action in e.candidates]
-            factored = factorize(model)
-            estimates = [estimate_factored(factored, x) for x in encoded]
+            estimates = [predict(model, x) for x in encoded]
             p = epsilon_greedy_probabilities(estimates, epsilon)
             w = p[r.chosen] / r.propensity
             pending[r.decision_id] = (encoded[r.chosen], w)

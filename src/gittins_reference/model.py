@@ -39,10 +39,9 @@ The system is diagonal, so prediction needs no matrix solve anywhere:
     estimate  = theta . x
 
 Each weight is that feature's own recency-weighted, shrunk running
-average, fully independent of every other feature — so `factorize` solves
-lazily: a coordinate's (1/a_j, theta_j) is computed when a candidate
-touches it, making a decision's solve cost O(coordinates touched), never
-O(dim). Because the
+average, fully independent of every other feature — so `predict` solves
+lazily: a coordinate's weight is computed when a candidate touches it,
+making a decision's solve cost O(coordinates touched), never O(dim). Because the
 sums forget, the effective sample size is bounded at ~1/(1 - forgetting),
 so no weight can ever become fixed by its history; evidence on features
 that stop appearing fades out of the true sums with every subsequent
@@ -153,41 +152,12 @@ def update(model: LinearModel, x: Features, reward: float) -> LinearModel:
     return replace(model, scale=scale, xx=tuple(xx), xy=tuple(xy))
 
 
-@dataclass(frozen=True)
-class Factorization:
-    """The candidate-independent part of prediction, solved lazily: a
-    coordinate's precision and weight are computed when a candidate
-    touches it (decide.py scores every candidate against one
-    factorization). A
-    diagonal system needs one reciprocal per *touched* coordinate — never
-    O(dim) — the name is kept for the once-per-decision shape it gives the
-    layer above. Valid until the next update."""
-
-    scale: float
-    ridge: float
-    xx: tuple[float, ...]
-    xy: tuple[float, ...]
-
-    def coordinate(self, j: int) -> "tuple[float, float]":
-        """(1 / a_j, theta_j) for one coordinate."""
-        inv_a = 1.0 / (self.scale * self.xx[j] + self.ridge)
-        return inv_a, (self.scale * self.xy[j]) * inv_a
-
-
-def factorize(model: LinearModel) -> Factorization:
-    """The lazy solve: O(1) now, one reciprocal per touched coordinate later."""
-    return Factorization(scale=model.scale, ridge=model.ridge, xx=model.xx, xy=model.xy)
-
-
-def estimate_factored(f: Factorization, x: Features) -> float:
-    """Estimated reward for features x, given a factorization built from
-    the same model state: one multiply-add per nonzero."""
+def predict(model: LinearModel, x: Features) -> float:
+    """Estimated reward for features x: one multiply-add per nonzero, each
+    touched coordinate's weight solved from its own sums as it is read."""
+    scale, ridge, xx, xy = model.scale, model.ridge, model.xx, model.xy
     estimate = 0.0
     for j, v in x:
-        estimate += v * f.coordinate(j)[1]
+        inv_a = 1.0 / (scale * xx[j] + ridge)
+        estimate += v * ((scale * xy[j]) * inv_a)
     return estimate
-
-
-def predict(model: LinearModel, x: Features) -> float:
-    """Estimated reward for features x."""
-    return estimate_factored(factorize(model), x)
