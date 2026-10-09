@@ -31,6 +31,9 @@ docs/book/index.html: docs/book/index.md docs/book/build.mjs core/Cargo.toml
 # from a plain checkout. The copies in docs/book/pkg are checked in;
 # `make release` reruns it; run it by hand to refresh between releases.
 book-wasm:
+	# wasm-pack adds a new content-hashed snippets/ folder per build but
+	# never clears old ones, so start from an empty one.
+	rm -rf bindings/wasm/pkg/snippets
 	wasm-pack build --release --target web bindings/wasm
 	mkdir -p docs/book/pkg
 	cp bindings/wasm/pkg/gittins_wasm.js docs/book/pkg/
@@ -83,7 +86,10 @@ release:  # usage: make release BUMP=patch|minor|major
 	# Before the bump: it needs no version, and a missing wasm-pack then
 	# fails the release before any manifest is rewritten.
 	$(MAKE) book-wasm
-	uvx bump-my-version bump $(BUMP)
+	# --allow-dirty: the book-wasm rebuild above leaves the tree dirty
+	# whenever the engine changed since the last release; the clean-tree
+	# check at the top already ran, and everything lands in one commit.
+	uvx bump-my-version bump --allow-dirty $(BUMP)
 	@for m in core bindings/python bindings/wasm bindings/cli; do \
 	  cargo metadata --manifest-path $$m/Cargo.toml --format-version 1 >/dev/null; \
 	done
