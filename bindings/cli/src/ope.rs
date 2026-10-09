@@ -21,7 +21,7 @@ use gittins_core::decide::{candidate_set_hash, new_bandit, BanditState, Decision
 use gittins_core::encoding::{encode, Features, Value};
 use gittins_core::error::Error;
 use gittins_core::exploration::epsilon_greedy_probabilities;
-use gittins_core::model::{estimate_factored, factorize, new_model, update};
+use gittins_core::model::{new_model, predict, update};
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 const REWARDED: &str = "rewarded";
@@ -330,9 +330,7 @@ where
                 }
                 let encoded = encode_candidates(e, bits)
                     .map_err(|err| format!("line {}: {}", e.line, err.message()))?;
-                let mut factored = factorize(&model);
-                let estimates: Vec<f64> =
-                    encoded.iter().map(|x| estimate_factored(&mut factored, x)).collect();
+                let estimates: Vec<f64> = encoded.iter().map(|x| predict(&model, x)).collect();
                 let p = epsilon_greedy_probabilities(&estimates, epsilon)
                     .map_err(|err| err.message().to_string())?;
                 let w = p[r.chosen] / r.propensity;

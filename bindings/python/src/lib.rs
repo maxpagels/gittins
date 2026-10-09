@@ -136,7 +136,7 @@ struct Resolution {
     #[pyo3(get)]
     kind: String,
     #[pyo3(get)]
-    reward: Option<f64>,
+    reward: f64,
 }
 
 impl From<CoreResolution> for Resolution {

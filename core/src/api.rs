@@ -56,7 +56,7 @@ pub fn learn(
     Ok(Some(Resolution {
         decision_id: record.decision_id,
         kind,
-        reward: Some(trained),
+        reward: trained,
     }))
 }
 
@@ -83,7 +83,7 @@ pub fn expire(
             resolutions.push(Resolution {
                 decision_id: record.decision_id.clone(),
                 kind: Kind::Expired,
-                reward: Some(state.default_reward),
+                reward: state.default_reward,
             });
             train(&record, state.default_reward)?;
         } else {
@@ -247,7 +247,7 @@ mod tests {
         let resolution = learn(&mut state, &record.decision_id, 0.75, 1.0, Some(&mut train))
             .unwrap()
             .unwrap();
-        assert!(resolution.kind == Kind::Rewarded && resolution.reward == Some(0.75));
+        assert!(resolution.kind == Kind::Rewarded && resolution.reward == 0.75);
         assert!(state.model == model_before, "train must not touch the built-in model");
         assert!(state.model_version == 1, "the observation still counts");
         assert!(*trained.borrow() == vec![(record.decision_id.clone(), 0.75)]);

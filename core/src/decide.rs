@@ -1,6 +1,6 @@
 //! Decision records and the decide layer — the port of `decide.py`.
 //!
-//! `decide` scores every candidate with one shared lazy factorization,
+//! `decide` scores every candidate with the built-in model's estimates,
 //! builds the epsilon-greedy distribution, draws with counter 0 of the
 //! decision's RNG stream, and returns a self-contained decision record;
 //! the state changes are the decision counter advancing and the record
@@ -20,7 +20,7 @@
 use crate::encoding::Features;
 use crate::error::Error;
 use crate::exploration::{epsilon_greedy_probabilities, sample_index};
-use crate::model::{estimate_factored, factorize, new_model, LinearModel};
+use crate::model::{new_model, predict, LinearModel};
 use crate::rng::{derive_key, fnv1a_extend_u64, FNV_START};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -167,16 +167,7 @@ pub fn decide(
     }
 
     let estimates: Vec<f64> = match score {
-        None => {
-            // The weights depend on the model only, so one factorization
-            // binds it for the whole candidate set; each candidate's
-            // touched coordinates are solved as they are read.
-            let mut factored = factorize(&state.model);
-            candidates
-                .iter()
-                .map(|x| estimate_factored(&mut factored, x))
-                .collect()
-        }
+        None => candidates.iter().map(|x| predict(&state.model, x)).collect(),
         Some(score) => validated_estimates(score(candidates)?, candidates.len())?,
     };
     let p = match explore {

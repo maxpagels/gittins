@@ -1158,26 +1158,22 @@
     {
      "arm": "x",
      "estimate": 2.563689072314979,
-     "seg": "a",
-     "uncertainty": 0.9128891560723843
+     "seg": "a"
     },
     {
      "arm": "y",
      "estimate": 1.3606922983395953,
-     "seg": "a",
-     "uncertainty": 1.3936692523383831
+     "seg": "a"
     },
     {
      "arm": "x",
      "estimate": 0.44831704214183493,
-     "seg": "b",
-     "uncertainty": 0.59556108739117
+     "seg": "b"
     },
     {
      "arm": "y",
      "estimate": 0.6060125665060464,
-     "seg": "b",
-     "uncertainty": 1.1857294663483988
+     "seg": "b"
     }
    ],
    "rejected": [
@@ -1294,7 +1290,6 @@
    "forgetfulness": 0.9,
    "predict": {
     "estimate": 0.4461897165296356,
-    "uncertainty": 0.8370779368301933,
     "x": [
      [
       0,

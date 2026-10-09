@@ -216,11 +216,7 @@ fn resolution_to_js(resolution: Resolution) -> JsValue {
     let obj = Object::new();
     set(&obj, "decision_id", &JsValue::from_str(&resolution.decision_id));
     set(&obj, "kind", &JsValue::from_str(resolution.kind.as_str()));
-    let reward = match resolution.reward {
-        Some(v) => JsValue::from_f64(v),
-        None => JsValue::NULL,
-    };
-    set(&obj, "reward", &reward);
+    set(&obj, "reward", &JsValue::from_f64(resolution.reward));
     obj.into()
 }
 

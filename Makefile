@@ -1,4 +1,4 @@
-.PHONY: book book-wasm npm-pkg npm-publish serve ope-verify ope-eval ope-sweep ope-verify-gz ope-demo release
+.PHONY: book book-wasm npm-pkg serve ope-verify ope-eval ope-sweep ope-verify-gz ope-demo release
 
 # The CLI (bindings/cli) against the committed example experience log
 # (examples/decisions.jsonl, regenerable with examples/generate.py).
@@ -52,14 +52,6 @@ book-wasm:
 # with a differently-targeted build.
 npm-pkg:
 	node bindings/wasm/build-npm.mjs
-
-# Manual npm publish. Not the normal path: releases go out through the `npm`
-# job in .github/workflows/release.yml, which authenticates with OIDC and is
-# triggered by the tag `make release` pushes. Kept as a fallback, and it may
-# well refuse — npmjs.com can decline a token-based publish once a trusted
-# publisher is configured for the package.
-npm-publish: npm-pkg
-	npm publish bindings/wasm/pkg-npm --access public
 
 serve: book
 	python3 -m http.server 8000 --directory docs/book

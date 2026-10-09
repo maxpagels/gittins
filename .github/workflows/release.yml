@@ -164,8 +164,8 @@ jobs:
 
   # npm, off the same tag as PyPI. Both registries publishing from one trigger
   # is the point: the wheel and the npm package are the same engine at the same
-  # version, and a manual `make npm-publish` alongside an automatic PyPI
-  # release is exactly how they drift apart.
+  # version, and a manual npm publish alongside an automatic PyPI release is
+  # exactly how they drift apart.
   #
   # Authentication is Trusted Publishing (OIDC), registered on npmjs.com
   # against this repo, `release.yml`, and the `npm` environment below — so no

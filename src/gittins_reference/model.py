@@ -34,21 +34,18 @@ encoder's output format (encoding.py).
 
 The system is diagonal, so prediction needs no matrix solve anywhere:
 
-    a_j         = scale * xx_j + ridge
-    theta_j     = scale * xy_j / a_j
-    estimate    = theta . x
-    uncertainty = sqrt( sum_j  x_j^2 / a_j )
+    a_j       = scale * xx_j + ridge
+    theta_j   = scale * xy_j / a_j
+    estimate  = theta . x
 
 Each weight is that feature's own recency-weighted, shrunk running
-average, fully independent of every other feature — so `factorize` solves
-lazily: a coordinate's (1/a_j, theta_j) is computed when a candidate
-touches it, making a decision's solve cost O(coordinates touched), never
-O(dim). Because the
+average, fully independent of every other feature — so `predict` solves
+lazily: a coordinate's weight is computed when a candidate touches it,
+making a decision's solve cost O(coordinates touched), never O(dim). Because the
 sums forget, the effective sample size is bounded at ~1/(1 - forgetting),
-so uncertainty has a floor and the model can never become absolutely
-certain; evidence on features that stop appearing fades out of the
-true sums with every subsequent update, recycling their dimensions under
-feature churn. This is the classic tracking estimator (recursive
+so no weight can ever become fixed by its history; evidence on features
+that stop appearing fades out of the true sums with every subsequent
+update, recycling their dimensions under feature churn. This is the classic tracking estimator (recursive
 least squares with a forgetting factor): after the world changes, old
 evidence is outweighed within ~one effective window regardless of how much
 history preceded it.
@@ -71,14 +68,13 @@ estimates. Disentangling combinations of features is the encoder's job —
 interaction dimensions, design doc D2 — the same division of labor that
 lets a linear model personalize at all.
 
-Every operation is IEEE-754 add/multiply/divide/sqrt in a fixed order
-(sqrt is correctly rounded and therefore bit-identical across platforms),
-so given the same update sequence the model is bit-identical everywhere.
+Every operation is IEEE-754 add/multiply/divide in a fixed order, so
+given the same update sequence the model is bit-identical everywhere.
 The pre-scaled bookkeeping rounds differently than the former
 multiply-every-entry bookkeeping — the same weights up to rounding, not
 the same bits — a deliberate semantics change, pinned by the golden
-corpus. Every variance term is nonnegative (x_j^2 >= 0, scale > 0,
-denominators >= ridge > 0), so no rounding clamp is needed anywhere.
+corpus. Every denominator is >= ridge > 0 (x_j^2 >= 0, scale > 0), so no
+rounding clamp is needed anywhere.
 
 The two fixed constants, neither an exposed tuning knob in the default
 API: `ridge` (1.0) is the prior precision — the fresh model's belief that
@@ -90,7 +86,6 @@ construction for both, and the right forgetting rate for a deployment is
 selected offline from the decision log, not tuned online.
 """
 
-import math
 from dataclasses import dataclass, replace
 
 DEFAULT_FORGETTING = 0.999
@@ -157,53 +152,12 @@ def update(model: LinearModel, x: Features, reward: float) -> LinearModel:
     return replace(model, scale=scale, xx=tuple(xx), xy=tuple(xy))
 
 
-@dataclass(frozen=True)
-class Factorization:
-    """The candidate-independent part of prediction, solved lazily: a
-    coordinate's precision and weight are computed when a candidate
-    touches it (decide.py scores every candidate against one
-    factorization). A
-    diagonal system needs one reciprocal per *touched* coordinate — never
-    O(dim) — the name is kept for the once-per-decision shape it gives the
-    layer above. Valid until the next update."""
-
-    scale: float
-    ridge: float
-    xx: tuple[float, ...]
-    xy: tuple[float, ...]
-
-    def coordinate(self, j: int) -> "tuple[float, float]":
-        """(1 / a_j, theta_j) for one coordinate."""
-        inv_a = 1.0 / (self.scale * self.xx[j] + self.ridge)
-        return inv_a, (self.scale * self.xy[j]) * inv_a
-
-
-def factorize(model: LinearModel) -> Factorization:
-    """The lazy solve: O(1) now, one reciprocal per touched coordinate later."""
-    return Factorization(scale=model.scale, ridge=model.ridge, xx=model.xx, xy=model.xy)
-
-
-def estimate_factored(f: Factorization, x: Features) -> float:
-    """Estimated reward only, for callers that need no uncertainty (the
-    decide layer): one multiply-add per nonzero and no sqrt."""
+def predict(model: LinearModel, x: Features) -> float:
+    """Estimated reward for features x: one multiply-add per nonzero, each
+    touched coordinate's weight solved from its own sums as it is read."""
+    scale, ridge, xx, xy = model.scale, model.ridge, model.xx, model.xy
     estimate = 0.0
     for j, v in x:
-        estimate += v * f.coordinate(j)[1]
+        inv_a = 1.0 / (scale * xx[j] + ridge)
+        estimate += v * ((scale * xy[j]) * inv_a)
     return estimate
-
-
-def predict_factored(f: Factorization, x: Features) -> tuple[float, float]:
-    """(estimated reward, uncertainty) for features x, given a factorization
-    built from the same model state. O(nonzeros)."""
-    estimate = 0.0
-    variance = 0.0
-    for j, v in x:
-        inv_a, theta = f.coordinate(j)
-        estimate += v * theta
-        variance += (v * v) * inv_a
-    return estimate, math.sqrt(variance)
-
-
-def predict(model: LinearModel, x: Features) -> tuple[float, float]:
-    """(estimated reward, uncertainty) for features x."""
-    return predict_factored(factorize(model), x)

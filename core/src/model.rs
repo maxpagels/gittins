@@ -68,56 +68,16 @@ pub fn update(model: &mut LinearModel, x: &Features, reward: f64) {
     }
 }
 
-/// The candidate-independent part of prediction, solved lazily: a
-/// coordinate's (1/a_j, theta_j) is computed when a candidate touches it.
-/// A diagonal system needs one reciprocal per *touched* coordinate, never
-/// O(dim); the type is kept for the once-per-decision shape it gives the
-/// layer above. Valid until the next update.
-pub struct Factorization<'a> {
-    model: &'a LinearModel,
-}
-
-impl<'a> Factorization<'a> {
-    /// (1 / a_j, theta_j) for one coordinate. Takes `&mut self` so that
-    /// reinstating a memo stays a change to this function alone.
-    pub fn coordinate(&mut self, j: usize) -> (f64, f64) {
-        let m = self.model;
-        let inv_a = 1.0 / (m.scale * m.xx[j] + m.ridge);
-        (inv_a, (m.scale * m.xy[j]) * inv_a)
-    }
-}
-
-/// The lazy solve: O(1) now, one reciprocal per touched coordinate later.
-pub fn factorize(model: &LinearModel) -> Factorization<'_> {
-    Factorization { model }
-}
-
-/// Estimated reward only, for callers that need no uncertainty (the decide
-/// layer): one multiply-add per nonzero and no sqrt.
-pub fn estimate_factored(f: &mut Factorization, x: &Features) -> f64 {
+/// Estimated reward for features x: one multiply-add per nonzero, each
+/// touched coordinate's weight solved from its own sums as it is read.
+/// O(nonzeros), never O(dim).
+pub fn predict(model: &LinearModel, x: &Features) -> f64 {
     let mut estimate = 0.0;
     for &(j, v) in x {
-        estimate += v * f.coordinate(j).1;
+        let inv_a = 1.0 / (model.scale * model.xx[j] + model.ridge);
+        estimate += v * ((model.scale * model.xy[j]) * inv_a);
     }
     estimate
-}
-
-/// (estimated reward, uncertainty) for features x, given a factorization
-/// built from the same model state. O(nonzeros).
-pub fn predict_factored(f: &mut Factorization, x: &Features) -> (f64, f64) {
-    let mut estimate = 0.0;
-    let mut variance = 0.0;
-    for &(j, v) in x {
-        let (inv_a, theta) = f.coordinate(j);
-        estimate += v * theta;
-        variance += (v * v) * inv_a;
-    }
-    (estimate, variance.sqrt())
-}
-
-/// (estimated reward, uncertainty) for features x.
-pub fn predict(model: &LinearModel, x: &Features) -> (f64, f64) {
-    predict_factored(&mut factorize(model), x)
 }
 
 #[cfg(test)]
@@ -162,7 +122,7 @@ mod tests {
         }
         assert!(m.scale == 1.0, "never-forget scale moved");
         assert!(m.xx[0] == 9.0 && m.xy[0] == 9.0, "sums are not plain sums");
-        let (estimate, _) = predict(&m, &x);
+        let estimate = predict(&m, &x);
         assert!(estimate == 9.0 * (1.0 / 10.0), "weight is not 9/(9+1)");
     }
 }

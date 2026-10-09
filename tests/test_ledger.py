@@ -199,6 +199,5 @@ class TestPinnedVectors:
         assert resolutions == (Resolution("pepper:0", EXPIRED, 0.25),)
         assert [r.decision_id for r in s.ledger] == ["pepper:2"]
         assert s.model_version == 2
-        est, unc = predict(s.model, ((0, 1.0), (1, -1.0)))
+        est = predict(s.model, ((0, 1.0), (1, -1.0)))
         assert est == 0.41647215738579535
-        assert unc == 1.1547486659415682

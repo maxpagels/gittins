@@ -81,9 +81,8 @@ from gittins_reference.model import (
     DEFAULT_FORGETTING,
     Features,
     LinearModel,
-    estimate_factored,
-    factorize,
     new_model,
+    predict,
 )
 from gittins_reference.rng import derive_key, fnv1a_64
 
@@ -238,10 +237,7 @@ def decide(
             prev = j
 
     if score is None:
-        # The weights depend on the model only, so they are solved once
-        # and shared by every candidate.
-        factored = factorize(state.model)
-        estimates = [estimate_factored(factored, x) for x in candidates]
+        estimates = [predict(state.model, x) for x in candidates]
     else:
         estimates = validated_estimates(score(candidates), len(candidates))
     if explore is None:

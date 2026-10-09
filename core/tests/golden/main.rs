@@ -122,9 +122,8 @@ fn model_section() {
         .iter()
         .map(|p| (p.arr()[0].usize_(), p.arr()[1].f64_()))
         .collect();
-    let (estimate, uncertainty) = predict(&m, &x);
+    let estimate = predict(&m, &x);
     assert_bits(estimate, probe.get("estimate"), "predict estimate");
-    assert_bits(uncertainty, probe.get("uncertainty"), "predict uncertainty");
 }
 
 #[test]
@@ -201,11 +200,7 @@ fn assert_resolutions(actual: &[Resolution], expected: &Json) {
     for (i, (r, e)) in actual.iter().zip(expected).enumerate() {
         assert!(r.decision_id == e.get("decision_id").str_(), "resolution[{i}]: id");
         assert!(r.kind.as_str() == e.get("kind").str_(), "resolution[{i}]: kind");
-        match (&r.reward, e.get("reward")) {
-            (None, Json::Null) => {}
-            (Some(v), num) => assert_bits(*v, num, &format!("resolution[{i}]: reward")),
-            _ => panic!("resolution[{i}]: reward mismatch"),
-        }
+        assert_bits(r.reward, e.get("reward"), &format!("resolution[{i}]: reward"));
     }
 }
 
@@ -313,14 +308,8 @@ fn episode_section() {
             let e = expected.next().unwrap();
             assert!(e.get("seg").str_() == seg && e.get("arm").str_() == arm);
             let context = vec![("seg".to_string(), Value::Str(seg.to_string()))];
-            let (estimate, uncertainty) =
-                predict(&state.model, &encode(&context, arm, &[], bits).unwrap());
+            let estimate = predict(&state.model, &encode(&context, arm, &[], bits).unwrap());
             assert_bits(estimate, e.get("estimate"), &format!("prediction {seg}/{arm} estimate"));
-            assert_bits(
-                uncertainty,
-                e.get("uncertainty"),
-                &format!("prediction {seg}/{arm} uncertainty"),
-            );
         }
     }
 }
