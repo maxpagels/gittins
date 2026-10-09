@@ -30,7 +30,7 @@ impl Kind {
 pub struct Resolution {
     pub decision_id: String,
     pub kind: Kind,
-    pub reward: Option<f64>,
+    pub reward: f64,
 }
 
 /// The open record with this ID, removed from the ledger; `None` (ledger
@@ -56,7 +56,7 @@ pub fn learn(state: &mut BanditState, decision_id: &str, reward: f64, t: f64) ->
     Some(Resolution {
         decision_id: record.decision_id,
         kind,
-        reward: Some(trained),
+        reward: trained,
     })
 }
 
@@ -72,7 +72,7 @@ pub fn expire(state: &mut BanditState, t: f64) -> Vec<Resolution> {
             resolutions.push(Resolution {
                 decision_id: record.decision_id,
                 kind: Kind::Expired,
-                reward: Some(state.default_reward),
+                reward: state.default_reward,
             });
         } else {
             remaining.push(record);
@@ -131,9 +131,9 @@ mod tests {
         let b = decide(&mut state, &candidates, 0.0, "test", None, None).unwrap();
 
         let late = learn(&mut state, &a.decision_id, 1.0, 10.0).unwrap(); // due at exactly 10.0
-        assert!(late.kind == Kind::Expired && late.reward == Some(0.25));
+        assert!(late.kind == Kind::Expired && late.reward == 0.25);
         let timely = learn(&mut state, &b.decision_id, 1.0, 9.0).unwrap();
-        assert!(timely.kind == Kind::Rewarded && timely.reward == Some(1.0));
+        assert!(timely.kind == Kind::Rewarded && timely.reward == 1.0);
         assert!(state.ledger.is_empty() && state.model_version == 2);
     }
 }

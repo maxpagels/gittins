@@ -171,10 +171,10 @@ pub fn decide(
             // The weights depend on the model only, so one factorization
             // binds it for the whole candidate set; each candidate's
             // touched coordinates are solved as they are read.
-            let mut factored = factorize(&state.model);
+            let factored = factorize(&state.model);
             candidates
                 .iter()
-                .map(|x| estimate_factored(&mut factored, x))
+                .map(|x| estimate_factored(&factored, x))
                 .collect()
         }
         Some(score) => validated_estimates(score(candidates)?, candidates.len())?,

@@ -78,9 +78,8 @@ pub struct Factorization<'a> {
 }
 
 impl<'a> Factorization<'a> {
-    /// (1 / a_j, theta_j) for one coordinate. Takes `&mut self` so that
-    /// reinstating a memo stays a change to this function alone.
-    pub fn coordinate(&mut self, j: usize) -> (f64, f64) {
+    /// (1 / a_j, theta_j) for one coordinate.
+    pub fn coordinate(&self, j: usize) -> (f64, f64) {
         let m = self.model;
         let inv_a = 1.0 / (m.scale * m.xx[j] + m.ridge);
         (inv_a, (m.scale * m.xy[j]) * inv_a)
@@ -94,7 +93,7 @@ pub fn factorize(model: &LinearModel) -> Factorization<'_> {
 
 /// Estimated reward for features x, given a factorization built from the
 /// same model state: one multiply-add per nonzero.
-pub fn estimate_factored(f: &mut Factorization, x: &Features) -> f64 {
+pub fn estimate_factored(f: &Factorization, x: &Features) -> f64 {
     let mut estimate = 0.0;
     for &(j, v) in x {
         estimate += v * f.coordinate(j).1;
@@ -104,7 +103,7 @@ pub fn estimate_factored(f: &mut Factorization, x: &Features) -> f64 {
 
 /// Estimated reward for features x.
 pub fn predict(model: &LinearModel, x: &Features) -> f64 {
-    estimate_factored(&mut factorize(model), x)
+    estimate_factored(&factorize(model), x)
 }
 
 #[cfg(test)]

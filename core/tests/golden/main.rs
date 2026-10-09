@@ -200,11 +200,7 @@ fn assert_resolutions(actual: &[Resolution], expected: &Json) {
     for (i, (r, e)) in actual.iter().zip(expected).enumerate() {
         assert!(r.decision_id == e.get("decision_id").str_(), "resolution[{i}]: id");
         assert!(r.kind.as_str() == e.get("kind").str_(), "resolution[{i}]: kind");
-        match (&r.reward, e.get("reward")) {
-            (None, Json::Null) => {}
-            (Some(v), num) => assert_bits(*v, num, &format!("resolution[{i}]: reward")),
-            _ => panic!("resolution[{i}]: reward mismatch"),
-        }
+        assert_bits(r.reward, e.get("reward"), &format!("resolution[{i}]: reward"));
     }
 }
 

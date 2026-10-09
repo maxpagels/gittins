@@ -85,8 +85,8 @@ impl ModelCore {
         let candidates: Vec<Features> = (0..rd.arm_ids.len())
             .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits).unwrap())
             .collect();
-        let mut f = factorize(&self.model);
-        let estimates = candidates.iter().map(|x| estimate_factored(&mut f, x)).collect();
+        let f = factorize(&self.model);
+        let estimates = candidates.iter().map(|x| estimate_factored(&f, x)).collect();
         (candidates, estimates)
     }
 
@@ -215,8 +215,8 @@ impl Policy for GittinsPolicy {
         // Metric-only read: the same estimates decide just scored with,
         // recomputed because decide deliberately logs only the chosen
         // candidate.
-        let mut f = factorize(&self.state.model);
-        let estimates = candidates.iter().map(|x| estimate_factored(&mut f, x)).collect();
+        let f = factorize(&self.state.model);
+        let estimates = candidates.iter().map(|x| estimate_factored(&f, x)).collect();
         (record.chosen, Some(estimates))
     }
     fn observe(&mut self, reward: f64) {

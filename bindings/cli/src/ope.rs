@@ -330,9 +330,9 @@ where
                 }
                 let encoded = encode_candidates(e, bits)
                     .map_err(|err| format!("line {}: {}", e.line, err.message()))?;
-                let mut factored = factorize(&model);
+                let factored = factorize(&model);
                 let estimates: Vec<f64> =
-                    encoded.iter().map(|x| estimate_factored(&mut factored, x)).collect();
+                    encoded.iter().map(|x| estimate_factored(&factored, x)).collect();
                 let p = epsilon_greedy_probabilities(&estimates, epsilon)
                     .map_err(|err| err.message().to_string())?;
                 let w = p[r.chosen] / r.propensity;
