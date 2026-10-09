@@ -75,7 +75,7 @@ class TestDecide:
         s = trained_state()
         t = T0 + 500.0
         record, _ = decide(s, CANDS, t, "pepper")
-        ests = [predict(s.model, x)[0] for x in CANDS]
+        ests = [predict(s.model, x) for x in CANDS]
         p = epsilon_greedy_probabilities(ests, s.epsilon)
         assert record.propensity == p[record.chosen]
 

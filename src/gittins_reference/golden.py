@@ -104,12 +104,12 @@ def model_vectors():
         m = update(m, x, r)
         states.append(model_json(m))
     probe = ((0, 1.0), (1, -1.0))
-    est, unc = predict(m, probe)
+    est = predict(m, probe)
     return {
         "dim": 2, "forgetfulness": forgetting, "ridge": 1.0,
         "updates": [{"x": pairs_json(x), "reward": r} for x, r in history],
         "states": states,
-        "predict": {"x": pairs_json(probe), "estimate": est, "uncertainty": unc},
+        "predict": {"x": pairs_json(probe), "estimate": est},
     }
 
 
@@ -222,9 +222,8 @@ def run_episode():
     predictions = []
     for seg in ["a", "b"]:
         for arm in arms:
-            est, unc = predict(a.model, encode({"seg": seg}, arm, {}, bits))
-            predictions.append({"seg": seg, "arm": arm,
-                                "estimate": est, "uncertainty": unc})
+            est = predict(a.model, encode({"seg": seg}, arm, {}, bits))
+            predictions.append({"seg": seg, "arm": arm, "estimate": est})
     section = {
         "bits": bits, "forgetfulness": forgetting, "horizon": horizon,
         "default_reward": 0.0,

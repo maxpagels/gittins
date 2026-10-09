@@ -92,8 +92,8 @@ pub fn factorize(model: &LinearModel) -> Factorization<'_> {
     Factorization { model }
 }
 
-/// Estimated reward only, for callers that need no uncertainty (the decide
-/// layer): one multiply-add per nonzero and no sqrt.
+/// Estimated reward for features x, given a factorization built from the
+/// same model state: one multiply-add per nonzero.
 pub fn estimate_factored(f: &mut Factorization, x: &Features) -> f64 {
     let mut estimate = 0.0;
     for &(j, v) in x {
@@ -102,22 +102,9 @@ pub fn estimate_factored(f: &mut Factorization, x: &Features) -> f64 {
     estimate
 }
 
-/// (estimated reward, uncertainty) for features x, given a factorization
-/// built from the same model state. O(nonzeros).
-pub fn predict_factored(f: &mut Factorization, x: &Features) -> (f64, f64) {
-    let mut estimate = 0.0;
-    let mut variance = 0.0;
-    for &(j, v) in x {
-        let (inv_a, theta) = f.coordinate(j);
-        estimate += v * theta;
-        variance += (v * v) * inv_a;
-    }
-    (estimate, variance.sqrt())
-}
-
-/// (estimated reward, uncertainty) for features x.
-pub fn predict(model: &LinearModel, x: &Features) -> (f64, f64) {
-    predict_factored(&mut factorize(model), x)
+/// Estimated reward for features x.
+pub fn predict(model: &LinearModel, x: &Features) -> f64 {
+    estimate_factored(&mut factorize(model), x)
 }
 
 #[cfg(test)]
@@ -162,7 +149,7 @@ mod tests {
         }
         assert!(m.scale == 1.0, "never-forget scale moved");
         assert!(m.xx[0] == 9.0 && m.xy[0] == 9.0, "sums are not plain sums");
-        let (estimate, _) = predict(&m, &x);
+        let estimate = predict(&m, &x);
         assert!(estimate == 9.0 * (1.0 / 10.0), "weight is not 9/(9+1)");
     }
 }

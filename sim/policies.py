@@ -28,9 +28,9 @@ from gittins_reference.exploration import DEFAULT_EPSILON
 from gittins_reference.ledger import expire, learn
 from gittins_reference.model import (
     DEFAULT_FORGETTING,
+    estimate_factored,
     factorize,
     new_model,
-    predict_factored,
     update,
 )
 from sim.environments import Round
@@ -124,7 +124,7 @@ class GittinsPolicy(Policy):
         # (the model can't have changed between), recomputed because decide
         # deliberately logs only the chosen candidate.
         f = factorize(self.state.model)
-        estimates = [predict_factored(f, x)[0] for x in candidates]
+        estimates = [estimate_factored(f, x) for x in candidates]
         return record.chosen, estimates
 
     def observe(self, reward: float) -> None:
@@ -151,7 +151,7 @@ class ModelPolicy(Policy):
             for i in range(len(rd.arm_ids))
         ]
         f = factorize(self.model)
-        return candidates, [predict_factored(f, x)[0] for x in candidates]
+        return candidates, [estimate_factored(f, x) for x in candidates]
 
     def observe(self, reward: float) -> None:
         self.model = update(self.model, self._chosen_x, reward)

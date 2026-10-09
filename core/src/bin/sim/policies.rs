@@ -6,7 +6,7 @@ use gittins_core::decide::{decide, new_bandit, BanditState};
 use gittins_core::encoding::{encode, Features};
 use gittins_core::exploration::DEFAULT_EPSILON;
 use gittins_core::ledger::{expire, learn};
-use gittins_core::model::{factorize, new_model, predict_factored, update, LinearModel, DEFAULT_FORGETTING};
+use gittins_core::model::{estimate_factored, factorize, new_model, update, LinearModel, DEFAULT_FORGETTING};
 
 use crate::environments::Round;
 use crate::rand::{randint, stream, uniform};
@@ -86,7 +86,7 @@ impl ModelCore {
             .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits).unwrap())
             .collect();
         let mut f = factorize(&self.model);
-        let estimates = candidates.iter().map(|x| predict_factored(&mut f, x).0).collect();
+        let estimates = candidates.iter().map(|x| estimate_factored(&mut f, x)).collect();
         (candidates, estimates)
     }
 
@@ -216,7 +216,7 @@ impl Policy for GittinsPolicy {
         // recomputed because decide deliberately logs only the chosen
         // candidate.
         let mut f = factorize(&self.state.model);
-        let estimates = candidates.iter().map(|x| predict_factored(&mut f, x).0).collect();
+        let estimates = candidates.iter().map(|x| estimate_factored(&mut f, x)).collect();
         (record.chosen, Some(estimates))
     }
     fn observe(&mut self, reward: f64) {
