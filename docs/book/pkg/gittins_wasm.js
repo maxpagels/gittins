@@ -1,5 +1,5 @@
 /* @ts-self-types="./gittins_wasm.d.ts" */
-import { make_record } from './snippets/gittins-wasm-0ba84762b55e8c2e/inline0.js';
+import { make_record } from './snippets/gittins-wasm-17f09036f17f6a4e/inline0.js';
 
 
 /**
@@ -260,7 +260,7 @@ function __wbg_get_imports() {
             const ret = arg0.length;
             return ret;
         },
-        __wbg_make_record_529ab87da746292a: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13) {
+        __wbg_make_record_5d03bab677ce6605: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13) {
             const ret = make_record(arg0, arg1, arg2, getStringFromWasm0(arg3, arg4), arg5, BigInt.asUintN(64, arg6), arg7, getArrayF64FromWasm0(arg8, arg9), arg10, arg11, getStringFromWasm0(arg12, arg13));
             return ret;
         },
