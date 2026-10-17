@@ -513,8 +513,8 @@ data but will explore differently, so *disagreement between them* is a low-cost
 uncertainty signal. Route this to a human when the committee disagrees, act confidently when it is
 unanimous. N bandits cost N small states and no extra machinery.
 
-**One bandit per user**. An 8-bit state is a few KB in size. It fits a KV-store row, a cookie, or
-localStorage. You could build a completely stateless service per user: load state, decide, learn,
+**One bandit per user**. A state stores only the features it has learned about, so it stays a few KB
+whatever `bits` is. It fits a KV-store row, a cookie, or localStorage. You could build a completely stateless service per user: load state, decide, learn,
 save state. This flips the personalisation on its head: if every user has their own bandit, the learned
 decisions are personalised by default, even if you supply no context.
   
