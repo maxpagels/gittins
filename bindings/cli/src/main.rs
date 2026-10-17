@@ -15,6 +15,7 @@ usage:
                  [--hard-fail]
   gittins replay --log FILE --bits N --horizon SECONDS [--default-reward X]
                  [--epsilon X] [--forgetfulness X] [--hard-fail]
+  gittins --version
 
 The log is JSONL (one decision or resolution event per line),
 gzip-compressed or plain — detected by content, not file name.
@@ -26,7 +27,8 @@ gzip-compressed or plain — detected by content, not file name.
   replay  rebuild a deployable state from the log; hex on stdout
 
   --hard-fail  run the full verify pass first and refuse to continue
-               (exit 1, problems on stderr) if the log has any violation";
+               (exit 1, problems on stderr) if the log has any violation
+  --help       print this message (also after any command)";
 
 const DEFAULT_EPSILON: f64 = gittins_core::exploration::DEFAULT_EPSILON;
 const DEFAULT_FORGETTING: f64 = gittins_core::model::DEFAULT_FORGETTING;
@@ -43,23 +45,47 @@ fn main() {
     std::process::exit(code);
 }
 
+/// Every command with the flags it accepts. Anything else is rejected
+/// rather than ignored: a misspelled `--epsilom` would otherwise run the
+/// default epsilon and print a plausible, wrong estimate.
+type Command = fn(&Flags) -> Result<i32, String>;
+const COMMANDS: &[(&str, Command, &[&str])] = &[
+    ("verify", cmd_verify, &["log"]),
+    ("eval", cmd_eval, &["log", "bits", "epsilon", "forgetfulness", "hard-fail"]),
+    ("sweep", cmd_sweep, &["log", "bits", "epsilon", "forgetfulness", "hard-fail"]),
+    (
+        "replay",
+        cmd_replay,
+        &["log", "bits", "horizon", "default-reward", "epsilon", "forgetfulness", "hard-fail"],
+    ),
+];
+
 fn run(args: &[String]) -> Result<i32, String> {
     let Some(command) = args.first() else {
         eprintln!("{USAGE}");
         return Ok(2);
     };
-    let flags = Flags::parse(&args[1..])?;
     match command.as_str() {
-        "verify" => cmd_verify(&flags),
-        "eval" => cmd_eval(&flags),
-        "sweep" => cmd_sweep(&flags),
-        "replay" => cmd_replay(&flags),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
-            Ok(0)
+            return Ok(0);
         }
-        other => Err(format!("unknown command '{other}'\n{USAGE}")),
+        "--version" | "-V" => {
+            println!("gittins {}", env!("CARGO_PKG_VERSION"));
+            return Ok(0);
+        }
+        _ => {}
     }
+    let Some(&(_, cmd, allowed)) = COMMANDS.iter().find(|(name, _, _)| name == command) else {
+        return Err(format!("unknown command '{command}'\n{USAGE}"));
+    };
+    // Help anywhere on the line wins, before flag parsing, so
+    // `gittins eval --help` works without the command's required flags.
+    if args[1..].iter().any(|a| a == "--help" || a == "-h") {
+        println!("{USAGE}");
+        return Ok(0);
+    }
+    cmd(&Flags::parse(command, &args[1..], allowed)?)
 }
 
 /// Flags that stand alone, taking no value.
@@ -68,13 +94,16 @@ const BOOLEAN_FLAGS: &[&str] = &["hard-fail"];
 struct Flags(Vec<(String, String)>);
 
 impl Flags {
-    fn parse(args: &[String]) -> Result<Flags, String> {
+    fn parse(command: &str, args: &[String], allowed: &[&str]) -> Result<Flags, String> {
         let mut flags = Vec::new();
         let mut i = 0;
         while i < args.len() {
             let name = args[i]
                 .strip_prefix("--")
                 .ok_or(format!("expected a --flag, got '{}'\n{USAGE}", args[i]))?;
+            if !allowed.contains(&name) {
+                return Err(format!("'{command}' does not take --{name}\n{USAGE}"));
+            }
             if BOOLEAN_FLAGS.contains(&name) {
                 flags.push((name.to_string(), String::new()));
                 i += 1;
@@ -318,5 +347,24 @@ mod tests {
         assert!(run(&args(&["sweep", "--hard-fail", "--log", log, "--bits", "8"])) == Ok(1));
         let replay = ["replay", "--log", log, "--bits", "8", "--horizon", "60", "--hard-fail"];
         assert!(run(&args(&replay)) == Ok(1));
+    }
+
+    #[test]
+    fn unknown_flags_are_rejected_not_ignored() {
+        let typo = run(&args(&["eval", "--log", "x.jsonl", "--bits", "8", "--epsilom", "0.5"]));
+        assert!(typo.unwrap_err().starts_with("'eval' does not take --epsilom"));
+        // A real flag, on a command that does not take it.
+        assert!(run(&args(&["verify", "--log", "x.jsonl", "--bits", "8"])).is_err());
+        assert!(run(&args(&["verify", "--log", "x.jsonl", "--hard-fail"])).is_err());
+    }
+
+    #[test]
+    fn version_and_help_exit_zero() {
+        assert!(run(&args(&["--version"])) == Ok(0));
+        assert!(run(&args(&["-V"])) == Ok(0));
+        assert!(run(&args(&["--help"])) == Ok(0));
+        // Help after a command needs none of its required flags.
+        assert!(run(&args(&["eval", "--help"])) == Ok(0));
+        assert!(run(&args(&["replay", "--log", "x.jsonl", "-h"])) == Ok(0));
     }
 }
