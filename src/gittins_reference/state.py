@@ -9,15 +9,16 @@ same bytes on every platform and in every implementation, so the byte
 strings themselves are golden-pinned (`spec/golden.json`, section
 "serialization") and the compiled core must reproduce them exactly.
 
-**Layout (format version 1).** Everything is little-endian, in the style of
+**Layout (format version 2).** Everything is little-endian, in the style of
 `candidate_set_hash`: integers as 8-byte unsigned, floats as 8-byte IEEE-754
 doubles, strings as an 8-byte length followed by UTF-8 bytes, lists as an
 8-byte count followed by the elements.
 
     magic            8 bytes, b"gittins\\x00"
-    format version   u64 (this layout is version 1)
+    format version   u64 (this layout is version 2)
     model            dim u64, ridge f64, forgetting f64, scale f64,
-                     xx[dim] f64, xy[dim] f64
+                     slot count u64, then per stored slot:
+                       index u64, xx f64, xy f64
     bandit           next_seq u64, model_version u64, horizon f64,
                      default_reward f64, epsilon f64
     ledger           count u64, then per open decision record:
@@ -27,10 +28,23 @@ doubles, strings as an 8-byte length followed by UTF-8 bytes, lists as an
                        model_version u64, salt string
     checksum         u64, FNV-1a over every preceding byte
 
+**The model sums are sparse.** An update touches only its features'
+slots and renormalization multiplies zeros to zeros, so almost every slot
+of a hashed model stays exactly zero; writing all 2 * dim sums made a
+state's size track `bits` rather than what it has learned. A slot is
+stored exactly when its xx or its xy is not +0.0 *bitwise* — a -0.0 is
+stored, since it is a different double — in strictly increasing index
+order, and every slot not stored loads as +0.0 in both sums. Stored slots
+that are +0.0 in both are rejected, so the encoding stays canonical.
+
+Version 1 wrote the sums densely (xx[dim] f64, then xy[dim] f64, in
+place of the slot list); it is no longer accepted.
+
 **Deserialization validates.** The checksum rejects truncation and
 corruption up front; the parse then re-checks every invariant the
 constructors enforce (dim, forgetting, ridge, horizon, epsilon ranges;
-`scale` in (0, 1] — the update rule keeps it there; each record's features
+`scale` in (0, 1] — the update rule keeps it there; each stored slot
+strictly increasing, in-dimension, not +0.0 in both sums; each record's features
 strictly increasing, in-dimension, nonzero) and requires the payload to be
 exactly consumed. A deserialized state is therefore as trustworthy as a
 constructed one; anything else raises ValueError. Model sums (`xx`, `xy`)
@@ -42,14 +56,15 @@ itself places no bounds on them.
 format has one canonical encoding per state, no optional parts.
 """
 
+import math
 import struct
 
 from gittins_reference.decide import BanditState, DecisionRecord
-from gittins_reference.model import LinearModel
+from gittins_reference.model import MAX_DIM, LinearModel
 from gittins_reference.rng import fnv1a_64
 
 MAGIC = b"gittins\x00"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 def _u64(n: int) -> bytes:
@@ -58,6 +73,10 @@ def _u64(n: int) -> bytes:
 
 def _f64(x: float) -> bytes:
     return struct.pack("<d", x)
+
+
+def _is_positive_zero(x: float) -> bool:
+    return x == 0.0 and math.copysign(1.0, x) > 0.0
 
 
 def _string(s: str) -> bytes:
@@ -76,10 +95,16 @@ def serialize(state: BanditState) -> bytes:
     out += _f64(m.ridge)
     out += _f64(m.forgetting)
     out += _f64(m.scale)
-    for v in m.xx:
-        out += _f64(v)
-    for v in m.xy:
-        out += _f64(v)
+    stored = [
+        j
+        for j in range(m.dim)
+        if not (_is_positive_zero(m.xx[j]) and _is_positive_zero(m.xy[j]))
+    ]
+    out += _u64(len(stored))
+    for j in stored:
+        out += _u64(j)
+        out += _f64(m.xx[j])
+        out += _f64(m.xy[j])
     out += _u64(state.next_seq)
     out += _u64(state.model_version)
     out += _f64(state.horizon)
@@ -152,14 +177,31 @@ def deserialize(data: bytes) -> BanditState:
     scale = r.f64()
     if dim < 1:
         raise ValueError("dim must be at least 1")
+    if dim > MAX_DIM:
+        raise ValueError("dim must be at most 2**24")
     if not (0.0 < forgetting <= 1.0):
         raise ValueError("forgetting must be in (0, 1] (1.0 = never forget)")
     if not (ridge > 0.0):
         raise ValueError("ridge must be positive")
     if not (0.0 < scale <= 1.0):
         raise ValueError("scale must be in (0, 1]")
-    xx = tuple(r.f64() for _ in range(dim))
-    xy = tuple(r.f64() for _ in range(dim))
+    xx = [0.0] * dim
+    xy = [0.0] * dim
+    prev = -1
+    for _ in range(r.u64()):
+        j = r.u64()
+        u = r.f64()
+        w = r.f64()
+        if not (prev < j < dim) or (_is_positive_zero(u) and _is_positive_zero(w)):
+            raise ValueError(
+                "model slots must be in strictly increasing index order "
+                "within the model dimension, never +0.0 in both sums"
+            )
+        xx[j] = u
+        xy[j] = w
+        prev = j
+    xx = tuple(xx)
+    xy = tuple(xy)
 
     next_seq = r.u64()
     model_version = r.u64()

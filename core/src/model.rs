@@ -15,6 +15,11 @@ pub const DEFAULT_FORGETTING: f64 = 0.999;
 /// overflow for roughly-unit-scale features.
 const RENORM_THRESHOLD: f64 = f64::from_bits(511 << 52); // 2.0^-512 exactly
 
+/// The largest model dimension: 2^24, the api's bits ceiling. The sparse
+/// state format (state.rs) no longer makes dim cost input bytes, so a
+/// loaded dim needs an explicit bound before anything is allocated for it.
+pub const MAX_DIM: usize = 1 << 24;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct LinearModel {
     pub dim: usize,
@@ -28,6 +33,9 @@ pub struct LinearModel {
 pub fn new_model(dim: usize, forgetting: f64, ridge: f64) -> Result<LinearModel, Error> {
     if dim < 1 {
         return Err(Error::new("dim must be at least 1"));
+    }
+    if dim > MAX_DIM {
+        return Err(Error::new("dim must be at most 2**24"));
     }
     if !(0.0 < forgetting && forgetting <= 1.0) {
         return Err(Error::new("forgetting must be in (0, 1] (1.0 = never forget)"));

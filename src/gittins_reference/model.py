@@ -97,6 +97,11 @@ DEFAULT_FORGETTING = 0.999
 # from exactness.
 RENORM_THRESHOLD = 2.0**-512
 
+# The largest model dimension: 2^24, the api's bits ceiling. The sparse
+# state format (state.py) no longer makes dim cost input bytes, so a loaded
+# dim needs an explicit bound before anything is allocated for it.
+MAX_DIM = 1 << 24
+
 # Features everywhere in this module are sparse (index, value) pairs in
 # strictly increasing index order with nonzero values — encoding.py's
 # output format.
@@ -118,6 +123,8 @@ def new_model(
 ) -> LinearModel:
     if dim < 1:
         raise ValueError("dim must be at least 1")
+    if dim > MAX_DIM:
+        raise ValueError("dim must be at most 2**24")
     if not (0.0 < forgetting <= 1.0):
         raise ValueError("forgetting must be in (0, 1] (1.0 = never forget)")
     if not (ridge > 0.0):

@@ -6,14 +6,22 @@
 //! exactly. Deserialization is all-or-nothing: the checksum rejects
 //! truncation and corruption up front, then every constructor invariant is
 //! re-checked, so a loaded state is as trustworthy as a constructed one.
+//! The model sums are written sparsely (format version 2): only slots not
+//! +0.0 in both sums, bitwise. Version 1 (dense sums) is not accepted.
 
 use crate::decide::{BanditState, DecisionRecord};
 use crate::error::Error;
-use crate::model::LinearModel;
+use crate::model::{LinearModel, MAX_DIM};
 use crate::rng::fnv1a_64;
 
 pub const MAGIC: &[u8; 8] = b"gittins\x00";
-pub const FORMAT_VERSION: u64 = 1;
+pub const FORMAT_VERSION: u64 = 2;
+
+/// A slot is left out of the serialization exactly when both its sums are
+/// +0.0 bitwise; -0.0 is a different double and is stored.
+fn is_unstored_slot(xx: f64, xy: f64) -> bool {
+    xx.to_bits() == 0 && xy.to_bits() == 0
+}
 
 fn put_string(out: &mut Vec<u8>, s: &str) {
     out.extend_from_slice(&(s.len() as u64).to_le_bytes());
@@ -23,18 +31,21 @@ fn put_string(out: &mut Vec<u8>, s: &str) {
 /// The canonical byte string for one state.
 pub fn serialize(state: &BanditState) -> Vec<u8> {
     let m = &state.model;
-    let mut out = Vec::with_capacity(200 + 16 * m.dim);
+    let stored: Vec<usize> = (0..m.dim)
+        .filter(|&j| !is_unstored_slot(m.xx[j], m.xy[j]))
+        .collect();
+    let mut out = Vec::with_capacity(200 + 24 * stored.len());
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     out.extend_from_slice(&(m.dim as u64).to_le_bytes());
     out.extend_from_slice(&m.ridge.to_le_bytes());
     out.extend_from_slice(&m.forgetting.to_le_bytes());
     out.extend_from_slice(&m.scale.to_le_bytes());
-    for v in &m.xx {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    for v in &m.xy {
-        out.extend_from_slice(&v.to_le_bytes());
+    out.extend_from_slice(&(stored.len() as u64).to_le_bytes());
+    for j in stored {
+        out.extend_from_slice(&(j as u64).to_le_bytes());
+        out.extend_from_slice(&m.xx[j].to_le_bytes());
+        out.extend_from_slice(&m.xy[j].to_le_bytes());
     }
     out.extend_from_slice(&state.next_seq.to_le_bytes());
     out.extend_from_slice(&state.model_version.to_le_bytes());
@@ -129,6 +140,9 @@ pub fn deserialize(data: &[u8]) -> Result<BanditState, Error> {
     if dim < 1 {
         return Err(Error::new("dim must be at least 1"));
     }
+    if dim > MAX_DIM as u64 {
+        return Err(Error::new("dim must be at most 2**24"));
+    }
     if !(0.0 < forgetting && forgetting <= 1.0) {
         return Err(Error::new("forgetting must be in (0, 1] (1.0 = never forget)"));
     }
@@ -138,15 +152,25 @@ pub fn deserialize(data: &[u8]) -> Result<BanditState, Error> {
     if !(0.0 < scale && scale <= 1.0) {
         return Err(Error::new("scale must be in (0, 1]"));
     }
-    let mut xx = Vec::new();
-    for _ in 0..dim {
-        xx.push(r.f64()?);
+    let dim = dim as usize; // at most MAX_DIM
+    let mut xx = vec![0.0; dim];
+    let mut xy = vec![0.0; dim];
+    let mut prev: i64 = -1;
+    let slot_count = r.u64()?;
+    for _ in 0..slot_count {
+        let j = r.u64()?;
+        let u = r.f64()?;
+        let w = r.f64()?;
+        if j >= dim as u64 || j as i64 <= prev || is_unstored_slot(u, w) {
+            return Err(Error::new(
+                "model slots must be in strictly increasing index order \
+                 within the model dimension, never +0.0 in both sums",
+            ));
+        }
+        xx[j as usize] = u;
+        xy[j as usize] = w;
+        prev = j as i64;
     }
-    let mut xy = Vec::new();
-    for _ in 0..dim {
-        xy.push(r.f64()?);
-    }
-    let dim = dim as usize; // xx read in full, so dim fits comfortably
 
     let next_seq = r.u64()?;
     let model_version = r.u64()?;
@@ -238,6 +262,89 @@ mod tests {
         state
     }
 
+    fn resealed(mut payload: Vec<u8>) -> Vec<u8> {
+        let checksum = fnv1a_64(&payload);
+        payload.extend_from_slice(&checksum.to_le_bytes());
+        payload
+    }
+
+    /// Where the model's slot list starts: after magic, version, dim,
+    /// ridge, forgetting and scale.
+    const SLOTS_AT: usize = 8 * 6;
+
+    /// A fresh dim-4 state's bytes with its (empty) slot list replaced by
+    /// `entries`, written as given.
+    fn with_slot_list(entries: &[(u64, f64, f64)]) -> Vec<u8> {
+        let fresh = new_bandit(4, 1.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
+        let data = serialize(&fresh);
+        let mut out = data[..SLOTS_AT].to_vec();
+        out.extend_from_slice(&(entries.len() as u64).to_le_bytes());
+        for &(j, u, w) in entries {
+            out.extend_from_slice(&j.to_le_bytes());
+            out.extend_from_slice(&u.to_le_bytes());
+            out.extend_from_slice(&w.to_le_bytes());
+        }
+        out.extend_from_slice(&data[SLOTS_AT + 8..data.len() - 8]);
+        resealed(out)
+    }
+
+    #[test]
+    fn size_tracks_learned_slots_not_dim() {
+        let small = new_bandit(1 << 4, 1.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
+        let mut large = new_bandit(1 << 20, 1.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
+        assert!(serialize(&small).len() == serialize(&large).len());
+        let empty = serialize(&large).len();
+        large.model.xx[7] = 1.0;
+        large.model.xy[1 << 19] = -1.0;
+        assert!(serialize(&large).len() == empty + 2 * 24);
+    }
+
+    #[test]
+    fn negative_zero_is_stored_and_round_trips() {
+        let mut state = new_bandit(4, 1.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
+        let empty = serialize(&state).len();
+        state.model.xy[1] = -0.0;
+        state.model.xx[2] = -0.0;
+        let data = serialize(&state);
+        assert!(data.len() == empty + 2 * 24);
+        let loaded = deserialize(&data).unwrap();
+        assert!(loaded.model.xy[1].to_bits() == (-0.0f64).to_bits());
+        assert!(loaded.model.xx[2].to_bits() == (-0.0f64).to_bits());
+        assert!(serialize(&loaded) == data);
+    }
+
+    #[test]
+    fn rejects_version_1() {
+        let mut data = serialize(&worked_state());
+        data.truncate(data.len() - 8);
+        data[8..16].copy_from_slice(&1u64.to_le_bytes());
+        let error = deserialize(&resealed(data)).unwrap_err();
+        assert!(error.message() == "unsupported state format version 1");
+    }
+
+    #[test]
+    fn rejects_non_canonical_slot_lists() {
+        assert!(deserialize(&with_slot_list(&[(1, 1.0, 1.0)])).is_ok());
+        for entries in [
+            &[(1, 0.0, 0.0)][..],             // +0.0 in both: must be left out
+            &[(2, 1.0, 1.0), (1, 1.0, 1.0)], // decreasing
+            &[(1, 1.0, 1.0), (1, 2.0, 2.0)], // repeated
+            &[(4, 1.0, 1.0)],                // outside dim 4
+        ] {
+            let error = deserialize(&with_slot_list(entries)).unwrap_err();
+            assert!(error.message().contains("slots"), "{entries:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn rejects_dim_above_the_cap_before_allocating() {
+        let fresh = new_bandit(1, 1.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
+        let mut data = serialize(&fresh);
+        data.truncate(data.len() - 8);
+        data[16..24].copy_from_slice(&(1u64 << 62).to_le_bytes());
+        assert!(deserialize(&resealed(data)).unwrap_err().message().contains("dim"));
+    }
+
     #[test]
     fn round_trips_bit_for_bit() {
         let state = worked_state();
@@ -307,11 +414,11 @@ mod tests {
     fn revalidates_record_features() {
         // One decision at dim 4 with salt "s" puts the record's first
         // feature index at a fixed offset: 6 u64 header/model scalars +
-        // 2*dim sums + 5 bandit scalars + ledger count + id (8 + 3 bytes) +
-        // t + hash + chosen + feature count.
+        // an empty slot list (nothing learned yet) + 5 bandit scalars +
+        // ledger count + id (8 + 3 bytes) + t + hash + chosen + feature count.
         let mut state = new_bandit(4, 1.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
         decide(&mut state, &[vec![(0, 1.0)], vec![(1, 1.0)]], 0.0, "s", None, None).unwrap();
-        let offset = 8 * 6 + 16 * 4 + 8 * 5 + 8 + (8 + 3) + 8 * 4;
+        let offset = 8 * 6 + 8 + 8 * 5 + 8 + (8 + 3) + 8 * 4;
         let mut data = serialize(&state);
         data.truncate(data.len() - 8);
         data[offset..offset + 8].copy_from_slice(&9u64.to_le_bytes()); // 9 >= dim
