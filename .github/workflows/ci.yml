@@ -167,3 +167,48 @@ jobs:
       - name: Benchmark delta vs main
         if: github.event_name == 'pull_request'
         run: .venv/bin/python bindings/python/bench.py --compare bench-base.json bench-head.json | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # The CLI on every platform release.yml ships it for, so a build that
+  # breaks on musl, macOS or Windows fails here on the PR instead of at
+  # release time, after PyPI and npm have already published the version.
+  # Native legs also run the CLI's tests, golden `ope` section included:
+  # the cross-OS bit-identity check, for the binary users download. The
+  # matrix mirrors release.yml's `cli` job; keep the two in step.
+  cli:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          # Cross-compiled on the ARM runner, so it is built but not run.
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cross: true
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build
+        run: cargo build --release --locked --manifest-path bindings/cli/Cargo.toml --target ${{ matrix.target }}
+      - name: Tests, golden gate included
+        if: ${{ !matrix.cross }}
+        run: cargo test --locked --manifest-path bindings/cli/Cargo.toml --target ${{ matrix.target }}
+      - name: Smoke test
+        if: ${{ !matrix.cross }}
+        shell: bash
+        run: |
+          bin=bindings/cli/target/${{ matrix.target }}/release/gittins
+          "$bin" --version
+          "$bin" verify --log examples/decisions.jsonl

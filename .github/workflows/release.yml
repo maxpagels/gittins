@@ -1,4 +1,6 @@
-# Release: build the Python binding's wheels and publish them to PyPI.
+# Release: build the Python binding's wheels and publish them to PyPI,
+# publish the wasm binding to npm, and attach the `gittins` CLI's prebuilt
+# binaries (plus install.sh) to a GitHub Release.
 #
 # Cut a release with `make release BUMP=patch|minor|major` on main. That
 # bumps every shipped manifest, refreshes the lock files, commits, tags,
@@ -46,6 +48,10 @@ jobs:
         run: uv run pytest -q
       - name: Verify the core against the golden corpus
         run: cargo test --manifest-path core/Cargo.toml
+      # The CLI's own gate: the golden `ope` section, which the binaries
+      # attached to the GitHub Release must agree with.
+      - name: Verify the CLI against the golden corpus
+        run: cargo test --manifest-path bindings/cli/Cargo.toml
       - name: Tag must match the packaged version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -208,3 +214,111 @@ jobs:
           }
       - name: Publish to npm
         run: npm publish bindings/wasm/pkg-npm --access public
+
+  # The `gittins` CLI as prebuilt binaries, off the same tag, for the same
+  # five platforms as the wheels. Linux builds against musl, so one static
+  # binary runs on every distro; flate2's default backend and serde_json
+  # are pure Rust, so there is no C dependency to link. The archive names
+  # are the contract install.sh downloads by; keep the two in step.
+  cli:
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          # Cross-compiled on the ARM runner, so it is built but not run.
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            cross: true
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build
+        run: cargo build --release --locked --manifest-path bindings/cli/Cargo.toml --target ${{ matrix.target }}
+      # The binary that ships, run on the committed example log: a build
+      # that links but cannot read a log is caught here, not by a user.
+      - name: Smoke test
+        if: ${{ !matrix.cross }}
+        shell: bash
+        run: |
+          bin=bindings/cli/target/${{ matrix.target }}/release/gittins
+          "$bin" --version
+          "$bin" verify --log examples/decisions.jsonl
+      - name: Package
+        shell: bash
+        run: |
+          bin=bindings/cli/target/${{ matrix.target }}/release/gittins
+          stage=$(mktemp -d)
+          mkdir -p dist
+          cp LICENSE "$stage/"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            cp "$bin.exe" "$stage/"
+            (cd "$stage" && 7z a "$GITHUB_WORKSPACE/dist/gittins-${{ matrix.target }}.zip" gittins.exe LICENSE)
+          else
+            cp "$bin" "$stage/"
+            tar -czf "dist/gittins-${{ matrix.target }}.tar.gz" -C "$stage" gittins LICENSE
+          fi
+      - uses: actions/upload-artifact@v6
+        with:
+          name: cli-${{ matrix.target }}
+          path: dist
+          if-no-files-found: error
+
+  # One job creates the GitHub Release from every archive at once, so a
+  # failed platform means no release rather than a partial one — the same
+  # rule the PyPI publish enforces on its wheels. Tags only: a manual
+  # workflow_dispatch retry builds the binaries but has no tag to attach
+  # them to.
+  github-release:
+    needs: cli
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag must match the CLI version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(grep -m1 '^version' bindings/cli/Cargo.toml | cut -d'"' -f2)
+          echo "tag=$tag cli=$pkg"
+          test "$tag" = "$pkg" || {
+            echo "::error::tag v$tag does not match bindings/cli version $pkg"
+            exit 1
+          }
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: dist
+      - name: The upload must contain every platform
+        run: |
+          tars=$(ls dist/*.tar.gz 2>/dev/null | wc -l)
+          zips=$(ls dist/*.zip 2>/dev/null | wc -l)
+          echo "tars=$tars zips=$zips"
+          test "$tars" -eq 4 || { echo "::error::expected 4 tar.gz archives, got $tars"; exit 1; }
+          test "$zips" -eq 1 || { echo "::error::expected 1 zip archive, got $zips"; exit 1; }
+      # install.sh ships as a release asset, so the latest/download URL
+      # always serves the script that matches the latest binaries.
+      - name: Add the installer and checksums
+        run: |
+          cp install.sh dist/
+          cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --generate-notes

@@ -162,8 +162,20 @@ so log decisions when you make them.)
 
 The `gittins` command-line tool (built from `bindings/cli`) then answers
 the tuning questions offline, from the log alone — no bindings, no
-notebook required. Logs may be gzip-compressed; the tool detects it by
-content:
+notebook required. Install a prebuilt binary on Linux or macOS with:
+
+```sh
+curl -fsSL https://github.com/maxpagels/gittins/releases/latest/download/install.sh | sh
+```
+
+It checks the download against the release's `SHA256SUMS` and installs
+to `~/.local/bin` (`GITTINS_INSTALL_DIR` changes that, `GITTINS_VERSION`
+pins a release). On Windows, or to skip the script, download the archive
+for your platform from the
+[releases page](https://github.com/maxpagels/gittins/releases) and put
+`gittins` on your `PATH`. `gittins --version` confirms which you have.
+
+Logs may be gzip-compressed; the tool detects it by content:
 
 ```sh
 # is the log internally consistent? (recomputes every hash; exits nonzero if not)

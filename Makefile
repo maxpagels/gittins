@@ -81,6 +81,7 @@ release:  # usage: make release BUMP=patch|minor|major
 	uv lock --check
 	uv run pytest -q
 	cargo test --manifest-path core/Cargo.toml
+	cargo test --manifest-path bindings/cli/Cargo.toml
 	# Rebuild the book's checked-in WASM engine so the live demo ships the
 	# engine being released, not whichever one last ran `make book-wasm`.
 	# Before the bump: it needs no version, and a missing wasm-pack then
