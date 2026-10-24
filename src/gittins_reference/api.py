@@ -245,6 +245,8 @@ def learn(
     if train is None:
         resolution, state._state = _ledger.learn(state._state, decision_id, reward, t)
         return resolution
+    _ledger.check_finite("reward", reward)
+    _ledger.check_finite("t", t)
     record, rest = _ledger.take(state._state.ledger, decision_id)
     if record is None:
         return None
@@ -270,6 +272,7 @@ def expire(state: BanditState, t: float, train=None) -> "tuple[Resolution, ...]"
     if train is None:
         resolutions, state._state = _ledger.expire(state._state, t)
         return resolutions
+    _ledger.check_finite("t", t)
     due = [r for r in state._state.ledger if r.t + state._state.horizon <= t]
     resolutions = []
     for record in due:

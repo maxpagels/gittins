@@ -7,6 +7,7 @@
 //! order within one `expire` sweep is ledger (insertion) order.
 
 use crate::decide::{BanditState, DecisionRecord};
+use crate::error::Error;
 use crate::model::update;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +34,16 @@ pub struct Resolution {
     pub reward: f64,
 }
 
+/// Reject NaN and infinity before they reach the model's running sums,
+/// where one would poison every later estimate, or a decision's time,
+/// where a NaN deadline never passes and the record never leaves.
+pub fn check_finite(name: &str, value: f64) -> Result<(), Error> {
+    if !value.is_finite() {
+        return Err(Error::new(format!("{name} must be a finite number")));
+    }
+    Ok(())
+}
+
 /// The open record with this ID, removed from the ledger; `None` (ledger
 /// untouched) if it is unknown or already resolved.
 fn take(ledger: &mut Vec<DecisionRecord>, decision_id: &str) -> Option<DecisionRecord> {
@@ -44,8 +55,17 @@ fn take(ledger: &mut Vec<DecisionRecord>, decision_id: &str) -> Option<DecisionR
 /// horizon, expired(default_reward) at or past it — the same boundary
 /// `expire` uses, so a late reward can never train as a timely one.
 /// Unknown or already resolved IDs are a no-op returning `None`.
-pub fn learn(state: &mut BanditState, decision_id: &str, reward: f64, t: f64) -> Option<Resolution> {
-    let record = take(&mut state.ledger, decision_id)?;
+pub fn learn(
+    state: &mut BanditState,
+    decision_id: &str,
+    reward: f64,
+    t: f64,
+) -> Result<Option<Resolution>, Error> {
+    check_finite("reward", reward)?;
+    check_finite("t", t)?;
+    let Some(record) = take(&mut state.ledger, decision_id) else {
+        return Ok(None);
+    };
     let (kind, trained) = if record.t + state.horizon <= t {
         (Kind::Expired, state.default_reward)
     } else {
@@ -53,17 +73,18 @@ pub fn learn(state: &mut BanditState, decision_id: &str, reward: f64, t: f64) ->
     };
     update(&mut state.model, &record.features, trained);
     state.model_version += 1;
-    Some(Resolution {
+    Ok(Some(Resolution {
         decision_id: record.decision_id,
         kind,
         reward: trained,
-    })
+    }))
 }
 
 /// Resolve every open decision whose horizon has passed at time `t` as
 /// expired(default_reward), in ledger order. Callers sweep this with each
 /// event's time; that sweep is what keeps the ledger bounded.
-pub fn expire(state: &mut BanditState, t: f64) -> Vec<Resolution> {
+pub fn expire(state: &mut BanditState, t: f64) -> Result<Vec<Resolution>, Error> {
+    check_finite("t", t)?;
     let mut resolutions = Vec::new();
     let mut remaining = Vec::with_capacity(state.ledger.len());
     for record in std::mem::take(&mut state.ledger) {
@@ -80,7 +101,7 @@ pub fn expire(state: &mut BanditState, t: f64) -> Vec<Resolution> {
     }
     state.ledger = remaining;
     state.model_version += resolutions.len() as u64;
-    resolutions
+    Ok(resolutions)
 }
 
 #[cfg(test)]
@@ -104,18 +125,18 @@ mod tests {
         let b = decide(&mut state, &candidates, 1.0, "test", None, None).unwrap();
         let c = decide(&mut state, &candidates, 2.0, "test", None, None).unwrap();
 
-        assert!(learn(&mut state, &a.decision_id, 1.0, 1.0).is_some());
-        assert!(learn(&mut state, &b.decision_id, 0.0, 2.0).is_some());
-        let expired = expire(&mut state, 12.0); // c is due at exactly 12.0
+        assert!(learn(&mut state, &a.decision_id, 1.0, 1.0).unwrap().is_some());
+        assert!(learn(&mut state, &b.decision_id, 0.0, 2.0).unwrap().is_some());
+        let expired = expire(&mut state, 12.0).unwrap(); // c is due at exactly 12.0
         assert!(expired.len() == 1 && expired[0].decision_id == c.decision_id);
         assert!(state.ledger.is_empty() && state.model_version == 3);
 
         let before = state.clone();
-        assert!(learn(&mut state, &a.decision_id, 0.0, 3.0).is_none()); // conflicting duplicate
-        assert!(learn(&mut state, &b.decision_id, 1.0, 3.0).is_none()); // plain duplicate
-        assert!(learn(&mut state, &c.decision_id, 1.0, 13.0).is_none()); // reward after expiry
-        assert!(learn(&mut state, "never-made:0", 1.0, 3.0).is_none()); // unknown id
-        assert!(expire(&mut state, 100.0).is_empty()); // nothing due
+        assert!(learn(&mut state, &a.decision_id, 0.0, 3.0).unwrap().is_none()); // conflicting duplicate
+        assert!(learn(&mut state, &b.decision_id, 1.0, 3.0).unwrap().is_none()); // plain duplicate
+        assert!(learn(&mut state, &c.decision_id, 1.0, 13.0).unwrap().is_none()); // reward after expiry
+        assert!(learn(&mut state, "never-made:0", 1.0, 3.0).unwrap().is_none()); // unknown id
+        assert!(expire(&mut state, 100.0).unwrap().is_empty()); // nothing due
         assert!(state == before, "a rejected resolution moved the state");
     }
 
@@ -130,10 +151,36 @@ mod tests {
         let a = decide(&mut state, &candidates, 0.0, "test", None, None).unwrap();
         let b = decide(&mut state, &candidates, 0.0, "test", None, None).unwrap();
 
-        let late = learn(&mut state, &a.decision_id, 1.0, 10.0).unwrap(); // due at exactly 10.0
+        let late = learn(&mut state, &a.decision_id, 1.0, 10.0).unwrap().unwrap(); // due at exactly 10.0
         assert!(late.kind == Kind::Expired && late.reward == 0.25);
-        let timely = learn(&mut state, &b.decision_id, 1.0, 9.0).unwrap();
+        let timely = learn(&mut state, &b.decision_id, 1.0, 9.0).unwrap().unwrap();
         assert!(timely.kind == Kind::Rewarded && timely.reward == 1.0);
         assert!(state.ledger.is_empty() && state.model_version == 2);
+    }
+
+    /// NaN or infinity never reaches the model or the ledger: one NaN
+    /// reward would poison every later estimate, and a NaN decision time
+    /// would never expire. Each is rejected with the state untouched.
+    #[test]
+    fn non_finite_inputs_are_rejected() {
+        assert!(new_bandit(4, 10.0, f64::NAN, DEFAULT_EPSILON, DEFAULT_FORGETTING).is_err());
+        let mut state = new_bandit(4, 10.0, 0.0, DEFAULT_EPSILON, DEFAULT_FORGETTING).unwrap();
+        let candidates = vec![vec![(0, 1.0)], vec![(1, 1.0)]];
+        for t in [f64::NAN, f64::INFINITY] {
+            let error = decide(&mut state, &candidates, t, "test", None, None).unwrap_err();
+            assert!(error.message() == "t must be a finite number");
+        }
+        let bad = vec![vec![(0, f64::NAN)], vec![(1, 1.0)]];
+        let error = decide(&mut state, &bad, 0.0, "test", None, None).unwrap_err();
+        assert!(error.message() == "candidate feature values must be finite");
+        let a = decide(&mut state, &candidates, 0.0, "test", None, None).unwrap();
+        let before = state.clone();
+        for reward in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let error = learn(&mut state, &a.decision_id, reward, 1.0).unwrap_err();
+            assert!(error.message() == "reward must be a finite number");
+        }
+        assert!(learn(&mut state, &a.decision_id, 1.0, f64::NAN).is_err());
+        assert!(expire(&mut state, f64::NAN).is_err());
+        assert!(state == before, "a rejected input moved the state");
     }
 }

@@ -294,3 +294,17 @@ class TestLogLine:
             api.log_line(seen[0])
         with pytest.raises(ValueError, match="DecisionRecord or Resolution"):
             api.log_line({"not": "a record"})
+
+
+def test_non_finite_inputs_are_rejected_on_every_path():
+    # The dict API, with and without the train callback, rejects the
+    # values that would poison the model or never expire.
+    state = api.create(8, 60.0)
+    record = api.decide(state, {}, [("a", {}), ("b", {})], 0.0, "s")
+    for train in (None, lambda r, reward: None):
+        with pytest.raises(ValueError, match="reward must be a finite number"):
+            api.learn(state, record.decision_id, float("nan"), 1.0, train=train)
+        with pytest.raises(ValueError, match="t must be a finite number"):
+            api.expire(state, float("nan"), train=train)
+    with pytest.raises(ValueError, match="candidate feature values must be finite"):
+        api.decide(state, {"x": float("nan")}, [("a", {})], 0.0, "s")

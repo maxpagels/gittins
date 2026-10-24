@@ -40,8 +40,10 @@ pub fn learn(
     train: Option<Train>,
 ) -> Result<Option<Resolution>, Error> {
     let Some(train) = train else {
-        return Ok(ledger::learn(state, decision_id, reward, t));
+        return ledger::learn(state, decision_id, reward, t);
     };
+    ledger::check_finite("reward", reward)?;
+    ledger::check_finite("t", t)?;
     let Some(i) = state.ledger.iter().position(|r| r.decision_id == decision_id) else {
         return Ok(None);
     };
@@ -72,8 +74,9 @@ pub fn expire(
     train: Option<Train>,
 ) -> Result<Vec<Resolution>, Error> {
     let Some(train) = train else {
-        return Ok(ledger::expire(state, t));
+        return ledger::expire(state, t);
     };
+    ledger::check_finite("t", t)?;
     let mut resolutions = Vec::new();
     let mut i = 0;
     while i < state.ledger.len() {

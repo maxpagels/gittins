@@ -204,7 +204,7 @@ impl Policy for GittinsPolicy {
         self.salt = format!("gittins:{seed}");
     }
     fn choose(&mut self, rd: &Round, _seed: u64) -> (usize, Option<Vec<f64>>) {
-        expire(&mut self.state, rd.t);
+        expire(&mut self.state, rd.t).unwrap();
         let candidates: Vec<Features> = (0..rd.arm_ids.len())
             .map(|i| encode(&rd.context, &rd.arm_ids[i], &rd.actions[i], self.bits).unwrap())
             .collect();
@@ -218,6 +218,6 @@ impl Policy for GittinsPolicy {
         (record.chosen, Some(estimates))
     }
     fn observe(&mut self, reward: f64) {
-        learn(&mut self.state, &self.decision_id, reward, self.t);
+        learn(&mut self.state, &self.decision_id, reward, self.t).unwrap();
     }
 }
