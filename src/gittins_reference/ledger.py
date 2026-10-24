@@ -49,6 +49,7 @@ Resolution order within one `expire` sweep is ledger (insertion) order,
 fixed, so a sweep is bit-reproducible like everything else.
 """
 
+import math
 from dataclasses import dataclass, replace
 
 from gittins_reference.decide import BanditState, DecisionRecord
@@ -68,6 +69,14 @@ class Resolution:
     reward: float
 
 
+def check_finite(name: str, value: float) -> None:
+    """Reject NaN and infinity before they reach the model's running sums,
+    where one would poison every later estimate, or a decision's time,
+    where a NaN deadline never passes and the record never leaves."""
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be a finite number")
+
+
 def take(
     ledger: "tuple[DecisionRecord, ...]", decision_id: str
 ) -> "tuple[DecisionRecord | None, tuple[DecisionRecord, ...]]":
@@ -85,6 +94,8 @@ def learn(
     horizon, expired(default_reward) at or past it — the same boundary
     `expire` uses, so a late reward can never train as a timely one.
     Unknown or already resolved IDs are a no-op: (None, unchanged state)."""
+    check_finite("reward", reward)
+    check_finite("t", t)
     record, rest = take(state.ledger, decision_id)
     if record is None:
         return None, state
@@ -105,6 +116,7 @@ def expire(state: BanditState, t: float) -> "tuple[tuple[Resolution, ...], Bandi
     """Resolve every open decision whose horizon has passed at time `t` as
     expired(default_reward), in ledger order. Callers sweep this with each
     event's time; that sweep is what keeps the ledger bounded."""
+    check_finite("t", t)
     resolutions = []
     remaining = []
     model = state.model

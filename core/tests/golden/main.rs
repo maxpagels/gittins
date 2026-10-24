@@ -250,19 +250,19 @@ fn replay_episode(s: &Json) -> (BanditState, BanditState) {
         } else if i % 2 == 1 {
             deferred.push((record.decision_id, reward)); // resolved late, in reverse
         } else {
-            resolutions.push(learn(&mut state, &record.decision_id, reward, t0 + i as f64 * 600.0).unwrap());
+            resolutions.push(learn(&mut state, &record.decision_id, reward, t0 + i as f64 * 600.0).unwrap().unwrap());
         }
     }
     for (decision_id, reward) in deferred.into_iter().rev() {
         // All inside the horizon: the generator reports them at the last play's time.
-        resolutions.push(learn(&mut state, &decision_id, reward, t0 + 9.0 * 600.0).unwrap());
+        resolutions.push(learn(&mut state, &decision_id, reward, t0 + 9.0 * 600.0).unwrap().unwrap());
     }
     let (record, reward) = play(&mut state, t0 + 6000.0, "a", &events[10]);
     let mid_state = state.clone(); // decisions 7 and 10 open
-    resolutions.push(learn(&mut state, &record.decision_id, reward, t0 + 6000.0).unwrap());
+    resolutions.push(learn(&mut state, &record.decision_id, reward, t0 + 6000.0).unwrap().unwrap());
     let sweep_t = t0 + 7.0 * 600.0 + horizon; // decision 7 is exactly due
     assert_bits(sweep_t, s.get("expire_sweep_at"), "expire_sweep_at");
-    resolutions.extend(expire(&mut state, sweep_t));
+    resolutions.extend(expire(&mut state, sweep_t).unwrap());
     assert_resolutions(&resolutions, s.get("resolutions"));
 
     // The corpus's rejected attempts: every one must be a structural no-op,
@@ -271,7 +271,7 @@ fn replay_episode(s: &Json) -> (BanditState, BanditState) {
         let id = attempt.get("decision_id").str_();
         assert!(attempt.get("action").str_() == "learn", "unknown rejected action");
         let resolved =
-            learn(&mut state, id, attempt.get("reward").f64_(), attempt.get("t").f64_()).is_some();
+            learn(&mut state, id, attempt.get("reward").f64_(), attempt.get("t").f64_()).unwrap().is_some();
         assert!(!resolved, "rejected attempt on {id} unexpectedly resolved");
     }
     (mid_state, state)

@@ -62,6 +62,9 @@ pub fn new_bandit(
     if !(0.0..=1.0).contains(&epsilon) {
         return Err(Error::new("epsilon must be in [0, 1]"));
     }
+    if !default_reward.is_finite() {
+        return Err(Error::new("default_reward must be a finite number"));
+    }
     Ok(BanditState {
         model: new_model(dim, forgetting, 1.0)?,
         next_seq: 0,
@@ -149,6 +152,9 @@ pub fn decide(
     if candidates.is_empty() {
         return Err(Error::new("need at least one candidate"));
     }
+    if !t.is_finite() {
+        return Err(Error::new("t must be a finite number"));
+    }
     let dim = state.model.dim;
     for x in candidates {
         let mut prev: i64 = -1;
@@ -158,6 +164,9 @@ pub fn decide(
                     "candidate features must be (index, value) pairs in strictly \
                      increasing index order within the model dimension",
                 ));
+            }
+            if !v.is_finite() {
+                return Err(Error::new("candidate feature values must be finite"));
             }
             if v == 0.0 {
                 return Err(Error::new("candidate feature values must be nonzero"));

@@ -128,6 +128,8 @@ def new_bandit(
         raise ValueError("horizon must be positive")
     if not (0.0 <= epsilon <= 1.0):
         raise ValueError("epsilon must be in [0, 1]")
+    if not math.isfinite(default_reward):
+        raise ValueError("default_reward must be a finite number")
     return BanditState(
         model=new_model(dim, forgetting),
         next_seq=0,
@@ -223,6 +225,8 @@ def decide(
     """
     if len(candidates) < 1:
         raise ValueError("need at least one candidate")
+    if not math.isfinite(t):
+        raise ValueError("t must be a finite number")
     dim = state.model.dim
     for x in candidates:
         prev = -1
@@ -232,6 +236,8 @@ def decide(
                     "candidate features must be (index, value) pairs in strictly "
                     "increasing index order within the model dimension"
                 )
+            if not math.isfinite(v):
+                raise ValueError("candidate feature values must be finite")
             if v == 0.0:
                 raise ValueError("candidate feature values must be nonzero")
             prev = j

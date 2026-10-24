@@ -256,7 +256,7 @@ mod tests {
         for i in 0..3 {
             let record = decide(&mut state, &candidates, 1000.0 + i as f64, "salty", None, None).unwrap();
             if i == 0 {
-                crate::ledger::learn(&mut state, &record.decision_id, 1.0, 1000.0 + i as f64);
+                crate::ledger::learn(&mut state, &record.decision_id, 1.0, 1000.0 + i as f64).unwrap();
             }
         }
         state

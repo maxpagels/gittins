@@ -1,5 +1,7 @@
 from collections import Counter
 
+import pytest
+
 from gittins_reference.decide import decide, new_bandit
 from gittins_reference.ledger import (
     EXPIRED,
@@ -162,6 +164,31 @@ class TestExpire:
         resolution, s2 = learn(s, record.decision_id, 1.0, T0 + 2 * DAY)
         assert resolution is None
         assert s2 == s
+
+
+class TestNonFinite:
+    # NaN or infinity never reaches the model or the ledger: one NaN reward
+    # would poison every later estimate, and a NaN decision time would
+    # never expire. Each is rejected with the state untouched.
+    def test_rejects_non_finite_rewards_and_times(self):
+        record, s = decide(fresh(), CANDS, T0, "pepper")
+        for reward in (float("nan"), float("inf"), float("-inf")):
+            with pytest.raises(ValueError, match="reward must be a finite number"):
+                learn(s, record.decision_id, reward, T0 + 1.0)
+        with pytest.raises(ValueError, match="t must be a finite number"):
+            learn(s, record.decision_id, 1.0, float("nan"))
+        with pytest.raises(ValueError, match="t must be a finite number"):
+            expire(s, float("nan"))
+        assert s.ledger == (record,)
+
+    def test_rejects_non_finite_decision_inputs(self):
+        with pytest.raises(ValueError, match="default_reward must be a finite number"):
+            fresh(default_reward=float("nan"))
+        for t in (float("nan"), float("inf")):
+            with pytest.raises(ValueError, match="t must be a finite number"):
+                decide(fresh(), CANDS, t, "pepper")
+        with pytest.raises(ValueError, match="candidate feature values must be finite"):
+            decide(fresh(), [((0, float("nan")),)], T0, "pepper")
 
 
 class TestFullLoop:
