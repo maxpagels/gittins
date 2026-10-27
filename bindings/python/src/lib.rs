@@ -69,8 +69,8 @@ fn features(dict: &Bound<'_, PyDict>) -> PyResult<Vec<(String, Value)>> {
     Ok(out)
 }
 
-/// The bandit's state: an opaque handle. Treat it linearly — always rebind
-/// the returned state — and persist it with serialize/deserialize.
+/// The bandit's state: an opaque handle, updated in place by decide/learn/
+/// expire; persist it with serialize/deserialize.
 #[pyclass(name = "BanditState", module = "gittins")]
 struct BanditState {
     inner: CoreState,
@@ -149,6 +149,13 @@ impl From<CoreResolution> for Resolution {
     }
 }
 
+/// A fresh bandit.
+///
+/// `bits` (1–24) sizes the model: features hash into 2**bits weights.
+/// `horizon` is how long, in the units of `t`, a decision waits for its
+/// reward before `expire` resolves it with `default_reward`. `epsilon` is
+/// the probability mass spent exploring uniformly; `forgetfulness` is the
+/// per-update decay of past observations (closer to 1 remembers longer).
 #[pyfunction]
 #[pyo3(signature = (bits, horizon, default_reward = 0.0, epsilon = DEFAULT_EPSILON, forgetfulness = DEFAULT_FORGETTING))]
 fn create(
@@ -164,6 +171,7 @@ fn create(
     })
 }
 
+/// The `bits` the state was created with.
 #[pyfunction]
 fn model_bits(state: &Bound<'_, BanditState>) -> PyResult<u32> {
     api::model_bits(&state.borrow().inner).map_err(value_error)
@@ -207,6 +215,18 @@ fn train_callback<'a>(
     }
 }
 
+/// Choose one of `candidates` for `context` at time `t`.
+///
+/// `candidates` is a list of `(arm_id, action_features)` pairs and may
+/// change on every call. `salt` namespaces decision ids (`"{salt}:{seq}"`);
+/// use a distinct one per state writing to the same log. The decision
+/// joins the state's open ledger until `learn` or `expire` resolves it;
+/// `candidates[record.chosen]` is the choice. Feature values: strings are
+/// categorical, ints/floats/bools numeric, None absent.
+///
+/// `score(context, candidates)` replaces the built-in estimates and
+/// `explore(estimates, epsilon)` the epsilon-greedy distribution; each
+/// returns one number per candidate.
 #[pyfunction]
 #[pyo3(signature = (state, context, candidates, t, salt, score=None, explore=None))]
 fn decide(
@@ -365,6 +385,7 @@ fn serialize(state: &Bound<'_, BanditState>) -> String {
     api::serialize(&state.borrow().inner)
 }
 
+/// The state a `serialize` string encodes.
 #[pyfunction]
 fn deserialize(data: &str) -> PyResult<BanditState> {
     Ok(BanditState {
