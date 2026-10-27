@@ -365,3 +365,13 @@ class TestLogLine:
             gittins.log_line(seen[0])
         with pytest.raises(ValueError, match="DecisionRecord or Resolution"):
             gittins.log_line({"not": "a record"})
+
+
+def test_stub_matches_module():
+    """gittins.pyi is hand-written; it must name exactly the module's public API."""
+    import ast
+
+    stub = ast.parse((Path(__file__).resolve().parents[1] / "gittins.pyi").read_text(encoding="utf-8"))
+    stubbed = {n.name for n in stub.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+    public = {n for n in dir(gittins) if not n.startswith("_")} - {"gittins"}  # the wheel's .so submodule
+    assert stubbed == public
