@@ -393,6 +393,8 @@ gittins replay --log decisions.jsonl.gz --bits 8 --horizon 3600 > bandit.state
 
 Replayed at the logging configuration, the result reproduces the logging bandit's model, bit for bit. This unlocks *fleet pooling*: run many small bandits (one per shop, per region, per user), merge their logs, replay, and ship one state that has absorbed everyone's experience. It is also how a `sweep` winner becomes real: rather than deploying the better configuration cold, replay the log at it, and it starts life already knowing everything the log has to teach.
 
+The rebuilt state's decision counter resumes past the highest sequence number in the log, so it never issues a logged id again and the combined log keeps passing `verify`. Its ledger, though, starts empty: a decision still open in the log is not carried over, so a reward that arrives for it later makes `learn` return `None` and teaches the model nothing. Replay after outstanding decisions have resolved or expired, or accept losing the ones still in flight.
+
 ---
 
 ## Bring Your Own Algorithms

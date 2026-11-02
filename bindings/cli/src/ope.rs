@@ -382,10 +382,22 @@ where
     })
 }
 
+/// The sequence number following a logged `"{salt}:{seq}"` id.
+fn seq_after(line: usize, decision_id: &str) -> Result<u64, String> {
+    let seq = decision_id.rsplit(':').next().unwrap_or(decision_id);
+    seq.bytes()
+        .all(|b| b.is_ascii_digit())
+        .then(|| seq.parse::<u64>().ok()?.checked_add(1))
+        .flatten()
+        .ok_or_else(|| format!("line {line}: malformed decision id '{decision_id}'"))
+}
+
 /// The fleet-pooling rebuild: a fresh, deployable state
 /// whose model absorbed every rewarded/expired resolution's re-encoded
-/// chosen candidate and logged reward, in log order. One pass over any
-/// event stream.
+/// chosen candidate and logged reward, in log order. The counter resumes
+/// past the highest logged sequence number of any salt, so no logged
+/// decision id is issued again. The ledger stays empty: decisions still
+/// open in the log are not carried over. One pass over any event stream.
 pub fn replay<I>(
     events: I,
     bits: u32,
@@ -411,6 +423,7 @@ where
                 if r.chosen >= e.candidates.len() {
                     return Err(format!("line {}: chosen index out of range", e.line));
                 }
+                state.next_seq = state.next_seq.max(seq_after(e.line, &r.decision_id)?);
                 let context = typed(&e.context)
                     .map_err(|err| format!("line {}: {}", e.line, err.message()))?;
                 let (arm_id, action) = &e.candidates[r.chosen];
@@ -437,4 +450,18 @@ where
     }
     state.model_version = absorbed;
     Ok(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::seq_after;
+
+    #[test]
+    fn seq_after_reads_the_trailing_counter() {
+        assert!(seq_after(1, "app:41") == Ok(42));
+        assert!(seq_after(1, "a:shop:0") == Ok(1));
+        for bad in ["app", "app:", "app:+1", "app:-1", "app:18446744073709551615"] {
+            assert!(seq_after(7, bad) == Err(format!("line 7: malformed decision id '{bad}'")));
+        }
+    }
 }
