@@ -205,6 +205,12 @@ disk, not your memory. The same functions are available in Python as
 `gittins_reference.ope` (`read_log`, `verify`, `evaluate`, `replay` —
 `read_log` is a generator) for notebook use.
 
+A replayed state's counter resumes past the highest sequence number in
+the log, so its decision ids never collide with logged ones. Its ledger
+starts empty: decisions still open in the log are not carried over, so a
+late reward for one makes `learn` return `None` and is lost. Replay after
+outstanding decisions have resolved or expired, or accept losing them.
+
 ## Saving and loading
 
 The whole state becomes one plain string (hex-encoded), and the exact same

@@ -70,11 +70,14 @@ commit" flows — none of which the API has to support explicitly.
 ## Git-revert your model
 
 States are small strings, encouraged to live in version control. If a
-reward-pipeline bug poisons a day of learning: roll the state file back to
-yesterday's commit and replay today's log with the poisoned resolution
-lines filtered out. Model rollback becomes literally the
-same operation as code rollback — no ML infrastructure, just git and the
-log.
+reward-pipeline bug poisons a day of learning: filter the poisoned
+resolution lines out of the full log and replay it into a new state. Keep
+the decision lines, so the counter still resumes past every logged id.
+Replay always starts from a fresh state, so it needs the whole log, not
+just today's. If you only need to undo a bad deploy, roll the state file
+back to an earlier commit, but use a new salt: the older counter would
+otherwise reissue decision ids already in the log. Either way, model
+rollback is no ML infrastructure, just git and the log.
 
 ## Ensembles as uncertainty meters
 

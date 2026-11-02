@@ -336,6 +336,14 @@ def evaluate(
     )
 
 
+def _seq_after(line: int, decision_id: str) -> int:
+    """The sequence number following a logged `"{salt}:{seq}"` id."""
+    seq = decision_id.rpartition(":")[2]
+    if not (seq.isascii() and seq.isdigit()) or int(seq) >= 2**64 - 1:
+        raise ValueError(f"line {line}: malformed decision id '{decision_id}'")
+    return int(seq) + 1
+
+
 def replay(
     events,
     bits: int,
@@ -348,7 +356,10 @@ def replay(
     whose model absorbed every rewarded/expired resolution's (re-encoded
     chosen candidate, logged reward), in log order. Expired resolutions
     train with their *logged* reward; `default_reward` here only governs
-    the rebuilt state's future expiries. Serialize the result and ship it."""
+    the rebuilt state's future expiries. The counter resumes past the
+    highest logged sequence number of any salt, so no logged decision id
+    is issued again. The ledger stays empty: decisions still open in the
+    log are not carried over. Serialize the result and ship it."""
     if not (1 <= bits <= 24):
         raise ValueError("bits must be between 1 and 24")
     state = new_bandit(
@@ -361,11 +372,13 @@ def replay(
     model = state.model
     pending = {}
     absorbed = 0
+    next_seq = 0
     for e in events:
         if isinstance(e, DecisionEvent):
             r = e.record
             if not (0 <= r.chosen < len(e.candidates)):
                 raise ValueError(f"line {e.line}: chosen index out of range")
+            next_seq = max(next_seq, _seq_after(e.line, r.decision_id))
             pending[r.decision_id] = encode(
                 e.context, e.candidates[r.chosen][0], e.candidates[r.chosen][1], bits
             )
@@ -379,4 +392,4 @@ def replay(
                 raise ValueError(f"line {e.line}: reward must be a finite number")
             model = update(model, x, e.reward)
             absorbed += 1
-    return replace(state, model=model, model_version=absorbed)
+    return replace(state, model=model, model_version=absorbed, next_seq=next_seq)

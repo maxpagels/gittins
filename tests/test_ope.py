@@ -197,9 +197,34 @@ class TestReplay:
         rebuilt = ope.replay(parse(log), bits=4, horizon=HORIZON, epsilon=0.1, forgetfulness=0.9)
         assert rebuilt.model == state._state.model
         assert rebuilt.model_version == 5
-        assert rebuilt.next_seq == 0 and rebuilt.ledger == ()
+        assert rebuilt.next_seq == state._state.next_seq == 8
+        assert rebuilt.ledger == ()  # open decisions are not carried over
         # The rebuilt state is deployable: it serializes like any other.
         assert state_module.deserialize(state_module.serialize(rebuilt)) == rebuilt
+
+    def test_continuing_after_replay_keeps_the_log_verifiable(self):
+        log, state = run_agent()
+        rebuilt = state_module.serialize(
+            ope.replay(parse(log), bits=4, horizon=HORIZON, epsilon=0.1, forgetfulness=0.9)
+        )
+        resumed = api.deserialize(rebuilt.hex())
+        record = api.decide(resumed, {"seg": "a"}, CATALOG_A, T0 + 2 * HORIZON, "agent")
+        assert record.decision_id == "agent:8"
+        log.append(json.loads(api.log_line(record)))
+        assert ope.verify(parse(log)) == ()
+
+    def test_merged_logs_resume_past_the_highest_seq_of_any_salt(self):
+        longer, _ = run_agent(salt="a:shop")  # a salt may itself contain ':'
+        shorter = next(e for e in run_agent(salt="b")[0] if e["event"] == "decision")
+        rebuilt = ope.replay(parse(longer + [shorter]), bits=4, horizon=HORIZON)
+        assert rebuilt.next_seq == 8
+
+    @pytest.mark.parametrize("bad", ["agent", "agent:", "agent:+1", "agent:-1", "agent:18446744073709551615"])
+    def test_a_malformed_decision_id_is_refused(self, bad):
+        log, _ = run_agent()
+        log[0]["record"]["decision_id"] = bad
+        with pytest.raises(ValueError, match="line 1: malformed decision id"):
+            ope.replay(parse(log), bits=4, horizon=HORIZON)
 
     def test_unresolved_decisions_never_train(self):
         log, _ = run_agent()
